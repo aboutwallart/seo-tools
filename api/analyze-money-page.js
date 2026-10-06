@@ -1,7 +1,11 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v52.2
+// analyze-money-page.js — v52.3
+// v52.3 (2026-10-06): brand links fully auto-placed (no manual branded-links list left): "wall art" link
+//                     auto-inserted on the first "wall art" in the Quick Answer; "unique wall art" link
+//                     auto-inserted on the first wall-art-related H2 rename (<a> as a direct child of the
+//                     heading, like the author-bio fix). BRANDED_LINKS now empty.
 // v52.2 (2026-10-05): (1) Author bio link no longer inside <em> (Shopify was stripping it on save) — now
 //                     italic via inline style so the <a> survives. (2) British-English scan now covers the
 //                     body + EDITABLE (custom.*) metafields only, not app-owned ones she can't edit — kills
@@ -563,6 +567,28 @@ module.exports = async function handler(req, res) {
           if (_toc.length && _changed) analysis.structured.updatedTableOfContents = _toc;
         }
       } catch (e) { /* non-fatal — ToC is a nicety */ }
+    }
+
+    // Auto-place the two wall-art brand links (blogs). No manual branded-links step any more.
+    //  #17 → the "wall art" link goes on the first "wall art" in the Quick Answer.
+    //  #19 → the "unique wall art" link goes on one rewritten H2 (the first rename that mentions it).
+    if (yourPageData.shopifyType === 'article' && analysis?.structured) {
+      try {
+        const st = analysis.structured;
+        if (st.quickAnswer) {
+          st.quickAnswer = linkFirstPhrase(st.quickAnswer, 'wall art', WALL_ART_LINK.url, WALL_ART_LINK.title);
+        }
+        if (Array.isArray(st.h2Sections)) {
+          const _norm = s => (s || '').toLowerCase();
+          // Prefer a rename whose new heading says "unique wall art"; else any that says "wall art".
+          let item = st.h2Sections.find(h => h && h.action === 'change' && h.replacementText && _norm(h.replacementText).includes('unique wall art'))
+                  || st.h2Sections.find(h => h && h.action === 'change' && h.replacementText && _norm(h.replacementText).includes('wall art'));
+          if (item) {
+            const phrase = _norm(item.replacementText).includes('unique wall art') ? 'unique wall art' : 'wall art';
+            item.replacementText = linkFirstPhrase(item.replacementText, phrase, UNIQUE_WALL_ART_LINK.url, UNIQUE_WALL_ART_LINK.title);
+          }
+        }
+      } catch (e) { /* non-fatal — brand links are a nicety */ }
     }
 
     // M4: How-To schema belongs ONLY on blogs whose TITLE contains "how to". Belt-and-braces —
@@ -1250,12 +1276,23 @@ const BUZZWORDS = [
 ].map(phrase => ({ phrase, fix: 'remove or rephrase' }));
 
 // Branded links to offer (only when the body doesn't already contain that URL).
-// "unique home decor" is NOT offered as a branded link — its link lives in the author bio instead
-// (wrapped on the words "Home Decor"), so it is intentionally left out of this list.
-const BRANDED_LINKS = [
-  { anchor: 'wall art',          url: 'https://share.google/RKuQBBwmgZBHOL1VQ',            title: 'Wall Art' },
-  { anchor: 'unique wall art',   url: 'https://aboutwallart.com/pages/unique-wall-art',    title: 'Unique Wall Art' }
-];
+// The three brand links are ALL auto-placed now, so none are shown as manual "branded links":
+//   • "unique home decor" → the author bio (on "Home Decor")
+//   • "wall art"          → the Quick Answer (on "wall art")           — WALL_ART_LINK below
+//   • "unique wall art"   → one rewritten H2 (on "unique wall art"/"wall art") — UNIQUE_WALL_ART_LINK
+const WALL_ART_LINK        = { url: 'https://share.google/RKuQBBwmgZBHOL1VQ',         title: 'Wall Art' };
+const UNIQUE_WALL_ART_LINK = { url: 'https://aboutwallart.com/pages/unique-wall-art', title: 'Unique Wall Art' };
+const BRANDED_LINKS = [];
+
+// Wrap the FIRST occurrence of `phrase` in `html` with a link (same tab opens a new window).
+// Skips if that link is already present, so it never double-links.
+function linkFirstPhrase(html, phrase, href, title) {
+  if (!html || !phrase || html.includes(href)) return html;
+  const idx = html.toLowerCase().indexOf(phrase.toLowerCase());
+  if (idx < 0) return html;
+  const matched = html.substr(idx, phrase.length);
+  return html.slice(0, idx) + `<a href="${href}" title="${title}" target="_blank" rel="noopener">${matched}</a>` + html.slice(idx + phrase.length);
+}
 
 const AUTHOR_BIO_SNIPPET = 'By Mae Osz | Interior Design Consultant & Home Decor Expert with 12+ years of experience.';
 
@@ -2116,9 +2153,10 @@ RULES:
 - suggestedMeta: max 135 chars (hard limit), include the keyword once, main benefit, CTA.
 - suggestedDescription: this is the blog EXCERPT — plain text only, no HTML, 2-3 sentences, UK spelling. Use the keyword or a close variation once, written naturally. It is NEVER added to the body.
 - firstParagraph: the blog's opening BODY paragraph (plain text, no HTML, 2-4 sentences, British English). It must directly address the question behind "${keyword}" — raise the question and start answering it in a natural, engaging way. Use the main keyword ONCE only, naturally. Do NOT duplicate the quickAnswer wording. The merchant copies this and pastes it manually as the first paragraph of the blog.
-- quickAnswer: return the EXACT HTML structure shown — do not change any tags or styles, and never add borders, colour lines, wrapper divs or extra tags. Replace ONLY the bracketed text with a direct, factual 2-3 sentence answer to the search intent of "${keyword}", written in British English. The whole value must be one single <div> exactly as shown. It is placed in the body after the second intro paragraph (before any List of Contents, Key Takeaways, or first H2).
+- quickAnswer: return the EXACT HTML structure shown — do not change any tags or styles, and never add borders, colour lines, wrapper divs or extra tags. Replace ONLY the bracketed text with a direct, factual 2-3 sentence answer to the search intent of "${keyword}", written in British English. The whole value must be one single <div> exactly as shown. It is placed in the body after the second intro paragraph (before any List of Contents, Key Takeaways, or first H2). Naturally include the exact phrase "wall art" ONCE in the answer text (the tool links it automatically — do NOT add a link yourself).
 - "MORE ABOUT" H2 RULE: If any H2 is "More about ..." (or similar) and contains an external authority link, NEVER flag it for removal or deletion. Keep the H2 and the external link exactly as they are. Use action "change" with exactAction that says to keep the heading and link, and replace ONLY the intro sentence with a single clean sentence of MAXIMUM 30 words describing what the reader will find at the linked source. Put that exact rewritten sentence inside exactAction. Banned words you must NOT use anywhere in that sentence: delve, explore, comprehensive, wealth of, dive into, invaluable, a range of, further insight.
 - h2Sections: use action "change" (rename/retag, with reason + exactAction + replacementText), action "add" (new section, with content), or action "remove" (a body section/heading that HURTS SEO — thin, off-topic, duplicate, keyword-diluting, or proven unnecessary vs competitors — with a reason; body content ONLY, never a global theme section). Include "competitorDriven" on every item.
+- WALL ART IN A HEADING: in whichever "change" rename best fits a wall-art topic, make its replacementText naturally contain the exact phrase "unique wall art" (or just "wall art" if "unique wall art" doesn't read well) — plain text only, do NOT add a link yourself (the tool links it automatically). Only ONE heading needs it, and only if a rename genuinely suits it; never force it.
 - updatedTableOfContents: the blog's FINAL list of section titles, in document order, EXACTLY as the contents list ("List of Contents") should read AFTER all your recommendations are applied. You have the full blog body above, so build it from what the blog actually ends up with: (1) START from the current H2 section headings in order; (2) APPLY every h2Sections change — use the new replacementText for a "change", drop a "remove", add a "add" heading in a sensible position; (3) ALSO ADD a title for EVERY new on-page section you return in aiItems that renders as an on-page H2 (Related Questions, Summary Block, Comparison Snippet, How-To Block, Comparison Table, etc.) — use the <h2> text inside that aiItem's content, placed at the end in the order they'll appear. EXCLUDE the contents-list heading itself (List of Contents / Table of Contents / Contents / Index / In this article / On this page) and any global theme sections (More About, Complete the Look, author bio, Key Takeaways). Each entry is a SHORT heading only (no full sentences, no trailing punctuation, 12 words max). ALWAYS return the complete final list whenever ANYTHING changes the headings (a rename, a remove, OR a new section/aiItem). If nothing changes the blog's headings at all, return an empty array [].
 - H2 CASE: H2 headings inside the blog BODY are CONTENT headings. Write every rename and every new heading in natural, readable case (sentence case or title case) — exactly as it should read. NEVER force body headings to ALL-CAPS, and NEVER suggest a rename whose only change is letter-casing or give "make it all-caps / sentence case" as a reason. (The all-caps look is a theme CSS style applied to theme sections only — it must NOT be baked into content headings.)
 - BEFORE suggesting any "add" section: check the EXISTING PAGE CONTENT above. NEVER suggest adding a section, heading or topic the page already covers (even if a competitor has it) — only add content that fills a genuine gap. Never suggest an addition whose main purpose is to repeat "${keyword}". Fixing over-use (keywordOveruse) and removing redundancy come first; new content is only for real gaps.
