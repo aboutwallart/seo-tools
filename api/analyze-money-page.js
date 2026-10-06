@@ -1,7 +1,13 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v52.3
+// analyze-money-page.js — v52.4
+// v52.4 (2026-10-06): FIX — the "unique wall art" link was wrongly injected into the H2 rename text (raw
+//                     HTML showed in the manual copy/paste field). Now it goes into the LIST OF CONTENTS
+//                     entry instead (pushed as HTML, clean). Index now built from BODY H2s ONLY (aiItems/
+//                     metafield sections excluded). Links that can't be placed → unplacedBrandLinks (shown
+//                     for manual add). Author bio: removed the empty leading paragraph. hasBodyVideo flag
+//                     so the "Add a Video" block hides when the blog already has a video.
 // v52.3 (2026-10-06): brand links fully auto-placed (no manual branded-links list left): "wall art" link
 //                     auto-inserted on the first "wall art" in the Quick Answer; "unique wall art" link
 //                     auto-inserted on the first wall-art-related H2 rename (<a> as a direct child of the
@@ -522,11 +528,9 @@ module.exports = async function handler(req, res) {
     if (yourPageData.shopifyType === 'article' && analysis?.structured) {
       try {
         const _norm = s => (s || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
-        // Section titles coming from the new on-page aiItems (Comparison Snippet, How-To, Summary…).
-        const _aiTitles = (Array.isArray(analysis.structured.aiItems) ? analysis.structured.aiItems : [])
-          .map(it => { const m = /<h2\b[^>]*>([\s\S]*?)<\/h2>/i.exec((it && it.content) || ''); return m ? m[1].replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim() : ''; })
-          .filter(Boolean);
         // Keep only real, short section titles; drop the contents label, sentences, long lines, dupes.
+        // ONLY body H2s belong here — never the aiItems sections (Comparison/Summary/FAQ/Related Qs), which
+        // live in metafields and render elsewhere, not inside the body's List of Contents.
         const _cleanToc = (arr) => (Array.isArray(arr) ? arr : [])
           .map(t => String(t == null ? '' : t).replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim())
           .filter(x => x && !/^(list of contents|table of contents|contents|index|in this article|on this page|jump to|quick links)$/i.test(x) && !/[.!?]$/.test(x) && x.split(/\s+/).length <= 12)
@@ -534,14 +538,11 @@ module.exports = async function handler(req, res) {
 
         const _aiToc = analysis.structured.updatedTableOfContents;
         if (Array.isArray(_aiToc) && _aiToc.length) {
-          // AI gave us the final list — make sure every new aiItems section is in it, then clean.
-          const merged = _aiToc.slice();
-          for (const t of _aiTitles) if (!merged.some(x => _norm(x) === _norm(t))) merged.push(t);
-          const cleaned = _cleanToc(merged);
+          const cleaned = _cleanToc(_aiToc);
           if (cleaned.length) analysis.structured.updatedTableOfContents = cleaned;
           else delete analysis.structured.updatedTableOfContents;
         } else {
-          // Fallback — deterministic build from the body.
+          // Fallback — deterministic build from the body only.
           const _body = yourPageData.shopifyBodyHtml || '';
           const _h2s = [];
           const _re = /<h2\b[^>]*>([\s\S]*?)<\/h2>/gi;
@@ -560,35 +561,47 @@ module.exports = async function handler(req, res) {
             else if (_c.replacementText && _c.replacementText.trim()) _toc[_idx] = _c.replacementText.trim();
           }
           for (const _c of _changes) if (_c && _c.action === 'add' && _c.heading && _c.heading.trim()) _toc.push(_c.heading.trim());
-          for (const t of _aiTitles) if (!_toc.some(x => _norm(x) === _norm(t))) _toc.push(t);   // include the new aiItems sections
           _toc = _cleanToc(_toc);
-          // Show it whenever ANYTHING changes the headings — a rename/remove/add OR a new aiItems section.
-          const _changed = _aiTitles.length > 0 || _changes.some(c => c && (c.action === 'add' || c.action === 'remove' || (c.action !== 'add' && c.replacementText && c.replacementText.trim())));
+          // Show it whenever a body heading changes — a rename / remove / new body section.
+          const _changed = _changes.some(c => c && (c.action === 'add' || c.action === 'remove' || (c.action !== 'add' && c.replacementText && c.replacementText.trim())));
           if (_toc.length && _changed) analysis.structured.updatedTableOfContents = _toc;
         }
       } catch (e) { /* non-fatal — ToC is a nicety */ }
     }
 
     // Auto-place the two wall-art brand links (blogs). No manual branded-links step any more.
-    //  #17 → the "wall art" link goes on the first "wall art" in the Quick Answer.
-    //  #19 → the "unique wall art" link goes on one rewritten H2 (the first rename that mentions it).
+    //  #17 → the "wall art" link goes on the first "wall art" in the Quick Answer (HTML, pushed cleanly).
+    //  #19 → the "unique wall art" link goes INTO the List of Contents entry about wall art — NOT in the
+    //        H2 heading itself (the heading is a manual copy/paste field and can't carry raw HTML).
+    //  If a link has nowhere to go, it's returned in unplacedBrandLinks so the merchant adds it by hand.
     if (yourPageData.shopifyType === 'article' && analysis?.structured) {
       try {
         const st = analysis.structured;
-        if (st.quickAnswer) {
+        const unplaced = [];
+        // #17 — Quick Answer
+        if (st.quickAnswer && st.quickAnswer.toLowerCase().includes('wall art')) {
           st.quickAnswer = linkFirstPhrase(st.quickAnswer, 'wall art', WALL_ART_LINK.url, WALL_ART_LINK.title);
+        } else {
+          unplaced.push({ anchor: 'wall art', url: WALL_ART_LINK.url });
         }
-        if (Array.isArray(st.h2Sections)) {
-          const _norm = s => (s || '').toLowerCase();
-          // Prefer a rename whose new heading says "unique wall art"; else any that says "wall art".
-          let item = st.h2Sections.find(h => h && h.action === 'change' && h.replacementText && _norm(h.replacementText).includes('unique wall art'))
-                  || st.h2Sections.find(h => h && h.action === 'change' && h.replacementText && _norm(h.replacementText).includes('wall art'));
-          if (item) {
-            const phrase = _norm(item.replacementText).includes('unique wall art') ? 'unique wall art' : 'wall art';
-            item.replacementText = linkFirstPhrase(item.replacementText, phrase, UNIQUE_WALL_ART_LINK.url, UNIQUE_WALL_ART_LINK.title);
-          }
+        // #19 — into the index entry (prefer "unique wall art", else "wall art")
+        const toc = Array.isArray(st.updatedTableOfContents) ? st.updatedTableOfContents : [];
+        let i = toc.findIndex(t => (t || '').toLowerCase().includes('unique wall art'));
+        let phrase = 'unique wall art';
+        if (i < 0) { i = toc.findIndex(t => (t || '').toLowerCase().includes('wall art')); phrase = 'wall art'; }
+        if (i >= 0) {
+          toc[i] = linkFirstPhrase(toc[i], phrase, UNIQUE_WALL_ART_LINK.url, UNIQUE_WALL_ART_LINK.title);
+        } else {
+          unplaced.push({ anchor: 'unique wall art', url: UNIQUE_WALL_ART_LINK.url });
         }
+        if (unplaced.length) st.unplacedBrandLinks = unplaced;
       } catch (e) { /* non-fatal — brand links are a nicety */ }
+    }
+
+    // #20 — flag when the blog body ALREADY has a video, so the "Add a Video" block can hide itself.
+    if (yourPageData.shopifyType === 'article' && analysis?.structured) {
+      const _b = yourPageData.shopifyBodyHtml || '';
+      analysis.structured.hasBodyVideo = /youtube\.com|youtu\.be|player\.vimeo\.com|<iframe[^>]*>/i.test(_b);
     }
 
     // M4: How-To schema belongs ONLY on blogs whose TITLE contains "how to". Belt-and-braces —
@@ -1374,7 +1387,7 @@ function scanBlogQuality(yourPage) {
   const hasHomeDecorLink = bodyHtml.includes('home-decor-items');   // the "Home Decor" link already in the body?
   // NOTE: italic via inline style on the <p>, NOT an <em> wrapper — a link nested inside <em>
   // gets stripped when Shopify saves the body, so the <a> must be a direct child of the <p>.
-  const bioHtml = `<p>&nbsp;</p>\n<p style="font-style:italic;">By Mae Osz | Interior Design Consultant &amp; <a href="https://aboutwallart.com/pages/home-decor-items" title="Unique Home Decor" target="_blank" rel="noopener">Home Decor</a> Expert with 12+ years of experience.</p>`;
+  const bioHtml = `<p style="font-style:italic;">By Mae Osz | Interior Design Consultant &amp; <a href="https://aboutwallart.com/pages/home-decor-items" title="Unique Home Decor" target="_blank" rel="noopener">Home Decor</a> Expert with 12+ years of experience.</p>`;
   // mode 'add'       → no bio yet: offer the full bio (with the link) to add below the summary.
   // mode 'link-only' → bio is already there but the "Home Decor" link isn't: give it so she adds the link by hand.
   // (bio present AND link present → nothing to do → null)
@@ -2157,7 +2170,7 @@ RULES:
 - "MORE ABOUT" H2 RULE: If any H2 is "More about ..." (or similar) and contains an external authority link, NEVER flag it for removal or deletion. Keep the H2 and the external link exactly as they are. Use action "change" with exactAction that says to keep the heading and link, and replace ONLY the intro sentence with a single clean sentence of MAXIMUM 30 words describing what the reader will find at the linked source. Put that exact rewritten sentence inside exactAction. Banned words you must NOT use anywhere in that sentence: delve, explore, comprehensive, wealth of, dive into, invaluable, a range of, further insight.
 - h2Sections: use action "change" (rename/retag, with reason + exactAction + replacementText), action "add" (new section, with content), or action "remove" (a body section/heading that HURTS SEO — thin, off-topic, duplicate, keyword-diluting, or proven unnecessary vs competitors — with a reason; body content ONLY, never a global theme section). Include "competitorDriven" on every item.
 - WALL ART IN A HEADING: in whichever "change" rename best fits a wall-art topic, make its replacementText naturally contain the exact phrase "unique wall art" (or just "wall art" if "unique wall art" doesn't read well) — plain text only, do NOT add a link yourself (the tool links it automatically). Only ONE heading needs it, and only if a rename genuinely suits it; never force it.
-- updatedTableOfContents: the blog's FINAL list of section titles, in document order, EXACTLY as the contents list ("List of Contents") should read AFTER all your recommendations are applied. You have the full blog body above, so build it from what the blog actually ends up with: (1) START from the current H2 section headings in order; (2) APPLY every h2Sections change — use the new replacementText for a "change", drop a "remove", add a "add" heading in a sensible position; (3) ALSO ADD a title for EVERY new on-page section you return in aiItems that renders as an on-page H2 (Related Questions, Summary Block, Comparison Snippet, How-To Block, Comparison Table, etc.) — use the <h2> text inside that aiItem's content, placed at the end in the order they'll appear. EXCLUDE the contents-list heading itself (List of Contents / Table of Contents / Contents / Index / In this article / On this page) and any global theme sections (More About, Complete the Look, author bio, Key Takeaways). Each entry is a SHORT heading only (no full sentences, no trailing punctuation, 12 words max). ALWAYS return the complete final list whenever ANYTHING changes the headings (a rename, a remove, OR a new section/aiItem). If nothing changes the blog's headings at all, return an empty array [].
+- updatedTableOfContents: the blog's FINAL list of section titles, in document order, EXACTLY as the contents list ("List of Contents") should read AFTER your recommendations are applied. Build it ONLY from the BODY headings: (1) START from the current H2 section headings in order; (2) APPLY every h2Sections change — use the new replacementText for a "change", drop a "remove", add an "add" heading in a sensible position. DO NOT include the aiItems sections (Related Questions, Summary Block, Comparison Snippet, People Also Ask, How-To Block, Comparison Table, FAQ) — those live in metafields and render outside the body, so they are NOT part of the body's List of Contents. EXCLUDE the contents-list heading itself (List of Contents / Table of Contents / Contents / Index / In this article / On this page) and global theme sections (More About, Complete the Look, author bio, Key Takeaways). Each entry is a SHORT heading only (no full sentences, no trailing punctuation, 12 words max, PLAIN TEXT — never add a link yourself). ALWAYS return the complete final list whenever a body heading changes (a rename, a remove, or a new body "add" section). If nothing changes the body's headings, return an empty array [].
 - H2 CASE: H2 headings inside the blog BODY are CONTENT headings. Write every rename and every new heading in natural, readable case (sentence case or title case) — exactly as it should read. NEVER force body headings to ALL-CAPS, and NEVER suggest a rename whose only change is letter-casing or give "make it all-caps / sentence case" as a reason. (The all-caps look is a theme CSS style applied to theme sections only — it must NOT be baked into content headings.)
 - BEFORE suggesting any "add" section: check the EXISTING PAGE CONTENT above. NEVER suggest adding a section, heading or topic the page already covers (even if a competitor has it) — only add content that fills a genuine gap. Never suggest an addition whose main purpose is to repeat "${keyword}". Fixing over-use (keywordOveruse) and removing redundancy come first; new content is only for real gaps.
 - replacementText (on "change" items): return ONLY the exact final text the merchant should paste — no surrounding quotes, no "Rename to", no "Why", no instructions. For a rename it is the new heading text; for the "More about" rewrite it is the new intro sentence. If there is genuinely nothing to paste (e.g. the action is only to remove a tag), return an empty string.
