@@ -286,7 +286,7 @@
             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
-                    <p class="subtitle">AI-Powered SEO Analysis · v72.2</p>
+                    <p class="subtitle">AI-Powered SEO Analysis · v72.3</p>
                     <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.11</p>
                     <button onclick="resetAllChecklists()" title="Wipe all saved checklists so every page starts fresh" style="margin-top:6px;background:#fff;color:#c62828;border:1px solid #ef9a9a;padding:4px 10px;border-radius:6px;font-size:0.72rem;cursor:pointer;">🧹 Reset all checklists (start clean)</button>
                 </div>
@@ -4116,9 +4116,9 @@
                     <h3>🟠 Missing Buttons</h3>
                     <p style="font-size:0.8rem;color:#888;margin:-6px 0 12px;background:#fff8ec;border-left:3px solid #ef8c00;padding:7px 10px;border-radius:4px;"><strong>What this means:</strong> a product is shown in this blog but there's no "Shop Here" button to click — so the shopper can't buy it = lost sale.</p>
                     ${(data.missingButtons && data.missingButtons.length > 0) ? `
-                    <p style="font-size:0.85rem;color:#666;margin-bottom:12px;">Click <strong>Add SHOP HERE button</strong> on each → check the preview → confirm. It replaces the old text link with your black button.</p>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:12px;">Click <strong>Add SHOP HERE button</strong> on each — it goes straight into the blog (no preview) and replaces the old text link with your black button, then marks it done.</p>
                     ${((data.missingButtons || []).filter(b => b.kind !== 'text-no-link').length >= 2) ? `
-                    <button class="copy-btn" type="button" style="margin-bottom:14px;background:#000;color:#fff;border-color:#000;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;" onclick="addAllButtonsPreview(this)">➕ Add ALL SHOP HERE buttons (one preview)</button>` : ''}
+                    <button class="copy-btn" type="button" style="margin-bottom:14px;background:#000;color:#fff;border-color:#000;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;" onclick="addAllButtonsPreview(this)">📤 Auto-publish ALL SHOP HERE buttons</button>` : ''}
                     ${data.missingButtons.map((b, i) => {
                         const title = (b.title || b.handle || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                         const url   = (b.url || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -5103,7 +5103,7 @@
         function addButtonPreview(handle, key, btn) {
             const sd = currentResults?.shopify;
             if (!sd?.id) { alert('Blog data not available — re-run the analysis first.'); return; }
-            promoPreviewRun({ shopifyId: sd.id, shopifyType: sd.type, shopifyBlogId: sd.blogId, op: 'add-button', productHandle: handle }, [key], 'Add SHOP HERE button', btn);
+            promoApplyDirect({ shopifyId: sd.id, shopifyType: sd.type, shopifyBlogId: sd.blogId, op: 'add-button', productHandle: handle }, [key], btn);
         }
         // Add ALL missing buttons in one preview + one push.
         function addAllButtonsPreview(btn) {
@@ -5113,7 +5113,7 @@
             const handles = items.map(x => x.b.handle).filter(Boolean);
             if (!handles.length) { alert('No buttons to add.'); return; }
             const keys = items.map(x => 'missingbtn_' + x.i);
-            promoPreviewRun({ shopifyId: sd.id, shopifyType: sd.type, shopifyBlogId: sd.blogId, op: 'add-button', productHandles: handles }, keys, `Add ALL SHOP HERE buttons (${handles.length})`, btn);
+            promoApplyDirect({ shopifyId: sd.id, shopifyType: sd.type, shopifyBlogId: sd.blogId, op: 'add-button', productHandles: handles }, keys, btn);
         }
         // Manual: user pastes the link of a product with no button the tool missed.
         function manualAddButton(btn) {
@@ -5165,6 +5165,25 @@
                         <button onclick="promoApplyPending(this)" style="padding:9px 18px;border:none;background:#4caf50;color:#fff;border-radius:8px;cursor:pointer;font-weight:600;">✅ Confirm &amp; save</button>
                     </div>`);
             } catch (err) { btn.disabled = false; btn.textContent = orig; alert('Could not preview: ' + err.message); }
+        }
+        // Missing Buttons — apply straight to the blog, NO preview, then mark done (auto-publish).
+        async function promoApplyDirect(payload, keys, btn) {
+            const orig = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Publicando…';
+            try {
+                const res = await fetch('/api/shopify-files?action=body-edit', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ...payload, mode: 'apply' })
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Save failed');
+                _pendingPromo = { payload, keys };          // keep so a later Undo still works
+                (keys || []).forEach(k => markPromoDone(k));
+                btn.disabled = false; btn.textContent = '✅ Hecho';
+                setTimeout(() => { btn.textContent = orig; }, 2500);
+            } catch (err) {
+                btn.disabled = false; btn.textContent = orig;
+                alert('No se pudo guardar: ' + err.message);
+            }
         }
         async function promoApplyPending(btn) {
             if (!_pendingPromo) return;
