@@ -1,4 +1,13 @@
-// api/keywords.js — New Product Generator backend  ·  v0.46
+// api/keywords.js — New Product Generator backend  ·  v0.47
+// v0.47 (2026-10-06): CASE-C LOOP (give a ranking keyword its OWN new page, then link the page that already
+//   ranks to it). (1) syncCaptureTasks now AUTO-ADDS every product-intent C keyword to the NPG build pool
+//   (product-keyword-ideas.json) carrying its ranking page + owner keyword + GSC stats, origin:'C'. (2) Each
+//   returned strengthen task now carries targetUrl (the keyword's NEW locked page from the registry, once
+//   built) + ready (true when that URL exists); locked C tasks are NO LONGER dropped — they become the
+//   "ready" ones. (3) generate-capture-content / -merged link to the NEW page(s) instead of a collection
+//   (collection stays only as a fallback when no new page exists yet). (4) matched-product-ideas excludes
+//   keywords already locked + passes origin through. (5) New action delete-and-ban → removes a keyword from
+//   the build pool AND bans it (never suggested again). New helper registryKeywordUrlMap (keyword -> locked URL).
 // v0.45 (2026-10-04): gap-research accepts an optional `limit` (capped 120) so the NPG keyword columns can
 //   pull a bigger pool and balance it by category in the frontend (room keywords were being cut server-side
 //   because only 10 were returned, terms-first). Default limit unchanged for any other caller.
@@ -354,6 +363,26 @@ async function registryUrlLockMap() {
   } catch { /* ignore */ }
   return map;
 }
+// Map of keyword(lower) -> the CLEAN URL it's LOCKED to (its own page). The inverse of registryUrlLockMap.
+// Case-C loop: once a C keyword is built into a new product/blog and locked, this gives us the NEW page URL
+// so the ranking page can link to it (and so the Do-first card knows the keyword is "ready").
+async function registryKeywordUrlMap() {
+  const map = {};
+  try {
+    const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/${REGISTRY_PATH}?t=${Date.now()}`);
+    if (!r.ok) return map;
+    const txt = await r.text();
+    txt.split('\n').forEach(line => {
+      if (!line.trim()) return;
+      const c = parseCSVLine(line.replace(/\r/g, ''));
+      const kw = (c[0] || '').trim().toLowerCase();
+      const url = (c[1] || '').trim();
+      const locked = (c[2] || '').toUpperCase();
+      if (kw && url && url !== 'N/A' && locked === 'LOCKED' && !map[kw]) map[kw] = cleanUrl(url);
+    });
+  } catch { /* ignore */ }
+  return map;
+}
 // Write a "claim" row so the keyword+page shows in Money Page Doctor to optimise (action = TO_OPTIMIZE).
 // Idempotent: skips if that exact keyword is already LOCKED. intent = 'COMMERCIAL' | 'INFORMATIONAL'.
 async function claimKeywordToRegistry(keyword, url, intent) {
@@ -603,11 +632,39 @@ async function sendToProductPool(keyword, meta) {
     let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
     if (!Array.isArray(arr)) arr = [];
     if (arr.some(x => (x.keyword || '').toLowerCase() === keyword.toLowerCase())) return { ok: true, already: true, ideas: arr };
-    arr.push({ keyword, impressions: (meta && meta.impressions) || null, clicks: (meta && meta.clicks) || null, position: (meta && meta.position) || null, addedAt: new Date().toISOString() });
+    arr.push({ keyword, impressions: (meta && meta.impressions) || null, clicks: (meta && meta.clicks) || null, position: (meta && meta.position) || null,
+      pageUrl: (meta && meta.pageUrl) || null, lockedToKeyword: (meta && meta.lockedToKeyword) || null, origin: (meta && meta.origin) || null,
+      addedAt: new Date().toISOString() });
     try { await ghPut(PRODUCT_IDEAS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG product keyword idea: ${keyword}`); return { ok: true, ideas: arr }; }
     catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
   }
   throw new Error('write conflict, try again');
+}
+// Add several keyword ideas in ONE commit (used by the case-C auto-sync so N keywords don't mean N writes).
+// Each item: { keyword, impressions, clicks, position, pageUrl, lockedToKeyword, origin }. Skips ones already
+// in the pool. Returns how many were actually added.
+async function addProductIdeasBulk(items) {
+  const list = (items || []).filter(i => i && i.keyword && String(i.keyword).trim());
+  if (!list.length) return { added: 0 };
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const file = await ghGet(PRODUCT_IDEAS_PATH);
+    let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
+    if (!Array.isArray(arr)) arr = [];
+    const have = new Set(arr.map(x => (x.keyword || '').toLowerCase()));
+    let added = 0;
+    list.forEach(i => {
+      const kw = String(i.keyword).trim();
+      if (have.has(kw.toLowerCase())) return;
+      arr.push({ keyword: kw, impressions: i.impressions != null ? i.impressions : null, clicks: i.clicks != null ? i.clicks : null,
+        position: i.position != null ? i.position : null, pageUrl: i.pageUrl || null, lockedToKeyword: i.lockedToKeyword || null,
+        origin: i.origin || 'C', addedAt: new Date().toISOString() });
+      have.add(kw.toLowerCase()); added++;
+    });
+    if (!added) return { added: 0 };
+    try { await ghPut(PRODUCT_IDEAS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG case-C ideas +${added}`); return { added }; }
+    catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
+  }
+  return { added: 0 };
 }
 // The raw "already get clicks on" list (used to enrich saved ideas with their ranking page + position).
 async function readPerformingList() {
@@ -623,8 +680,8 @@ async function readPerformingList() {
 // pageUrl/urlFree/lockedToKeyword/topSix, so a saved keyword whose ranking page is locked to ANOTHER
 // keyword can offer an admin link to that page.
 async function matchedProductIdeas(sku) {
-  const [ideas, products, urlLocks, perfList] = await Promise.all([
-    readProductIdeas(), readProducts(), registryUrlLockMap(), readPerformingList()
+  const [ideas, products, urlLocks, perfList, locked] = await Promise.all([
+    readProductIdeas(), readProducts(), registryUrlLockMap(), readPerformingList(), lockedKeywordSet()
   ]);
   if (!ideas.length) return [];
   const p = products.find(x => (x.sku || '').toLowerCase() === (sku || '').toLowerCase());
@@ -632,11 +689,13 @@ async function matchedProductIdeas(sku) {
   const perfByKw = {};
   perfList.forEach(k => { if (k && k.keyword) perfByKw[k.keyword.toLowerCase()] = k; });
   return ideas
-    .filter(i => i.keyword && (!terms || gapClassify(i.keyword, terms).qualifies))
+    .filter(i => i.keyword && !locked.has((i.keyword || '').toLowerCase()))  // a used (locked) idea is no longer buildable
+    .filter(i => (!terms || gapClassify(i.keyword, terms).qualifies))
     .map(i => {
       const perf = perfByKw[(i.keyword || '').toLowerCase()] || {};
-      const cleanRanking = perf.rankingUrl ? cleanUrl(perf.rankingUrl) : null;
-      const lockedTo = cleanRanking ? urlLocks[normUrl(cleanRanking)] : null;
+      // Prefer the stored ranking page (case-C ideas carry their own); fall back to the live performing list.
+      const cleanRanking = i.pageUrl ? cleanUrl(i.pageUrl) : (perf.rankingUrl ? cleanUrl(perf.rankingUrl) : null);
+      const lockedTo = i.lockedToKeyword || (cleanRanking ? urlLocks[normUrl(cleanRanking)] : null);
       const urlFree = !!(cleanRanking && !lockedTo);
       const position = (i.position != null ? i.position : (perf.position != null ? perf.position : null));
       return {
@@ -647,6 +706,7 @@ async function matchedProductIdeas(sku) {
         pageUrl: cleanRanking || null,
         urlFree: urlFree,
         lockedToKeyword: lockedTo || null,
+        origin: i.origin || null,               // 'C' → NPG shows the distinct-colour pill
         topSix: (position != null && position <= 6)
       };
     });
@@ -664,6 +724,18 @@ async function removeProductIdea(keyword) {
     catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
   }
   return { ok: true };
+}
+// "Borrar + banear": drop the keyword from the build pool AND ban it so it is never suggested again
+// (product panel, blog panel and the case-C auto-sync all skip the shared dismissed list). Also closes any
+// open Do-first card for it. Every step is best-effort so one failure doesn't block the others.
+async function deleteAndBan(keyword) {
+  keyword = (keyword || '').trim();
+  if (!keyword) throw new Error('keyword required');
+  let ideas;
+  try { const r = await removeProductIdea(keyword); ideas = r && r.ideas; } catch { /* keep going */ }
+  try { await dismissPerforming(keyword); } catch { /* keep going */ }
+  try { await setCaptureTaskStatus(keyword, 'dismissed'); } catch { /* keep going */ }
+  return { ok: true, banned: keyword, ideas };
 }
 
 // Resolve a storefront URL (product page or blog article) to its Shopify admin editor URL, so Mae can
@@ -747,10 +819,13 @@ async function captureOptimise(body) {
   throw new Error('write conflict, try again');
 }
 // C — auto: every keyword that ranks on a page LOCKED to another keyword becomes a "strengthen" card.
-// Built live from the performing list; new ones are persisted; done/dismissed ones are never recreated.
+// CASE-C LOOP: the card's keyword is also sent to the NPG build pool (product intent) so it can get its OWN
+// new page. Once that page is built + locked, the keyword appears in the registry with a URL (kwUrlMap) →
+// the card carries targetUrl + ready=true (the ranking page links to the NEW page instead of a collection).
+// Locked C keywords are NO LONGER dropped — they are exactly the "ready" ones.
 async function syncCaptureTasks() {
-  const [perf, urlLocks, dismissed, store, locked] = await Promise.all([
-    readPerformingList(), registryUrlLockMap(), readPerformingDismissed(), readCaptureTasksRaw(), lockedKeywordSet()
+  const [perf, urlLocks, dismissed, store, locked, kwUrlMap] = await Promise.all([
+    readPerformingList(), registryUrlLockMap(), readPerformingDismissed(), readCaptureTasksRaw(), lockedKeywordSet(), registryKeywordUrlMap()
   ]);
   let arr = store.arr; let sha = store.sha;
   const have = new Set(arr.map(t => captureKey(t.keyword)));
@@ -759,7 +834,7 @@ async function syncCaptureTasks() {
     if (!k || !k.keyword) return;
     const kw = captureKey(k.keyword);
     if (have.has(kw) || dismissed.has(kw)) return;
-    if (locked.has((k.keyword || '').toLowerCase())) return;   // already locked to a page → skip (avoid cannibalisation)
+    if (locked.has((k.keyword || '').toLowerCase())) return;   // first-seen AND already locked (built elsewhere) → no card
     const cleanRanking = k.rankingUrl ? cleanUrl(k.rankingUrl) : null;
     if (!cleanRanking) return;                          // no page → a new-product case, not strengthen
     const lockedTo = urlLocks[normUrl(cleanRanking)];
@@ -780,8 +855,22 @@ async function syncCaptureTasks() {
       catch (e) { if (e.status === 409 && attempt < 2) { const re = await readCaptureTasksRaw(); arr = re.arr; sha = re.sha; continue; } throw e; }
     }
   }
-  // Also drop any EXISTING task whose keyword is now locked to a page (cleans the ones mis-added before this fix).
-  return { tasks: arr.filter(t => t.status !== 'dismissed' && !locked.has((t.keyword || '').toLowerCase())) };
+  const live = arr.filter(t => t.status !== 'dismissed');
+  // Auto-feed the NPG build pool: every product-intent C keyword that still needs its own page (not yet
+  // locked) is offered as a "build a product" keyword, carrying its ranking page + owner keyword + stats.
+  try {
+    const toPool = live
+      .filter(t => t.type === 'strengthen' && (t.source || 'product') !== 'blog' && !locked.has((t.keyword || '').toLowerCase()))
+      .map(t => ({ keyword: t.keyword, impressions: t.impressions, clicks: t.clicks, position: t.position,
+        pageUrl: t.pageUrl || null, lockedToKeyword: t.lockedToKeyword || null, origin: 'C' }));
+    if (toPool.length) await addProductIdeasBulk(toPool);
+  } catch { /* pool feed is best-effort; the cards still work */ }
+  // Enrich each returned task with the NEW page URL (once its keyword is built + locked) and a ready flag.
+  const tasks = live.map(t => {
+    const targetUrl = kwUrlMap[(t.keyword || '').toLowerCase()] || null;
+    return { ...t, targetUrl, ready: !!targetUrl };
+  });
+  return { tasks };
 }
 async function setCaptureTaskStatus(keyword, status) {
   keyword = (keyword || '').trim();
@@ -844,8 +933,8 @@ async function generateCaptureContent(body) {
     'NEVER say "print" or "prints" — always "wall art" or "art sets" (products are sets of 3).',
     `The page currently ranks for "${pageTopic || 'its main topic'}"${pageUrl ? ' (' + pageUrl + ')' : ''} and ALSO ranks for the extra keyword "${keyword}".`,
     `Write a short section to add to that page so it captures "${keyword}" better, WITHOUT changing the page's main focus.`,
-    'The paragraph MUST naturally contain the exact anchor phrase you return in "internalLinkAnchor" (it will become a link to a collection).',
-    'Return ONLY JSON: {"h2":"short H2 using the keyword naturally","paragraph":"4-6 sentences, natural, keyword once early, includes the anchor phrase once","internalLinkAnchor":"3-5 word anchor for a link to a relevant collection"}'
+    'The paragraph MUST naturally contain the exact anchor phrase you return in "internalLinkAnchor" (it will become a link to the matching page on our site).',
+    'Return ONLY JSON: {"h2":"short H2 using the keyword naturally","paragraph":"4-6 sentences, natural, keyword once early, includes the anchor phrase once","internalLinkAnchor":"3-5 word anchor for a link to the matching page"}'
   ].join('\n');
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -862,23 +951,27 @@ async function generateCaptureContent(body) {
   const paragraph = String(parsed.paragraph || '').trim();
   const anchor = String(parsed.internalLinkAnchor || '').trim();
 
-  // Best-matching collection for the internal link (link points at the public storefront).
+  // Case-C loop: prefer the keyword's OWN new page (built via the NPG and now locked in the registry).
+  // Only if it has no page yet do we fall back to the best-matching collection (the old behaviour).
   let publicOrigin = 'https://aboutwallart.com';
   if (pageUrl) { const mo = pageUrl.match(/^https?:\/\/[^/]+/); if (mo) publicOrigin = mo[0]; }
-  const coll = await bestCollectionForPage(keyword, pageUrl, publicOrigin);
+  const kwUrlMap = await registryKeywordUrlMap();
+  const ownUrl = kwUrlMap[keyword.toLowerCase()] || null;
+  const coll = ownUrl ? null : await bestCollectionForPage(keyword, pageUrl, publicOrigin);
+  const linkTarget = ownUrl || (coll ? coll.url : '');
 
   // Build the paragraph HTML with the link. Wrap the anchor phrase (first occurrence); if it isn't in the
-  // text, append a short sentence with the link. A real collection was found -> a link is ALWAYS embedded.
+  // text, append a short sentence with the link. A target was found -> a link is ALWAYS embedded.
   let paraHtml = escHtml(paragraph);
-  if (coll) {
-    const linkText = anchor || coll.title || 'wall art collection';
-    const linkHtml = `<a href="${escHtml(coll.url)}">${escHtml(linkText)}</a>`;
+  if (linkTarget) {
+    const linkText = anchor || (coll && coll.title) || keyword;
+    const linkHtml = `<a href="${escHtml(linkTarget)}">${escHtml(linkText)}</a>`;
     const escAnchor = escHtml(anchor);
     if (anchor && paraHtml.indexOf(escAnchor) !== -1) paraHtml = paraHtml.replace(escAnchor, linkHtml);
-    else paraHtml += ` Browse our ${linkHtml}.`;
+    else paraHtml += ` See our ${linkHtml}.`;
   }
   const html = (h2 ? `<h2>${escHtml(h2)}</h2>\n` : '') + `<p>${paraHtml}</p>`;
-  const plainText = (h2 ? h2 + '\n\n' : '') + paragraph + (coll ? `\n\n(${anchor}: ${coll.url})` : '');
+  const plainText = (h2 ? h2 + '\n\n' : '') + paragraph + (linkTarget ? `\n\n(${anchor}: ${linkTarget})` : '');
 
   try {
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -887,13 +980,13 @@ async function generateCaptureContent(body) {
       if (i < 0) break;
       arr[i].h2 = h2 || null;
       arr[i].paragraph = paragraph || null;
-      arr[i].internalLink = { anchor: anchor, target: coll ? coll.url : '' };
+      arr[i].internalLink = { anchor: anchor, target: linkTarget };
       arr[i].html = html;
       try { await ghPut(CAPTURE_TASKS_PATH, JSON.stringify(arr, null, 2), sha, `Capture: content for ${keyword}`); break; }
       catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
     }
   } catch { /* returning the content is enough even if persist fails */ }
-  return { ok: true, h2, paragraph, internalLinkAnchor: anchor, target: coll ? coll.url : '', html, plainText };
+  return { ok: true, h2, paragraph, internalLinkAnchor: anchor, target: linkTarget, linkIsNewPage: !!ownUrl, html, plainText };
 }
 
 // MERGE: write ONE natural section for a page that has several (often near-duplicate) strengthen keywords,
@@ -912,8 +1005,8 @@ async function generateCaptureMerged(body) {
     `The page currently ranks for "${pageTopic || 'its main topic'}"${pageUrl ? ' (' + pageUrl + ')' : ''} and ALSO ranks for these related keywords: ${keywords.map(k => '"' + k + '"').join(', ')}.`,
     'Write ONE short section to add to that page so it captures ALL of those related keywords better, WITHOUT changing the page\'s main focus.',
     'They are variants of the SAME intent — cover the shared meaning naturally in ONE paragraph. Do NOT repeat every literal variant and do NOT keyword-stuff; Google understands variants, so use the intent once, naturally.',
-    'The paragraph MUST naturally contain the exact anchor phrase you return in "internalLinkAnchor" (it will become a link to a collection).',
-    'Return ONLY JSON: {"h2":"short natural H2 for the shared topic","paragraph":"4-6 sentences, natural, covers the shared intent once, includes the anchor phrase once","internalLinkAnchor":"3-5 word anchor for a link to a relevant collection"}'
+    'The paragraph MUST naturally contain the exact anchor phrase you return in "internalLinkAnchor" (it will become a link to the matching page on our site).',
+    'Return ONLY JSON: {"h2":"short natural H2 for the shared topic","paragraph":"4-6 sentences, natural, covers the shared intent once, includes the anchor phrase once","internalLinkAnchor":"3-5 word anchor for a link to the matching page"}'
   ].join('\n');
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -932,18 +1025,31 @@ async function generateCaptureMerged(body) {
 
   let publicOrigin = 'https://aboutwallart.com';
   if (pageUrl) { const mo = pageUrl.match(/^https?:\/\/[^/]+/); if (mo) publicOrigin = mo[0]; }
-  const coll = await bestCollectionForPage(primary, pageUrl, publicOrigin);
+  // Case-C loop: each keyword may have its OWN new page now. Link the main anchor to the first one and add a
+  // short "See also" link for each other keyword that has a page. No keyword has a page yet → collection fallback.
+  const kwUrlMap = await registryKeywordUrlMap();
+  const targets = keywords.map(k => ({ keyword: k, url: kwUrlMap[k.toLowerCase()] || null })).filter(t => t.url);
+  const primaryUrl = targets.length ? targets[0].url : null;
+  const coll = primaryUrl ? null : await bestCollectionForPage(primary, pageUrl, publicOrigin);
+  const mainTarget = primaryUrl || (coll ? coll.url : '');
 
   let paraHtml = escHtml(paragraph);
-  if (coll) {
-    const linkText = anchor || coll.title || 'wall art collection';
-    const linkHtml = `<a href="${escHtml(coll.url)}">${escHtml(linkText)}</a>`;
+  if (mainTarget) {
+    const linkText = anchor || (coll && coll.title) || primary;
+    const linkHtml = `<a href="${escHtml(mainTarget)}">${escHtml(linkText)}</a>`;
     const escAnchor = escHtml(anchor);
     if (anchor && paraHtml.indexOf(escAnchor) !== -1) paraHtml = paraHtml.replace(escAnchor, linkHtml);
-    else paraHtml += ` Browse our ${linkHtml}.`;
+    else paraHtml += ` See our ${linkHtml}.`;
+  }
+  // Extra new pages (keywords 2..n that already have their own page) → one short "See also" sentence.
+  const extras = targets.slice(1);
+  if (extras.length) {
+    const extraLinks = extras.map(t => `<a href="${escHtml(t.url)}">${escHtml(t.keyword)}</a>`).join(', ');
+    paraHtml += ` See also ${extraLinks}.`;
   }
   const html = (h2 ? `<h2>${escHtml(h2)}</h2>\n` : '') + `<p>${paraHtml}</p>`;
-  const plainText = (h2 ? h2 + '\n\n' : '') + paragraph + (coll ? `\n\n(${anchor}: ${coll.url})` : '');
+  const linkNote = targets.length ? targets.map(t => `${t.keyword}: ${t.url}`).join(' | ') : (coll ? `${anchor}: ${coll.url}` : '');
+  const plainText = (h2 ? h2 + '\n\n' : '') + paragraph + (linkNote ? `\n\n(${linkNote})` : '');
 
   // Persist onto the FIRST todo strengthen task of this page (the merged section lives there; the other
   // tasks on the page are marked done together via "Mark all done").
@@ -954,7 +1060,7 @@ async function generateCaptureMerged(body) {
       if (idx < 0) break;
       arr[idx].h2 = h2 || null;
       arr[idx].paragraph = paragraph || null;
-      arr[idx].internalLink = { anchor, target: coll ? coll.url : '' };
+      arr[idx].internalLink = { anchor, target: mainTarget };
       arr[idx].html = html;
       arr[idx].merged = true;
       arr[idx].mergedKeywords = keywords;
@@ -962,7 +1068,7 @@ async function generateCaptureMerged(body) {
       catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
     }
   } catch { /* returning the content is enough even if persist fails */ }
-  return { ok: true, h2, paragraph, internalLinkAnchor: anchor, target: coll ? coll.url : '', html, plainText, keywords };
+  return { ok: true, h2, paragraph, internalLinkAnchor: anchor, target: mainTarget, linkIsNewPage: !!primaryUrl, html, plainText, keywords };
 }
 // Group A — keywords you rank for but with NO usable page → offered as suggestions when you build a
 // product (topic-matched). Replaces the old saved "product ideas" pool.
@@ -2677,6 +2783,12 @@ export default async function handler(req, res) {
     if (action === 'remove-product-idea') {
       if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
       const out = await removeProductIdea(body.keyword);
+      return res.status(200).json({ ok: true, ...out });
+    }
+    // "Borrar + banear" — drop a keyword from the build pool AND ban it (never suggested again).
+    if (action === 'delete-and-ban') {
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      const out = await deleteAndBan(body.keyword);
       return res.status(200).json({ ok: true, ...out });
     }
     // B — "Send to optimise": lock kw→page + create an optimise card in MPD's Do-first tab.
