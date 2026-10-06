@@ -286,7 +286,7 @@
             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
-                    <p class="subtitle">AI-Powered SEO Analysis · v72.5</p>
+                    <p class="subtitle">AI-Powered SEO Analysis · v72.6</p>
                     <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.11</p>
                     <button onclick="resetAllChecklists()" title="Wipe all saved checklists so every page starts fresh" style="margin-top:6px;background:#fff;color:#c62828;border:1px solid #ef9a9a;padding:4px 10px;border-radius:6px;font-size:0.72rem;cursor:pointer;">🧹 Reset all checklists (start clean)</button>
                 </div>
@@ -405,15 +405,17 @@
         <!-- DO FIRST TAB — captured keywords that need one action (from the "You already rank" panels) -->
         <div class="tab-content active" id="doFirstTab">
             <h3>📋 Do First — capture the keywords you already rank for</h3>
-            <p style="color:#666;font-size:0.9rem;margin:-4px 0 14px;">One action per card. Optimise the page that ranks, or add a short section + internal link to a page that already ranks for something else.</p>
+            <p style="color:#666;font-size:0.9rem;margin:-4px 0 14px;">Nothing locked shows here — once a keyword is locked it lives in Start Here / Optimised / Winners.</p>
             <div style="margin-bottom:12px;"><button class="btn-secondary" onclick="renderDoFirst()">↻ Refresh</button></div>
-            <!-- Sub-tabs: Principal (ready to apply) + Situación C (waiting for their own new page) -->
+            <!-- Three sub-tabs: green (free page → lock), red (taken page → build), yellow (built → paste the link) -->
             <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
-                <button id="dfSubMain" class="btn-secondary" onclick="dfSwitchSub('main')" style="background:#2e7d32;color:#fff;border-color:#2e7d32;">📋 Ready to apply (<span id="dfMainCount">0</span>)</button>
-                <button id="dfSubC" class="btn-secondary" onclick="dfSwitchSub('c')">🅲 Situation C — waiting (<span id="dfCCount">0</span>)</button>
+                <button id="dfSubGreen" class="btn-secondary" onclick="dfSwitchSub('green')" style="background:#2e7d32;color:#fff;border-color:#2e7d32;">🟢 Ready to apply (<span id="dfGreenCount">0</span>)</button>
+                <button id="dfSubRed" class="btn-secondary" onclick="dfSwitchSub('red')">🔴 Waiting for kw to be used on a product or blog (<span id="dfRedCount">0</span>)</button>
+                <button id="dfSubYellow" class="btn-secondary" onclick="dfSwitchSub('yellow')">🟡 Add the link (<span id="dfYellowCount">0</span>)</button>
             </div>
-            <div id="doFirstList" style="color:#888;font-size:0.9rem;">Loading…</div>
-            <div id="doFirstCList" style="display:none;color:#888;font-size:0.9rem;"></div>
+            <div id="doFirstGreenList" style="color:#888;font-size:0.9rem;">Loading…</div>
+            <div id="doFirstRedList" style="display:none;color:#888;font-size:0.9rem;"></div>
+            <div id="doFirstYellowList" style="display:none;color:#888;font-size:0.9rem;"></div>
         </div>
 
         <!-- START HERE TAB — the single working list -->
@@ -787,49 +789,52 @@
             const c = document.getElementById('strengthenedCount');
             if(c) c.textContent = DOFIRST_TASKS.filter(t=>t.type==='strengthen' && t.status==='done').length;
         }
-        let DF_SUB = 'main';   // which Do-first sub-tab is showing: 'main' (ready) or 'c' (waiting for their page)
-        // A PAGE group is "waiting" (Situation C, red) when it has a strengthen task that hasn't got its own
-        // new page yet (ready!==true). Once every strengthen keyword on the page has its page, the whole card
-        // moves to the main "ready to apply" list.
-        function dfGroupWaiting(tasks){
-            return tasks.some(t => t.type==='strengthen' && t.ready!==true);
+        let DF_SUB = 'green';   // which Do-first sub-tab is showing: 'green' | 'red' | 'yellow'
+        // A PAGE group's bucket:
+        //  · all tasks are optimise (free page)        → 'green'  (lock it → Start Here)
+        //  · has a strengthen with no page yet         → 'red'    (still needs its own product/blog)
+        //  · all strengthen tasks already have a page  → 'yellow' (paste the paragraph+link on the old page)
+        function dfGroupBucket(tasks){
+            const strengthen = tasks.filter(t => t.type==='strengthen');
+            if(!strengthen.length) return 'green';
+            return strengthen.some(t => t.ready!==true) ? 'red' : 'yellow';
         }
         function dfSwitchSub(which){
-            DF_SUB = (which==='c') ? 'c' : 'main';
-            const mainBox = document.getElementById('doFirstList');
-            const cBox = document.getElementById('doFirstCList');
-            const mainBtn = document.getElementById('dfSubMain');
-            const cBtn = document.getElementById('dfSubC');
-            if(mainBox) mainBox.style.display = (DF_SUB==='main') ? '' : 'none';
-            if(cBox) cBox.style.display = (DF_SUB==='c') ? '' : 'none';
-            const on='background:#2e7d32;color:#fff;border-color:#2e7d32;', off='';
-            if(mainBtn) mainBtn.style.cssText = (DF_SUB==='main') ? on : off;
-            if(cBtn) cBtn.style.cssText = (DF_SUB==='c') ? 'background:#c62828;color:#fff;border-color:#c62828;' : off;
+            DF_SUB = (which==='red'||which==='yellow') ? which : 'green';
+            const map = { green:['doFirstGreenList','dfSubGreen','background:#2e7d32;color:#fff;border-color:#2e7d32;'],
+                          red:['doFirstRedList','dfSubRed','background:#c62828;color:#fff;border-color:#c62828;'],
+                          yellow:['doFirstYellowList','dfSubYellow','background:#b8860b;color:#fff;border-color:#b8860b;'] };
+            Object.keys(map).forEach(k=>{
+                const [listId,btnId,onCss] = map[k];
+                const list = document.getElementById(listId); const btn = document.getElementById(btnId);
+                if(list) list.style.display = (DF_SUB===k) ? '' : 'none';
+                if(btn) btn.style.cssText = (DF_SUB===k) ? onCss : '';
+            });
         }
-        // Render the Do First list from memory (no refetch). Only TODO tasks — done ones move to Strengthened.
-        // Grouped by PAGE: one card per page. Ready cards → main list; waiting (Situation C) → red list.
+        // Render the three buckets. Grouped by PAGE: one card per page holds every action for that page.
         function renderDoFirstList(){
-            const box = document.getElementById('doFirstList'); if(!box) return;
-            const cBox = document.getElementById('doFirstCList');
+            const gBox=document.getElementById('doFirstGreenList'), rBox=document.getElementById('doFirstRedList'), yBox=document.getElementById('doFirstYellowList');
+            if(!gBox) return;
             const todo = DOFIRST_TASKS.filter(t=>t.status!=='done');
             updateStrengthenedCount();
-            // group by page URL (fallback key when a task has no URL) — keep first-seen order
             const groups = new Map();
             todo.forEach(t=>{ const k = (t.pageUrl && t.pageUrl.trim()) ? t.pageUrl.trim() : ('__nourl__'+t.keyword); if(!groups.has(k)) groups.set(k, []); groups.get(k).push(t); });
-            const ready = [], waiting = [];
-            [...groups.values()].forEach(g => { (dfGroupWaiting(g) ? waiting : ready).push(g); });
-            const cnt = document.getElementById('doFirstCount'); if(cnt) cnt.textContent = ready.reduce((n,g)=>n+g.length,0);
-            const mc = document.getElementById('dfMainCount'); if(mc) mc.textContent = ready.length;
-            const cc = document.getElementById('dfCCount'); if(cc) cc.textContent = waiting.length;
-            box.innerHTML = ready.length
-                ? '<div style="display:grid;gap:12px;">' + ready.map(g=>doFirstPageCard(g,false)).join('') + '</div>'
-                : '<span style="color:#888;">Nothing ready to apply right now.</span>';
-            if(cBox){
-                cBox.innerHTML = waiting.length
-                    ? '<div style="font-size:0.85rem;color:#c62828;margin-bottom:10px;">These keywords are getting their OWN new page first (in the New Product Generator / Blog Manager). Don\'t touch them until the page exists — they turn green and move to "Ready to apply" on their own.</div>'
-                      + '<div style="display:grid;gap:12px;">' + waiting.map(g=>doFirstPageCard(g,true)).join('') + '</div>'
-                    : '<span style="color:#888;">Nothing waiting — every Situation C keyword already has its page.</span>';
-            }
+            const green=[], red=[], yellow=[];
+            [...groups.values()].forEach(g => { const b=dfGroupBucket(g); (b==='green'?green:b==='red'?red:yellow).push(g); });
+            const setC=(id,n)=>{ const e=document.getElementById(id); if(e) e.textContent=n; };
+            setC('dfGreenCount',green.length); setC('dfRedCount',red.length); setC('dfYellowCount',yellow.length);
+            const cnt=document.getElementById('doFirstCount'); if(cnt) cnt.textContent = todo.length;
+            gBox.innerHTML = green.length
+                ? '<div style="display:grid;gap:12px;">'+green.map(g=>doFirstPageCard(g,'green')).join('')+'</div>'
+                : '<span style="color:#888;">Nothing here — no free-page keywords to lock right now.</span>';
+            if(rBox) rBox.innerHTML = red.length
+                ? '<div style="font-size:0.85rem;color:#c62828;margin-bottom:10px;">These rank on a page that already belongs to another keyword. Give each its OWN new page in the New Product Generator or Blog Manager — they move to "Add the link" on their own once the page exists.</div>'
+                  + '<div style="display:grid;gap:12px;">'+red.map(g=>doFirstPageCard(g,'red')).join('')+'</div>'
+                : '<span style="color:#888;">Nothing waiting to be built.</span>';
+            if(yBox) yBox.innerHTML = yellow.length
+                ? '<div style="font-size:0.85rem;color:#8a6d0b;margin-bottom:10px;">Each of these now has its own new page. Paste the short paragraph (with the link to the new page) on the OLD page that ranks, then mark it done.</div>'
+                  + '<div style="display:grid;gap:12px;">'+yellow.map(g=>doFirstPageCard(g,'yellow')).join('')+'</div>'
+                : '<span style="color:#888;">Nothing ready to link yet.</span>';
             dfSwitchSub(DF_SUB);
         }
         // Mark EVERY todo task on one page done in one click.
@@ -876,46 +881,76 @@
                 '</div>'+
             '</div>';
         }
-        // One PAGE card holds every action for that page. Header + "Open page in admin" + "Mark all done" once.
-        function doFirstPageCard(tasks, waiting){
+        // One PAGE card, rendered per bucket ('green' | 'red' | 'yellow').
+        function doFirstPageCard(tasks, bucket){
             const first = tasks[0];
             const hasUrl = !!(first.pageUrl && first.pageUrl.trim());
             const urlEnc = encodeURIComponent(first.pageUrl||'');
             const strengthenTasks = tasks.filter(t=>t.type==='strengthen');
             const admin = hasUrl ? '<button class="btn-secondary" style="white-space:nowrap;" onclick="doFirstAdmin('+"'"+encodeURIComponent(first.keyword)+"'"+')">Open page in admin ↗</button>' : '';
-            // Green "Mark as done" lives in the header for any page that has strengthen work (single or merged).
-            // It marks ALL the page's strengthen tasks done (doFirstDonePage). Optimise-only pages don't get it.
-            // Waiting (Situation C) cards show no "Mark done" — they aren't actionable until their page exists.
-            const markDone = (!waiting && strengthenTasks.length>=1 && hasUrl) ? '<button class="btn-secondary" style="white-space:nowrap;background:#2e7d32;color:#fff;border-color:#2e7d32;" onclick="doFirstDonePage('+"'"+urlEnc+"'"+')">Mark as done ✓</button>' : '';
-            const subtitle = waiting
-                ? '<div style="color:#c62828;font-size:12px;margin-top:3px;font-weight:600;">⏳ waiting for the new page(s) — don\'t touch yet</div>'
-                : '<div style="color:#888;font-size:12px;margin-top:3px;">'+tasks.length+' thing'+(tasks.length>1?'s':'')+' to add to this page</div>';
-            const header = '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;border-bottom:2px solid '+(waiting?'#f3d6d6':'#eef1ee')+';padding-bottom:10px;margin-bottom:4px;">'+
+            const star = t => (t.position!=null && t.position<=6) ? '⭐ ' : '';
+            const metricsOf = t => 'pos '+(t.position!=null?t.position:'—')+' · '+(t.clicks!=null?t.clicks:'—')+' clicks · '+(t.impressions!=null?t.impressions:'—')+' impr';
+            const delBtn = t => '<button class="btn-secondary" title="Delete this keyword — remove it and never suggest it again" style="background:#fff;color:#a33;border:1px solid #ccc;" onclick="dfBan('+"'"+encodeURIComponent(t.keyword)+"'"+')">🚫 Delete</button>';
+
+            let header, body, border, bg;
+            if(bucket==='green'){
+                border='2px solid #2e7d32'; bg='#f6fbf6';
+                header = '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;border-bottom:2px solid #dfeede;padding-bottom:10px;margin-bottom:4px;">'+
                     '<div style="min-width:0;"><div style="font-weight:700;word-break:break-word;">📄 '+escDF(first.pageUrl||'(no page URL)')+'</div>'+
-                        subtitle+'</div>'+
-                    '<div style="display:flex;gap:8px;flex-wrap:wrap;">'+admin+markDone+'</div>'+
-                '</div>';
-            let body;
-            if(waiting){
-                // Just show each keyword and whether it already has its page. No paragraph button yet.
-                body = strengthenTasks.map(t=>{
-                    const got = t.ready===true;
-                    const tag = got
-                        ? '<span style="background:#e4f2e4;color:#1f5f1f;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;">page ready ✓</span>'
-                        : '<span style="background:#fde3e3;color:#a11;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;">needs its page</span>';
-                    const dest = got && t.targetUrl ? '<div style="font-size:0.78rem;color:#555;margin-top:3px;word-break:break-word;">→ <a href="'+escDF(t.targetUrl)+'" target="_blank" rel="noopener">'+escDF(t.targetUrl)+'</a></div>' : '';
-                    return '<div style="border-top:1px solid #f3eaea;padding-top:8px;margin-top:8px;"><div style="font-weight:700;">'+escDF(t.keyword)+' '+tag+'</div>'+dest+'</div>';
+                        '<div style="color:#2e7d32;font-size:12px;margin-top:3px;">free page — lock a keyword to it, then optimise it in Start Here</div></div>'+
+                    '<div style="display:flex;gap:8px;flex-wrap:wrap;">'+admin+'</div></div>';
+                body = tasks.map(t=>{
+                    const enc=encodeURIComponent(t.keyword);
+                    return '<div style="border-top:1px solid #e6efe6;padding-top:10px;margin-top:10px;">'+
+                        '<div style="font-weight:700;">'+star(t)+escDF(t.keyword)+'</div>'+
+                        '<div style="color:#888;font-size:12px;margin-top:2px;">'+metricsOf(t)+'</div>'+
+                        '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'+
+                            '<button class="btn-secondary" style="background:#2e7d32;color:#fff;border-color:#2e7d32;" onclick="dfLockOptimise('+"'"+enc+"'"+')">Lock &amp; optimise →</button>'+
+                            delBtn(t)+
+                        '</div></div>';
                 }).join('');
-            } else {
-                // When a page has 2+ strengthen keywords, write ONE merged section (natural, no variant-stuffing)
-                // instead of one paragraph per keyword. Single / optimise / mixed → per-item as before.
-                body = (strengthenTasks.length>1 && strengthenTasks.length===tasks.length)
+            } else if(bucket==='red'){
+                border='2px solid #c62828'; bg='#fff6f6';
+                header = '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;border-bottom:2px solid #f3d6d6;padding-bottom:10px;margin-bottom:4px;">'+
+                    '<div style="min-width:0;"><div style="font-weight:700;word-break:break-word;">📄 '+escDF(first.pageUrl||'(no page URL)')+'</div>'+
+                        '<div style="color:#c62828;font-size:12px;margin-top:3px;font-weight:600;">this page belongs to another keyword — build each below its own product/blog</div></div>'+
+                    '<div style="display:flex;gap:8px;flex-wrap:wrap;">'+admin+'</div></div>';
+                body = strengthenTasks.map(t=>{
+                    const enc=encodeURIComponent(t.keyword);
+                    return '<div style="border-top:1px solid #f3eaea;padding-top:10px;margin-top:10px;">'+
+                        '<div style="font-weight:700;">'+star(t)+escDF(t.keyword)+' <span style="background:#fde3e3;color:#a11;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;">needs its page</span></div>'+
+                        '<div style="color:#888;font-size:12px;margin-top:2px;">'+metricsOf(t)+'</div>'+
+                        '<div style="font-size:0.82rem;color:#b3620a;margin-top:4px;">build it in the New Product Generator or Blog Manager — it moves to "Add the link" on its own.</div>'+
+                        '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'+delBtn(t)+'</div></div>';
+                }).join('');
+            } else { // yellow — got its page, paste the paragraph on the OLD page
+                border='2px solid #b8860b'; bg='#fffdf4';
+                const markDone = hasUrl ? '<button class="btn-secondary" style="white-space:nowrap;background:#b8860b;color:#fff;border-color:#b8860b;" onclick="doFirstDonePage('+"'"+urlEnc+"'"+')">Mark as done ✓</button>' : '';
+                header = '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;border-bottom:2px solid #efe3bf;padding-bottom:10px;margin-bottom:4px;">'+
+                    '<div style="min-width:0;"><div style="font-weight:700;word-break:break-word;">📄 '+escDF(first.pageUrl||'(no page URL)')+'</div>'+
+                        '<div style="color:#8a6d0b;font-size:12px;margin-top:3px;">paste this on the page above — it links to the new page(s)</div></div>'+
+                    '<div style="display:flex;gap:8px;flex-wrap:wrap;">'+admin+markDone+'</div></div>';
+                body = (strengthenTasks.length>1)
                     ? doFirstMergedSection(strengthenTasks)
-                    : tasks.map(doFirstSection).join('');
+                    : strengthenTasks.map(doFirstSection).join('');
             }
-            const border = waiting ? '2px solid #c62828' : '2px solid #111';
-            const bg = waiting ? '#fff6f6' : '#fff';
             return '<div style="border:'+border+';border-radius:10px;padding:14px 16px;background:'+bg+';">'+header+body+'</div>';
+        }
+        // 🟢 green action: lock the keyword to its (free) ranking page → it moves to Start Here to be optimised.
+        async function dfLockOptimise(kwEnc){
+            const t = doFirstFind(kwEnc); if(!t||!t.pageUrl) return;
+            const intent = (t.source==='blog') ? 'INFORMATIONAL' : 'COMMERCIAL';
+            try{
+                await kwApi({action:'claim-to-registry', keyword:t.keyword, url:t.pageUrl, intent});
+                await loadCaptureTasks(); renderDoFirstList();
+            }catch(e){ alert('Could not lock: '+e.message); }
+        }
+        // 🚫 delete + ban a keyword (removes it and never suggests it again).
+        async function dfBan(kwEnc){
+            const kw = decodeURIComponent(kwEnc);
+            if(!confirm('Delete "'+kw+'"? It will be removed and never suggested again.')) return;
+            try{ await kwApi({action:'delete-and-ban', keyword:kw}); await loadCaptureTasks(); renderDoFirstList(); }
+            catch(e){ alert('Could not delete: '+e.message); }
         }
         // Shared editable text block (title row + paragraph + stacked copy buttons + small Rewrite).
         // Used by both the merged section and the single-keyword cards so they look identical.
