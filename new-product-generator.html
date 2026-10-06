@@ -220,7 +220,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v4.8</span>
+  <span class="ver">v4.9</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -933,20 +933,35 @@ function roomKwOption(p,o,oi,pos){
   const sel=p.keyword&&p.keyword.toLowerCase()===o.keyword.toLowerCase();
   const rec=(pos===0) && !p.keyword;
   const s=o.sources||{};
+  const isC = !!(s.matched && s.matched.origin==='C');
   const pills=[];
+  if(isC) pills.push('<span class="srcpill" style="background:#f6d9c7;color:#8a3b12">Situation C</span>');
   if(s.available) pills.push('<span class="srcpill" style="background:#cfead0;color:#1f5f1f">you rank</span>');
   if(s.gap) pills.push('<span class="srcpill" style="background:#f3e6b8;color:#6b551a">gap</span>');
   if(s.gsc) pills.push('<span class="srcpill" style="background:#d9efe6;color:#1f5f4f">GSC</span>');
   if(s.gkp) pills.push('<span class="srcpill" style="background:#dbe7fb;color:#274b8f">Google KP</span>');
   const met=[];
+  if(isC){ const b=[]; if(s.matched.position!=null)b.push('pos '+s.matched.position); if(s.matched.clicks!=null)b.push(s.matched.clicks+' clk'); met.push('ranks on a locked page'+(b.length?' · '+b.join(' · '):'')); }
   if(s.available){ const b=[]; if(s.available.position!=null)b.push('pos '+s.available.position); if(s.available.clicks!=null)b.push(s.available.clicks+' clk'); met.push('you rank'+(b.length?' · '+b.join(' · '):'')); }
   if(s.gap) met.push('gap vol '+(s.gap.volume!=null?s.gap.volume:'—')+' · '+diffLabel(s.gap));
   if(s.gsc) met.push('GSC '+(s.gsc.impressions!=null?s.gsc.impressions:'—')+' impr · pos '+(s.gsc.position!=null?s.gsc.position:'—'));
   if(s.gkp) met.push('Google KP vol '+(s.gkp.volume!=null?s.gkp.volume:'—')+(s.gkp.competition?' · '+compLabel(s.gkp.competition):''));
   const enc=encodeURIComponent(p.sku);
+  const banBtn='<button class="btn rm small" title="Delete this keyword — remove it and never suggest it again" style="margin-left:auto;flex:0 0 auto" onclick="event.stopPropagation();kwBanKeyword(event,'+"'"+encodeURIComponent(o.keyword)+"',"+"'"+enc+"'"+')">🚫</button>';
   return '<div class="kwopt'+(sel?' sel':'')+(rec?' rec':'')+'" onclick="roomPick('+"'"+enc+"',"+oi+')">'+
-    '<div class="kwtop"><input type="radio" '+(sel||rec?'checked':'')+' style="pointer-events:none" tabindex="-1"><span class="kwnm">'+(sel?'✓ ':'')+esc(o.keyword)+'</span>'+(rec?'<span class="recb">recommended</span>':'')+'</div>'+
+    '<div class="kwtop" style="display:flex;align-items:center;gap:6px"><input type="radio" '+(sel||rec?'checked':'')+' style="pointer-events:none" tabindex="-1"><span class="kwnm">'+(sel?'✓ ':'')+esc(o.keyword)+'</span>'+(rec?'<span class="recb">recommended</span>':'')+banBtn+'</div>'+
     '<div class="kwpills">'+pills.join('')+'</div><div class="kwmet">'+esc(met.join(' · '))+'</div></div>';
+}
+// Delete + ban a keyword from the NPG (removes it from the build pool and never suggests it again).
+async function kwBanKeyword(ev, kwEnc, skuEnc){
+  if(ev&&ev.stopPropagation) ev.stopPropagation();
+  const kw=decodeURIComponent(kwEnc), sku=decodeURIComponent(skuEnc);
+  if(!confirm('Delete "'+kw+'"? It will be removed and never suggested again.')) return;
+  try{
+    await api({action:'delete-and-ban',keyword:kw});
+    const st=KWC[sku]; if(st&&st.options){ st.options=st.options.filter(o=>o.keyword.toLowerCase()!==kw.toLowerCase()); }
+    msg('Deleted: '+kw,'ok'); renderFlow();
+  }catch(e){ msg('Could not delete: '+e.message,'err'); }
 }
 // ---- Category balance for the keyword columns (v4.6) ----
 // Show up to 40 options per room, split by TYPE so the room's own keywords always get a share and the
@@ -1010,16 +1025,19 @@ function selectByQuota(items){
 function ensureRoomKeywords(){ groupProducts().forEach(p=>{ if(!KWC[p.sku]) fetchRoomKw(p); }); }
 async function fetchRoomKw(p){
   KWC[p.sku]={loading:true,options:[]};
-  const [gapR,gscR,availR,gkpR]=await Promise.all([
+  const [gapR,gscR,availR,gkpR,matchR]=await Promise.all([
     api({action:'gap-research',products:[p],limit:90}).catch(()=>null),
     api({action:'gsc-opportunities',sku:p.sku}).catch(()=>null),
     api({action:'available-product-keywords',sku:p.sku}).catch(()=>null),
-    api({action:'google-keyword-ideas',seeds:buildGkpSeeds(p)}).catch(()=>null)
+    api({action:'google-keyword-ideas',seeds:buildGkpSeeds(p)}).catch(()=>null),
+    api({action:'matched-product-ideas',sku:p.sku}).catch(()=>null)
   ]);
   const map=new Map();
   const slot=(kw)=>{ const k=(kw||'').toLowerCase().trim(); if(!k) return null; if(!map.has(k)) map.set(k,{keyword:kw,sources:{}}); return map.get(k); };
   const gap=((gapR&&gapR.results)||[]).find(x=>x.sku===p.sku)||((gapR&&gapR.results)||[])[0]||{options:[]};
   ((availR&&availR.ideas)||[]).forEach(o=>{ const s=slot(o.keyword); if(s) s.sources.available={clicks:o.clicks,position:o.position}; });
+  // Case-C keywords (saved to build their own page) — carry origin + the page that already ranks.
+  ((matchR&&matchR.ideas)||[]).forEach(o=>{ const s=slot(o.keyword); if(s) s.sources.matched={origin:o.origin,pageUrl:o.pageUrl,lockedToKeyword:o.lockedToKeyword,position:o.position,clicks:o.clicks}; });
   (gap.options||[]).forEach(o=>{ const s=slot(o.keyword); if(s) s.sources.gap={volume:o.volume,difficulty:o.difficulty,difficultyRaw:o.difficultyRaw}; });
   ((gscR&&gscR.options)||[]).forEach(o=>{ const s=slot(o.keyword); if(s) s.sources.gsc={impressions:o.impressions,clicks:o.clicks,position:o.position}; });
   ((gkpR&&gkpR.options)||[]).forEach(o=>{ const s=slot(o.keyword); if(s) s.sources.gkp={volume:o.volume,competition:o.competition,competitionIndex:o.competitionIndex}; });

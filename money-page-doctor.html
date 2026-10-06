@@ -286,7 +286,7 @@
             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
-                    <p class="subtitle">AI-Powered SEO Analysis · v72.4</p>
+                    <p class="subtitle">AI-Powered SEO Analysis · v72.5</p>
                     <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.11</p>
                     <button onclick="resetAllChecklists()" title="Wipe all saved checklists so every page starts fresh" style="margin-top:6px;background:#fff;color:#c62828;border:1px solid #ef9a9a;padding:4px 10px;border-radius:6px;font-size:0.72rem;cursor:pointer;">🧹 Reset all checklists (start clean)</button>
                 </div>
@@ -407,7 +407,13 @@
             <h3>📋 Do First — capture the keywords you already rank for</h3>
             <p style="color:#666;font-size:0.9rem;margin:-4px 0 14px;">One action per card. Optimise the page that ranks, or add a short section + internal link to a page that already ranks for something else.</p>
             <div style="margin-bottom:12px;"><button class="btn-secondary" onclick="renderDoFirst()">↻ Refresh</button></div>
+            <!-- Sub-tabs: Principal (ready to apply) + Situación C (waiting for their own new page) -->
+            <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+                <button id="dfSubMain" class="btn-secondary" onclick="dfSwitchSub('main')" style="background:#2e7d32;color:#fff;border-color:#2e7d32;">📋 Ready to apply (<span id="dfMainCount">0</span>)</button>
+                <button id="dfSubC" class="btn-secondary" onclick="dfSwitchSub('c')">🅲 Situation C — waiting (<span id="dfCCount">0</span>)</button>
+            </div>
             <div id="doFirstList" style="color:#888;font-size:0.9rem;">Loading…</div>
+            <div id="doFirstCList" style="display:none;color:#888;font-size:0.9rem;"></div>
         </div>
 
         <!-- START HERE TAB — the single working list -->
@@ -781,18 +787,50 @@
             const c = document.getElementById('strengthenedCount');
             if(c) c.textContent = DOFIRST_TASKS.filter(t=>t.type==='strengthen' && t.status==='done').length;
         }
+        let DF_SUB = 'main';   // which Do-first sub-tab is showing: 'main' (ready) or 'c' (waiting for their page)
+        // A PAGE group is "waiting" (Situation C, red) when it has a strengthen task that hasn't got its own
+        // new page yet (ready!==true). Once every strengthen keyword on the page has its page, the whole card
+        // moves to the main "ready to apply" list.
+        function dfGroupWaiting(tasks){
+            return tasks.some(t => t.type==='strengthen' && t.ready!==true);
+        }
+        function dfSwitchSub(which){
+            DF_SUB = (which==='c') ? 'c' : 'main';
+            const mainBox = document.getElementById('doFirstList');
+            const cBox = document.getElementById('doFirstCList');
+            const mainBtn = document.getElementById('dfSubMain');
+            const cBtn = document.getElementById('dfSubC');
+            if(mainBox) mainBox.style.display = (DF_SUB==='main') ? '' : 'none';
+            if(cBox) cBox.style.display = (DF_SUB==='c') ? '' : 'none';
+            const on='background:#2e7d32;color:#fff;border-color:#2e7d32;', off='';
+            if(mainBtn) mainBtn.style.cssText = (DF_SUB==='main') ? on : off;
+            if(cBtn) cBtn.style.cssText = (DF_SUB==='c') ? 'background:#c62828;color:#fff;border-color:#c62828;' : off;
+        }
         // Render the Do First list from memory (no refetch). Only TODO tasks — done ones move to Strengthened.
-        // Grouped by PAGE: one card per page holds every action for that page (enter the page once, do it all).
+        // Grouped by PAGE: one card per page. Ready cards → main list; waiting (Situation C) → red list.
         function renderDoFirstList(){
             const box = document.getElementById('doFirstList'); if(!box) return;
+            const cBox = document.getElementById('doFirstCList');
             const todo = DOFIRST_TASKS.filter(t=>t.status!=='done');
-            const cnt = document.getElementById('doFirstCount'); if(cnt) cnt.textContent = todo.length;
             updateStrengthenedCount();
-            if(!todo.length){ box.innerHTML = '<span style="color:#888;">Nothing to do right now.</span>'; return; }
             // group by page URL (fallback key when a task has no URL) — keep first-seen order
             const groups = new Map();
             todo.forEach(t=>{ const k = (t.pageUrl && t.pageUrl.trim()) ? t.pageUrl.trim() : ('__nourl__'+t.keyword); if(!groups.has(k)) groups.set(k, []); groups.get(k).push(t); });
-            box.innerHTML = '<div style="display:grid;gap:12px;">' + [...groups.values()].map(doFirstPageCard).join('') + '</div>';
+            const ready = [], waiting = [];
+            [...groups.values()].forEach(g => { (dfGroupWaiting(g) ? waiting : ready).push(g); });
+            const cnt = document.getElementById('doFirstCount'); if(cnt) cnt.textContent = ready.reduce((n,g)=>n+g.length,0);
+            const mc = document.getElementById('dfMainCount'); if(mc) mc.textContent = ready.length;
+            const cc = document.getElementById('dfCCount'); if(cc) cc.textContent = waiting.length;
+            box.innerHTML = ready.length
+                ? '<div style="display:grid;gap:12px;">' + ready.map(g=>doFirstPageCard(g,false)).join('') + '</div>'
+                : '<span style="color:#888;">Nothing ready to apply right now.</span>';
+            if(cBox){
+                cBox.innerHTML = waiting.length
+                    ? '<div style="font-size:0.85rem;color:#c62828;margin-bottom:10px;">These keywords are getting their OWN new page first (in the New Product Generator / Blog Manager). Don\'t touch them until the page exists — they turn green and move to "Ready to apply" on their own.</div>'
+                      + '<div style="display:grid;gap:12px;">' + waiting.map(g=>doFirstPageCard(g,true)).join('') + '</div>'
+                    : '<span style="color:#888;">Nothing waiting — every Situation C keyword already has its page.</span>';
+            }
+            dfSwitchSub(DF_SUB);
         }
         // Mark EVERY todo task on one page done in one click.
         async function doFirstDonePage(pageUrlEnc){
@@ -839,7 +877,7 @@
             '</div>';
         }
         // One PAGE card holds every action for that page. Header + "Open page in admin" + "Mark all done" once.
-        function doFirstPageCard(tasks){
+        function doFirstPageCard(tasks, waiting){
             const first = tasks[0];
             const hasUrl = !!(first.pageUrl && first.pageUrl.trim());
             const urlEnc = encodeURIComponent(first.pageUrl||'');
@@ -847,18 +885,37 @@
             const admin = hasUrl ? '<button class="btn-secondary" style="white-space:nowrap;" onclick="doFirstAdmin('+"'"+encodeURIComponent(first.keyword)+"'"+')">Open page in admin ↗</button>' : '';
             // Green "Mark as done" lives in the header for any page that has strengthen work (single or merged).
             // It marks ALL the page's strengthen tasks done (doFirstDonePage). Optimise-only pages don't get it.
-            const markDone = (strengthenTasks.length>=1 && hasUrl) ? '<button class="btn-secondary" style="white-space:nowrap;background:#2e7d32;color:#fff;border-color:#2e7d32;" onclick="doFirstDonePage('+"'"+urlEnc+"'"+')">Mark as done ✓</button>' : '';
-            const header = '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;border-bottom:2px solid #eef1ee;padding-bottom:10px;margin-bottom:4px;">'+
+            // Waiting (Situation C) cards show no "Mark done" — they aren't actionable until their page exists.
+            const markDone = (!waiting && strengthenTasks.length>=1 && hasUrl) ? '<button class="btn-secondary" style="white-space:nowrap;background:#2e7d32;color:#fff;border-color:#2e7d32;" onclick="doFirstDonePage('+"'"+urlEnc+"'"+')">Mark as done ✓</button>' : '';
+            const subtitle = waiting
+                ? '<div style="color:#c62828;font-size:12px;margin-top:3px;font-weight:600;">⏳ waiting for the new page(s) — don\'t touch yet</div>'
+                : '<div style="color:#888;font-size:12px;margin-top:3px;">'+tasks.length+' thing'+(tasks.length>1?'s':'')+' to add to this page</div>';
+            const header = '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;border-bottom:2px solid '+(waiting?'#f3d6d6':'#eef1ee')+';padding-bottom:10px;margin-bottom:4px;">'+
                     '<div style="min-width:0;"><div style="font-weight:700;word-break:break-word;">📄 '+escDF(first.pageUrl||'(no page URL)')+'</div>'+
-                        '<div style="color:#888;font-size:12px;margin-top:3px;">'+tasks.length+' thing'+(tasks.length>1?'s':'')+' to add to this page</div></div>'+
+                        subtitle+'</div>'+
                     '<div style="display:flex;gap:8px;flex-wrap:wrap;">'+admin+markDone+'</div>'+
                 '</div>';
-            // When a page has 2+ strengthen keywords, write ONE merged section (natural, no variant-stuffing)
-            // instead of one paragraph per keyword. Single / optimise / mixed → per-item as before.
-            const body = (strengthenTasks.length>1 && strengthenTasks.length===tasks.length)
-                ? doFirstMergedSection(strengthenTasks)
-                : tasks.map(doFirstSection).join('');
-            return '<div style="border:2px solid #111;border-radius:10px;padding:14px 16px;background:#fff;">'+header+body+'</div>';
+            let body;
+            if(waiting){
+                // Just show each keyword and whether it already has its page. No paragraph button yet.
+                body = strengthenTasks.map(t=>{
+                    const got = t.ready===true;
+                    const tag = got
+                        ? '<span style="background:#e4f2e4;color:#1f5f1f;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;">page ready ✓</span>'
+                        : '<span style="background:#fde3e3;color:#a11;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;">needs its page</span>';
+                    const dest = got && t.targetUrl ? '<div style="font-size:0.78rem;color:#555;margin-top:3px;word-break:break-word;">→ <a href="'+escDF(t.targetUrl)+'" target="_blank" rel="noopener">'+escDF(t.targetUrl)+'</a></div>' : '';
+                    return '<div style="border-top:1px solid #f3eaea;padding-top:8px;margin-top:8px;"><div style="font-weight:700;">'+escDF(t.keyword)+' '+tag+'</div>'+dest+'</div>';
+                }).join('');
+            } else {
+                // When a page has 2+ strengthen keywords, write ONE merged section (natural, no variant-stuffing)
+                // instead of one paragraph per keyword. Single / optimise / mixed → per-item as before.
+                body = (strengthenTasks.length>1 && strengthenTasks.length===tasks.length)
+                    ? doFirstMergedSection(strengthenTasks)
+                    : tasks.map(doFirstSection).join('');
+            }
+            const border = waiting ? '2px solid #c62828' : '2px solid #111';
+            const bg = waiting ? '#fff6f6' : '#fff';
+            return '<div style="border:'+border+';border-radius:10px;padding:14px 16px;background:'+bg+';">'+header+body+'</div>';
         }
         // Shared editable text block (title row + paragraph + stacked copy buttons + small Rewrite).
         // Used by both the merged section and the single-keyword cards so they look identical.

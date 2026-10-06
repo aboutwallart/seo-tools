@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.11.3 - 2026-09-28</p>
+        <p class="version">v6.12 - 2026-10-06</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -627,34 +627,51 @@
         }
         function renderPerformingBlog() {
             const box = document.getElementById('perf-list-blog'); if (!box) return;
-            // Only A (no page → write a blog) and B (free page → send to optimise). C (ranks on a page
-            // locked to another keyword) is handled automatically in Money Page Doctor.
-            const opts = (PERFORMING_BLOG || []).filter(o => !(o.pageUrl && !o.urlFree));
+            // A (no page → write a blog), B (free page → send to optimise) and C (ranks on a page locked to
+            // another keyword → give THIS keyword its own blog, then that page links to it — same loop as products).
+            const opts = (PERFORMING_BLOG || []);
             if (!opts.length) { box.innerHTML = '<span style="color:#888;">Nothing new right now.</span>'; return; }
             box.innerHTML = '<div style="display:grid;gap:8px;">' + opts.map(o => {
                 const i = PERFORMING_BLOG.indexOf(o);
                 const star = o.topSix ? '⭐ ' : '';
                 const metrics = '<span style="color:#888;font-size:12px;">pos ' + (o.position!=null?o.position:'—') + ' · ' + (o.clicks!=null?o.clicks:'—') + ' clicks · ' + (o.impressions!=null?o.impressions:'—') + ' impr</span>';
-                let pill = '', urlLine = '', footer = '';
-                if (o.urlFree) {
+                const isC = !!(o.pageUrl && !o.urlFree);
+                const delBtn = '<button onclick="banPerfBlog(' + i + ')" title="Delete this keyword — remove it and never suggest it again" style="background:#fff;color:#a33;border:1px solid #ccc;border-radius:6px;padding:6px 10px;font-size:13px;font-weight:700;cursor:pointer;">🚫 Delete</button>';
+                let pill = '', urlLine = '', footer = '', borderCol = '#e6d3a3', bg = '#fffdf8';
+                if (isC) {
+                    // C — give this keyword its OWN blog; the page that already ranks will link to it.
+                    pill = '<span style="background:#f6d9c7;color:#8a3b12;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;margin-left:6px;">Situation C</span>';
+                    urlLine = '<div style="font-size:12px;color:#8a3b12;margin:3px 0 8px;word-break:break-word;">ranks on a page about “' + escBlog(o.lockedToKeyword || 'another keyword') + '” — write its own blog, then that page links here</div>';
+                    footer = '<div style="margin-top:8px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">'
+                        + '<button onclick="usePerformingInBlog(' + i + ')" style="background:#1f6fb2;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;">② Use in a blog</button>'
+                        + delBtn + '</div>';
+                    borderCol = '#eccdb9'; bg = '#fff8f3';
+                } else if (o.urlFree) {
                     // B — ranks on a free page → optimise that page (goes to Money Page Doctor).
                     pill = '<span style="background:#e4f2e4;color:#1f5f1f;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;margin-left:6px;">page ranks · free</span>';
                     urlLine = '<div style="font-size:12px;color:#2e7d32;margin:3px 0 8px;word-break:break-word;">ranks now: ' + escBlog(o.pageUrl) + '</div>';
                     footer = '<div style="margin-top:8px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">'
                         + '<button onclick="sendBlogToOptimise(' + i + ')" style="background:#2e7d32;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;">① Send to optimise (MPD)</button>'
-                        + '<button onclick="dismissPerfBlog(' + i + ')" style="background:#fff;color:#a33;border:1px solid #ccc;border-radius:6px;padding:6px 10px;font-size:13px;font-weight:700;cursor:pointer;">✕ Dismiss</button></div>';
+                        + delBtn + '</div>';
                 } else {
                     // A — no ranking page → write a dedicated blog.
                     pill = '<span style="background:#eef2fb;color:#274b8a;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;margin-left:6px;">no page yet</span>';
                     urlLine = '<div style="font-size:12px;color:#888;margin:3px 0 8px;">no page ranks for this yet — good for a new blog</div>';
                     footer = '<div style="margin-top:8px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">'
                         + '<button onclick="usePerformingInBlog(' + i + ')" style="background:#1f6fb2;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;">② Use in a blog</button>'
-                        + '<button onclick="dismissPerfBlog(' + i + ')" style="background:#fff;color:#a33;border:1px solid #ccc;border-radius:6px;padding:6px 10px;font-size:13px;font-weight:700;cursor:pointer;">✕ Dismiss</button></div>';
+                        + delBtn + '</div>';
                 }
-                return '<div style="border:1px solid #e6d3a3;border-radius:10px;padding:11px 13px;background:#fffdf8;">'
+                return '<div style="border:1px solid ' + borderCol + ';border-radius:10px;padding:11px 13px;background:' + bg + ';">'
                     + '<div style="font-weight:600;">' + star + escBlog(o.keyword) + pill + '</div>'
                     + '<div style="margin-top:2px;">' + metrics + '</div>' + urlLine + footer + '</div>';
             }).join('') + '</div>';
+        }
+        // Delete + ban a blog keyword (removes it and never suggests it again — same endpoint as the NPG).
+        async function banPerfBlog(i) {
+            const o = (PERFORMING_BLOG || [])[i]; if (!o) return;
+            if (!confirm('Delete "' + o.keyword + '"? It will be removed and never suggested again.')) return;
+            try { await fetch('/api/keywords', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete-and-ban', keyword: o.keyword }) }); PERFORMING_BLOG.splice(i, 1); renderPerformingBlog(); }
+            catch (e) { alert('Could not delete: ' + e.message); }
         }
         // B — send the keyword to Money Page Doctor to optimise the page that already ranks.
         async function sendBlogToOptimise(i) {
