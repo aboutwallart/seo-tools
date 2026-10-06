@@ -286,7 +286,7 @@
             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
-                    <p class="subtitle">AI-Powered SEO Analysis · v72.3</p>
+                    <p class="subtitle">AI-Powered SEO Analysis · v72.4</p>
                     <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.11</p>
                     <button onclick="resetAllChecklists()" title="Wipe all saved checklists so every page starts fresh" style="margin-top:6px;background:#fff;color:#c62828;border:1px solid #ef9a9a;padding:4px 10px;border-radius:6px;font-size:0.72rem;cursor:pointer;">🧹 Reset all checklists (start clean)</button>
                 </div>
@@ -3467,7 +3467,7 @@
                 </div>` : '';
 
             // ── Add a Video block (blogs) — paste a YouTube link, tool drops it at the end ─────
-            const videoBlock = _isBlog ? `
+            const videoBlock = (_isBlog && !s.hasBodyVideo) ? `
                 <div class="action-block" id="videoBlockCard" style="border-color:#c0392b;">
                     <h3 style="display:flex;align-items:center;gap:10px;"><input type="checkbox" data-key="add_video" ${state['add_video']?'checked':''} onchange="onTaskChange(this)" style="width:18px;height:18px;cursor:pointer;flex-shrink:0;" title="Tick when done — greys this block out">🎬 Add a Video</h3>
                     <p style="font-size:0.85rem;color:#666;margin-bottom:12px;">Paste a YouTube link and the tool adds a bold <strong>WATCH: (video title)</strong> line plus the video at the <strong>end</strong> of your blog (same look your blogs already use). You'll see a preview before anything is saved.</p>
@@ -3777,7 +3777,9 @@
 
             // ── Updated Table of Contents block (blogs whose body has a List of Contents) ──
             const _tocList = (_isBlog && Array.isArray(s.updatedTableOfContents)) ? s.updatedTableOfContents : [];
-            const _tocLis = _tocList.map(t => `<li>${(t||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</li>`).join('');
+            // Entries are clean short headings (tags already stripped server-side); the ONLY markup is the
+            // intentional "unique wall art" link, so render as-is instead of escaping it to visible text.
+            const _tocLis = _tocList.map(t => `<li>${t || ''}</li>`).join('');
             const _tocEdit = _editsAttr([{ kind: 'toc', content: `<p><strong>List of Contents</strong></p><ul>${_tocList.map(t => `<li>${t}</li>`).join('')}</ul>` }]);
             const tocBlock = _tocList.length ? `
                 <div class="action-block" style="border-color:#5e35b1;">
@@ -4375,7 +4377,27 @@
                     <h3 style="color:#c62828;">🏆 This page already ranks #${_wpRank} — protect it</h3>
                     <p style="font-size:0.86rem;color:#555;line-height:1.6;margin:0;">✅ <strong>Safe:</strong> add FAQ/snippets, internal &amp; related links, new sections, image alt. &nbsp; ⚠️ <strong>Be careful (the red-flagged items below):</strong> changing the title or slug, removing a section${_isProduct ? ', or the full description rewrite' : ''} — these can drop a ranking. You decide — the tool only flags them.</p>
                 </div>` : '';
-            const thisPageBlocks = winnerGuardBanner + masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + videoBlock + paaRemoveBlock + overuseBlock + productDescBlock + productDescOptimisedBlock + aiBlock + pageQuestionsBlock + pageFieldsBlock + pageBrowseBlock + paaBlock + internalAddBlock + manualBlock + tocBlock + seoTextLinksBlock + browseBlock + inactiveProductsBlock + missingButtonsBlock + internalAddBlockTmpl + linkedRefsBlock + blogQualityBlock + homepageImageBlock + imageBlock + autolinkBlock;
+            // Brand links the tool couldn't auto-place (no "wall art" in the Quick Answer, or no wall-art
+            // heading for the index) — show them here so Mae can add them by hand.
+            const unplacedLinksBlock = (Array.isArray(s.unplacedBrandLinks) && s.unplacedBrandLinks.length) ? `
+                <div class="action-block" style="border-color:#8a6d00;">
+                    <h3>🔗 Add this link by hand</h3>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:12px;">No pude colocar este link solo (no encontré dónde). Ponelo a mano: linkeá las palabras del anchor a la URL (que abra en ventana nueva).</p>
+                    ${s.unplacedBrandLinks.map((l, i) => `
+                        <div style="padding:10px 12px;background:#fffdf5;border:1px solid #f0e2b0;border-radius:6px;margin-bottom:8px;">
+                            <div style="font-size:0.72rem;color:#888;font-weight:600;">ANCHOR</div>
+                            <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
+                                <input id="upl_anchor_${i}" type="text" readonly value="${(l.anchor||'').replace(/"/g,'&quot;')}" style="flex:1;min-width:0;padding:7px 9px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.82rem;font-family:'Poppins',sans-serif;background:white;">
+                                <button class="copy-btn" type="button" style="padding:4px 10px;font-size:0.72rem;white-space:nowrap;" onclick="copyToClipboard(document.getElementById('upl_anchor_${i}').value,this)">📋 Anchor</button>
+                            </div>
+                            <div style="font-size:0.72rem;color:#888;font-weight:600;">URL</div>
+                            <div style="display:flex;gap:6px;align-items:center;">
+                                <input id="upl_url_${i}" type="text" readonly value="${(l.url||'').replace(/"/g,'&quot;')}" style="flex:1;min-width:0;padding:7px 9px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.78rem;font-family:monospace;background:white;">
+                                <button class="copy-btn" type="button" style="padding:4px 10px;font-size:0.72rem;white-space:nowrap;" onclick="copyToClipboard(document.getElementById('upl_url_${i}').value,this)">📋 URL</button>
+                            </div>
+                        </div>`).join('')}
+                </div>` : '';
+            const thisPageBlocks = winnerGuardBanner + masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + videoBlock + paaRemoveBlock + overuseBlock + productDescBlock + productDescOptimisedBlock + aiBlock + pageQuestionsBlock + pageFieldsBlock + pageBrowseBlock + paaBlock + internalAddBlock + manualBlock + tocBlock + seoTextLinksBlock + browseBlock + inactiveProductsBlock + missingButtonsBlock + internalAddBlockTmpl + linkedRefsBlock + blogQualityBlock + unplacedLinksBlock + homepageImageBlock + imageBlock + autolinkBlock;
             const otherPageBlocks = loserLinksBlock + relatedBlogsBlock;
             return thisPageBlocks + otherPageBlocks + reindexBlock;
         }
