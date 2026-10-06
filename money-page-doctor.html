@@ -286,7 +286,7 @@
             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
-                    <p class="subtitle">AI-Powered SEO Analysis · v72.7</p>
+                    <p class="subtitle">AI-Powered SEO Analysis · v72.8</p>
                     <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.11</p>
                     <button onclick="resetAllChecklists()" title="Wipe all saved checklists so every page starts fresh" style="margin-top:6px;background:#fff;color:#c62828;border:1px solid #ef9a9a;padding:4px 10px;border-radius:6px;font-size:0.72rem;cursor:pointer;">🧹 Reset all checklists (start clean)</button>
                 </div>
@@ -890,7 +890,7 @@
             const admin = hasUrl ? '<button class="btn-secondary" style="white-space:nowrap;" onclick="doFirstAdmin('+"'"+encodeURIComponent(first.keyword)+"'"+')">Open page in admin ↗</button>' : '';
             const star = t => (t.position!=null && t.position<=6) ? '⭐ ' : '';
             const metricsOf = t => 'pos '+(t.position!=null?t.position:'—')+' · '+(t.clicks!=null?t.clicks:'—')+' clicks · '+(t.impressions!=null?t.impressions:'—')+' impr';
-            const delBtn = t => '<button class="btn-secondary" title="Delete this keyword — remove it and never suggest it again" style="background:#fff;color:#a33;border:1px solid #ccc;" onclick="dfBan('+"'"+encodeURIComponent(t.keyword)+"'"+')">🚫 Delete</button>';
+            const delBtn = t => '<button class="btn-secondary" title="Delete this keyword — remove it and never suggest it again" style="background:#fff;color:#a33;border:1px solid #ccc;" onclick="dfBan('+"'"+encodeURIComponent(t.keyword)+"'"+',this)">🚫 Delete</button>';
 
             let header, body, border, bg;
             if(bucket==='green'){
@@ -905,7 +905,7 @@
                         '<div style="font-weight:700;">'+star(t)+escDF(t.keyword)+'</div>'+
                         '<div style="color:#888;font-size:12px;margin-top:2px;">'+metricsOf(t)+'</div>'+
                         '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'+
-                            '<button class="btn-secondary" style="background:#2e7d32;color:#fff;border-color:#2e7d32;" onclick="dfLockOptimise('+"'"+enc+"'"+')">Lock &amp; optimise →</button>'+
+                            '<button class="btn-secondary" style="background:#2e7d32;color:#fff;border-color:#2e7d32;" onclick="dfLockOptimise('+"'"+enc+"'"+',this)">Lock &amp; optimise →</button>'+
                             delBtn(t)+
                         '</div></div>';
                 }).join('');
@@ -937,20 +937,28 @@
             return '<div style="border:'+border+';border-radius:10px;padding:14px 16px;background:'+bg+';">'+header+body+'</div>';
         }
         // 🟢 green action: lock the keyword to its (free) ranking page → it moves to Start Here to be optimised.
-        async function dfLockOptimise(kwEnc){
+        // Instant feedback: the button shows "Locking…", the card is removed right away, and the heavy
+        // re-sync (which also reclassifies the page's OTHER keyword to red) runs in the background.
+        async function dfLockOptimise(kwEnc, btn){
             const t = doFirstFind(kwEnc); if(!t||!t.pageUrl) return;
             const intent = (t.source==='blog') ? 'INFORMATIONAL' : 'COMMERCIAL';
+            if(btn){ btn.disabled=true; btn.textContent='Locking…'; }
             try{
                 await kwApi({action:'claim-to-registry', keyword:t.keyword, url:t.pageUrl, intent});
-                await loadCaptureTasks(); renderDoFirstList();
-            }catch(e){ alert('Could not lock: '+e.message); }
+                DOFIRST_TASKS = DOFIRST_TASKS.filter(x=>x!==t); renderDoFirstList();   // instant
+                try{ await loadCaptureTasks(); renderDoFirstList(); }catch(_){ }         // reconcile in background
+            }catch(e){ if(btn){ btn.disabled=false; btn.textContent='Lock & optimise →'; } alert('Could not lock: '+e.message); }
         }
-        // 🚫 delete + ban a keyword (removes it and never suggests it again).
-        async function dfBan(kwEnc){
+        // 🚫 delete + ban a keyword (removes it and never suggests it again). Same instant pattern.
+        async function dfBan(kwEnc, btn){
             const kw = decodeURIComponent(kwEnc);
             if(!confirm('Delete "'+kw+'"? It will be removed and never suggested again.')) return;
-            try{ await kwApi({action:'delete-and-ban', keyword:kw}); await loadCaptureTasks(); renderDoFirstList(); }
-            catch(e){ alert('Could not delete: '+e.message); }
+            if(btn){ btn.disabled=true; btn.textContent='Deleting…'; }
+            try{
+                await kwApi({action:'delete-and-ban', keyword:kw});
+                DOFIRST_TASKS = DOFIRST_TASKS.filter(x=>(x.keyword||'').toLowerCase()!==kw.toLowerCase()); renderDoFirstList();
+                try{ await loadCaptureTasks(); renderDoFirstList(); }catch(_){ }
+            }catch(e){ if(btn){ btn.disabled=false; btn.textContent='🚫 Delete'; } alert('Could not delete: '+e.message); }
         }
         // Shared editable text block (title row + paragraph + stacked copy buttons + small Rewrite).
         // Used by both the merged section and the single-keyword cards so they look identical.
