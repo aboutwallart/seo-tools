@@ -1,4 +1,11 @@
-// api/keywords.js — New Product Generator backend  ·  v0.47
+// api/keywords.js — New Product Generator backend  ·  v0.48
+// v0.48 (2026-10-06): DO FIRST = 3 buckets, nothing locked shown, clean URLs. syncCaptureTasks now returns
+//   each task with a `bucket`: 🟢 green (ranks on a FREE page → lock it → Start Here; computed live), 🔴 red
+//   (ranks on a TAKEN page → needs its own product/blog; persisted + auto-fed to the NPG pool), 🟡 yellow
+//   (a red one now locked to a DIFFERENT page → paste the paragraph+link on the OLD page, then done). A
+//   keyword locked to the SAME page it ranks on is HIDDEN (it already owns that page → lives in Start Here/
+//   Optimised). Every ranking URL is run through isShitUrl (reuses keyword-locker's FOREIGN_PATTERNS + junk
+//   filter) and cleanUrl now also strips www. The green "Lock & optimise" button calls claim-to-registry.
 // v0.47 (2026-10-06): CASE-C LOOP (give a ranking keyword its OWN new page, then link the page that already
 //   ranks to it). (1) syncCaptureTasks now AUTO-ADDS every product-intent C keyword to the NPG build pool
 //   (product-keyword-ideas.json) carrying its ranking page + owner keyword + GSC stats, origin:'C'. (2) Each
@@ -343,10 +350,24 @@ async function lockedKeywordSet() {
 
 // Map of normalised URL -> the keyword it's LOCKED to (only rows with a real url + LOCKED). Used to tell,
 // for a keyword you rank for, whether the ranking page is already committed to ANOTHER keyword.
-// Strip the query string / hash: GSC reports variant URLs like ".../foo?variant=123&country=GB" but the
-// real page (and the registry) is just ".../foo". Cleaning also makes the "URL locked?" check match.
-function cleanUrl(u) { return String(u || '').split(/[?#]/)[0]; }
+// Strip the query string / hash AND the www. prefix: GSC reports variant URLs like
+// ".../foo?variant=123&country=GB" but the real page (and the registry) is just ".../foo". Cleaning also
+// makes the "URL locked?" check match.
+function cleanUrl(u) { return String(u || '').split(/[?#]/)[0].replace(/^(https?:\/\/)www\./i, '$1'); }
 function normUrl(u) { return cleanUrl(u).trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, ''); }
+// Reuse the Keyword Locker's "shit URL" filter (keyword-locker.html shouldExclude): never surface a
+// foreign-locale page (/fr/ /es/ …), a CDN asset, an encoded/emoji handle (%) or a junk slug.
+const FOREIGN_URL_PATTERNS = ['/es/', '/fr/', '/de/', '/it/', '/pt/', '/nl/', '/ru/', '/ja/', '/zh/', '/ko/', '/ar/'];
+const JUNK_URL_SLUGS = ['write-for-us', 'contact', 'about-us', 'privacy', 'terms', 'wishlist', 'loyalty', 'confirm-your-email'];
+function isShitUrl(u) {
+  const s = String(u || '');
+  if (!s) return true;
+  if (FOREIGN_URL_PATTERNS.some(p => s.includes(p))) return true;
+  if (s.includes('/cdn/')) return true;
+  if (s.includes('%')) return true;
+  if (JUNK_URL_SLUGS.some(j => s.includes(j))) return true;
+  return false;
+}
 async function registryUrlLockMap() {
   const map = {};
   try {
@@ -818,27 +839,32 @@ async function captureOptimise(body) {
   }
   throw new Error('write conflict, try again');
 }
-// C — auto: every keyword that ranks on a page LOCKED to another keyword becomes a "strengthen" card.
-// CASE-C LOOP: the card's keyword is also sent to the NPG build pool (product intent) so it can get its OWN
-// new page. Once that page is built + locked, the keyword appears in the registry with a URL (kwUrlMap) →
-// the card carries targetUrl + ready=true (the ranking page links to the NEW page instead of a collection).
-// Locked C keywords are NO LONGER dropped — they are exactly the "ready" ones.
+// Do First — three buckets, and NOTHING already locked ever shows here (a locked keyword lives in Start
+// Here / Optimised / Winners; one keyword, one tab). URLs are always clean (no ?/variant/locale/junk).
+//   🟢 green  — ranks on a FREE page (no other keyword locked to it). Action: lock it → it moves to Start
+//               Here to be optimised. Computed live from GSC each load (nothing persisted, nothing to store).
+//   🔴 red    — ranks on a page TAKEN by another keyword. Needs its OWN new page (product/blog). Persisted
+//               as a strengthen task + auto-fed to the NPG build pool. Waits here until it's built.
+//   🟡 yellow — a red one that now HAS its own new page (locked to a DIFFERENT url than the ranking page):
+//               paste the paragraph + link on the OLD ranking page, mark done → finished.
+//   (hidden)  — keyword locked to the SAME page it ranks on → it already owns that page → not shown here.
 async function syncCaptureTasks() {
   const [perf, urlLocks, dismissed, store, locked, kwUrlMap] = await Promise.all([
     readPerformingList(), registryUrlLockMap(), readPerformingDismissed(), readCaptureTasksRaw(), lockedKeywordSet(), registryKeywordUrlMap()
   ]);
   let arr = store.arr; let sha = store.sha;
   const have = new Set(arr.map(t => captureKey(t.keyword)));
+  // 1) Persist a strengthen task for each NEW taken-page keyword (the red/yellow source).
   let added = 0;
   perf.forEach(k => {
     if (!k || !k.keyword) return;
     const kw = captureKey(k.keyword);
     if (have.has(kw) || dismissed.has(kw)) return;
-    if (locked.has((k.keyword || '').toLowerCase())) return;   // first-seen AND already locked (built elsewhere) → no card
+    if (locked.has((k.keyword || '').toLowerCase())) return;   // already locked → lives in another tab, not here
     const cleanRanking = k.rankingUrl ? cleanUrl(k.rankingUrl) : null;
-    if (!cleanRanking) return;                          // no page → a new-product case, not strengthen
+    if (!cleanRanking || isShitUrl(cleanRanking)) return;      // no page or a shit URL (variant/locale/junk) → skip
     const lockedTo = urlLocks[normUrl(cleanRanking)];
-    if (!lockedTo) return;                              // free page → that's an optimise (B), sent by button
+    if (!lockedTo) return;                              // free page → that's GREEN (computed live below)
     arr.push({
       keyword: k.keyword, type: 'strengthen', pageUrl: cleanRanking,
       position: (k.position != null ? k.position : null), clicks: (k.clicks != null ? k.clicks : null),
@@ -855,22 +881,42 @@ async function syncCaptureTasks() {
       catch (e) { if (e.status === 409 && attempt < 2) { const re = await readCaptureTasksRaw(); arr = re.arr; sha = re.sha; continue; } throw e; }
     }
   }
-  const live = arr.filter(t => t.status !== 'dismissed');
-  // Auto-feed the NPG build pool: every product-intent C keyword that still needs its own page (not yet
-  // locked) is offered as a "build a product" keyword, carrying its ranking page + owner keyword + stats.
+  // 2) Classify the persisted strengthen tasks → red (no page yet) / yellow (got a DIFFERENT page) / hidden.
+  const strengthenTasks = [];
+  arr.filter(t => t.status !== 'dismissed' && t.type === 'strengthen').forEach(t => {
+    const rankingPage = cleanUrl(t.pageUrl || '');
+    if (!rankingPage || isShitUrl(rankingPage)) return;        // safety: never surface a shit URL
+    const own = kwUrlMap[(t.keyword || '').toLowerCase()] || null;
+    if (!own) { strengthenTasks.push({ ...t, pageUrl: rankingPage, bucket: 'red', targetUrl: null, ready: false }); return; }
+    if (normUrl(own) === normUrl(rankingPage)) return;         // owns its ranking page → hide (it's in Start Here/Optimised)
+    strengthenTasks.push({ ...t, pageUrl: rankingPage, bucket: 'yellow', targetUrl: own, ready: true });
+  });
+  // 3) GREEN — free-page keywords, not locked, not dismissed. Live from GSC (not persisted; the lock is the action).
+  const greenTasks = []; const seenGreen = new Set();
+  perf.forEach(k => {
+    if (!k || !k.keyword) return;
+    const kw = captureKey(k.keyword);
+    if (dismissed.has(kw) || seenGreen.has(kw)) return;
+    if (locked.has((k.keyword || '').toLowerCase())) return;   // locked → in Start Here/Optimised, not here
+    const cleanRanking = k.rankingUrl ? cleanUrl(k.rankingUrl) : null;
+    if (!cleanRanking || isShitUrl(cleanRanking)) return;
+    if (urlLocks[normUrl(cleanRanking)]) return;               // page taken → that's red, not green
+    seenGreen.add(kw);
+    greenTasks.push({ keyword: k.keyword, type: 'optimise', pageUrl: cleanRanking,
+      position: (k.position != null ? k.position : null), clicks: (k.clicks != null ? k.clicks : null),
+      impressions: (k.impressions != null ? k.impressions : null),
+      lockedToKeyword: null, source: (k.intent === 'blog' ? 'blog' : 'product'),
+      status: 'todo', bucket: 'green', targetUrl: null, ready: false });
+  });
+  // 4) Auto-feed the NPG build pool with the RED (needs-its-own-page), product-intent keywords.
   try {
-    const toPool = live
-      .filter(t => t.type === 'strengthen' && (t.source || 'product') !== 'blog' && !locked.has((t.keyword || '').toLowerCase()))
+    const toPool = strengthenTasks
+      .filter(t => t.bucket === 'red' && (t.source || 'product') !== 'blog')
       .map(t => ({ keyword: t.keyword, impressions: t.impressions, clicks: t.clicks, position: t.position,
         pageUrl: t.pageUrl || null, lockedToKeyword: t.lockedToKeyword || null, origin: 'C' }));
     if (toPool.length) await addProductIdeasBulk(toPool);
   } catch { /* pool feed is best-effort; the cards still work */ }
-  // Enrich each returned task with the NEW page URL (once its keyword is built + locked) and a ready flag.
-  const tasks = live.map(t => {
-    const targetUrl = kwUrlMap[(t.keyword || '').toLowerCase()] || null;
-    return { ...t, targetUrl, ready: !!targetUrl };
-  });
-  return { tasks };
+  return { tasks: [...greenTasks, ...strengthenTasks] };
 }
 async function setCaptureTaskStatus(keyword, status) {
   keyword = (keyword || '').trim();
