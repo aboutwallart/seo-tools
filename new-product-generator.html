@@ -220,7 +220,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v4.12</span>
+  <span class="ver">v4.13</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -451,6 +451,14 @@ let GEN_ROOM = {};        // sku -> true while its SEO is generating
 let SHARED_UPLOADING = false;
 let SHARED_STAGE = [];    // staged shared images before upload: [{data, mediaType, name, slot, thumb}]
 let SHARED_PROGRESS = ''; // progress/error text during the shared upload
+// Lifestyle images are now STAGED per room (like the shared box) and uploaded only when you press OK.
+let LS_STAGE = {};        // { sku: [{data, mediaType, name, thumb}] } — staged lifestyle, not yet uploaded
+let LS_UPLOADING = {};    // { sku: true } while that room is uploading
+let LS_PROGRESS = {};     // { sku: "Uploading 2/5…" }
+// Global upload queue — every image upload runs ONE AT A TIME (they all write the same products file,
+// so running them in parallel caused sha conflicts: the hang + silent failures).
+let UPLOAD_CHAIN = Promise.resolve();
+function queuedUpload(fn){ const run = UPLOAD_CHAIN.then(()=>fn()); UPLOAD_CHAIN = run.then(()=>{},()=>{}); return run; }
 const DEFINE_SECTIONS = ['sku','terms','ai','template','collections','set','trends','colours','rooms'];
 const DEFINE_TITLES = {sku:'SKU for print files',terms:'Extra keyword terms',ai:'Instructions for the AI',template:'Theme template',collections:'Collections',set:'Set size',trends:'Trends',colours:'Colours',rooms:'Rooms — where it goes'};
 
@@ -1124,8 +1132,20 @@ function renderSharedBox(){
     : '';
   const err = (!SHARED_UPLOADING && SHARED_PROGRESS) ? '<div class="msg show info" style="margin-top:10px">'+esc(SHARED_PROGRESS)+'</div>' : '';
   return '<div class="sharedbox"><div class="sectlab" style="margin-bottom:6px">Shared images — flats + singles (add in batches, then upload once to every room)</div>'+
-    dzOrBusy+tiles+btn+err+
+    dzOrBusy+tiles+btn+err+uploadedSharedTiles(groupProducts())+
     '<input type="file" id="sharedfile" accept="image/*" multiple style="display:none" onchange="onSharedPicked(this)"></div>';
+}
+// Once uploaded, the shared images stay VISIBLE here as "uploaded" with their previews (not hidden).
+function uploadedSharedTiles(g){
+  const withImgs=(g||[]).find(p=>p.images && (Object.keys(p.images.flats||{}).length || (p.images.individuals||[]).length || Object.keys(p.images.commons||{}).length));
+  if(!withImgs) return '';
+  const im=withImgs.images||{}; const tiles=[];
+  const add=(url,label)=>{ if(url) tiles.push('<div style="text-align:center;width:110px"><div style="position:relative;height:110px;border-radius:8px;background:url('+esc(url)+') center/cover;border:1px solid var(--ok)"><div class="dz-badge">✓</div></div><div class="dz-label" style="font-weight:500">'+esc(label)+'</div></div>'); };
+  ['flatUnframed','flatWhite','flatOak','flatBlack','flatCanvas'].forEach(s=>{ const r=(im.flats||{})[s]; if(r&&r.url) add(r.url, SLOT_LABEL[s]||s); });
+  (im.individuals||[]).forEach((r,i)=>{ if(r&&r.url) add(r.url, 'Single '+(i+1)); });
+  ['commonLady','commonUnboxing'].forEach(s=>{ const r=(im.commons||{})[s]; if(r&&r.url) add(r.url, SLOT_LABEL[s]||s); });
+  if(!tiles.length) return '';
+  return '<div class="sectlab" style="margin:16px 0 6px;color:var(--ok)">Uploaded to every room ✓</div><div style="display:flex;gap:10px;flex-wrap:wrap">'+tiles.join('')+'</div>';
 }
 function onSharedDrop(e){ e.preventDefault(); sharedStageFiles([...e.dataTransfer.files]); }
 function onSharedPicked(input){ const fs=[...input.files]; input.value=''; sharedStageFiles(fs); }
@@ -1178,6 +1198,9 @@ function reviewRoom(p){
   const gen=!!GEN_ROOM[p.sku];
   const miss=missingBits(p);
   const ready=miss.length===0;
+  const stagedLs=(LS_STAGE[p.sku]||[]).length;
+  const missShown=miss.filter(x=>!(x==='1 lifestyle' && stagedLs>0));
+  const okOk=canFinish(p);
   let status;
   if(ready && p.roomApproved) status='<span class="vst" style="color:var(--ok);font-weight:700">✓ done</span>';
   else if(gen) status='<span class="vst">generating…</span>';
@@ -1186,8 +1209,9 @@ function reviewRoom(p){
   const kwTxt=p.keyword?'<span style="color:var(--accent);font-weight:600">'+esc(p.keyword)+'</span>':'<span style="color:var(--muted)">no keyword yet</span>';
   const titleTxt=(p.content&&p.content.productTitle)?' · '+esc(p.content.productTitle):'';
   const sub='<div class="vhsub">'+kwTxt+titleTxt+'</div>';
-  const missLine=(!ready&&!gen)?'<div class="vmiss">Missing: '+miss.map(esc).join(' · ')+'</div>':'';
-  const okBtn='<button class="okbtn-sm'+(p.roomApproved?' done':'')+'" '+(ready?'':'disabled title="Finish the missing items first"')+' onclick="event.stopPropagation();roomOk('+"'"+enc+"'"+')">'+(p.roomApproved?'Done ✓':'OK')+'</button>';
+  const stageNote = stagedLs>0 ? '<span style="color:var(--warn)">'+(missShown.length?' · ':'')+stagedLs+' lifestyle draft'+(stagedLs>1?'s':'')+' (press OK to upload)</span>' : '';
+  const missLine=(!gen && (missShown.length||stageNote))?'<div class="vmiss">'+(missShown.length?'Missing: '+missShown.map(esc).join(' · '):'')+stageNote+'</div>':'';
+  const okBtn='<button class="okbtn-sm'+(p.roomApproved?' done':'')+'" '+(okOk?'':'disabled title="Finish the missing items first"')+' onclick="event.stopPropagation();roomOk('+"'"+enc+"'"+')">'+(p.roomApproved?'Done ✓':(stagedLs>0?'OK — upload':'OK'))+'</button>';
   const body=open?('<div class="vbd">'+reviewRoomBody(p)+'</div>'):'';
   const annex='<div class="vimg">'+reviewRoomImages(p)+'</div>';
   return '<div class="vroom'+(open?' open':'')+(ready?' ready':'')+'">'+
@@ -1218,20 +1242,66 @@ function reviewRoomBody(p){
 }
 // Always-visible image annex per room: lifestyle drop + this room's lifestyle thumbnails (drop without opening).
 function reviewRoomImages(p){
-  const sku=p.sku;
+  const sku=p.sku, enc=encodeURIComponent(sku);
   const img=p.images||{lifestyle:[],individuals:[],flats:{},commons:{}};
-  let h='<div class="sectlab">Lifestyle photos — drop here (drag to reorder, first = cover)</div>'+
-    dropzone(sku,'lifestyle',(img.lifestyle||[]).length,null,null,!!UPLOADING[dzKey(sku,'lifestyle',(img.lifestyle||[]).length)]);
+  const stg=LS_STAGE[sku]||[]; const busy=!!LS_UPLOADING[sku];
+  let h='<div class="sectlab">Lifestyle photos — drop here (they stay as drafts and upload when you press OK · first = cover)</div>';
+  h+= busy
+    ? '<div class="dz dz-wide busy"><span class="dz-spinicon"></span>'+esc(LS_PROGRESS[sku]||'Uploading…')+'</div>'
+    : '<div class="dz dz-wide" onclick="document.getElementById(\'lsf-'+enc+'\').click()" ondragover="event.preventDefault();this.classList.add(\'over\')" ondragleave="this.classList.remove(\'over\')" ondrop="lsDrop(event,\''+esc(sku)+'\')">📷 Drop lifestyle photos here</div>'
+      +'<input type="file" id="lsf-'+enc+'" accept="image/*" multiple style="display:none" onchange="lsPick(this,\''+esc(sku)+'\')">';
+  // Already-uploaded (saved) lifestyle
   if((img.lifestyle||[]).length){
     h+='<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px">'+img.lifestyle.map((im,i)=>
       '<div class="dz-tile" draggable="true" ondragstart="onLifeDragStart(event,\''+esc(sku)+'\','+i+')" ondragover="event.preventDefault()" ondrop="onLifeDrop(event,\''+esc(sku)+'\','+i+')" ondragend="onLifeDragEnd(event)" style="text-align:center;width:150px"><div class="dz" style="cursor:grab"><img src="'+esc(im.url||'')+'">'+(i===0?'<div class="cover-badge">Cover</div>':'')+'<div class="dz-badge">✓</div></div><button class="btn rm small" style="margin-top:6px" onclick="removeProdImage(\''+esc(sku)+'\',\'lifestyle\','+i+')">Remove</button></div>'
     ).join('')+'</div>';
   }
+  // Staged (draft) lifestyle — temporary until OK
+  if(stg.length){
+    h+='<div style="margin-top:10px"><div class="dz-label" style="color:var(--warn);font-weight:600;margin-bottom:6px">To upload ('+stg.length+') — drafts, upload when you press OK</div><div style="display:flex;gap:10px;flex-wrap:wrap">'+stg.map((s,i)=>
+      '<div style="text-align:center;width:120px"><div style="position:relative;height:120px;border-radius:8px;background:url('+s.thumb+') center/cover;border:1px dashed var(--warn)">'+(busy?'':'<button onclick="lsStageRemove(\''+esc(sku)+'\','+i+')" title="Remove" style="position:absolute;top:-7px;right:-7px;width:20px;height:20px;border-radius:50%;border:1px solid var(--border-strong);background:#fff;color:var(--danger);font-size:13px;line-height:1;cursor:pointer">×</button>')+'</div></div>'
+    ).join('')+'</div></div>';
+  }
   return h;
+}
+function lsDrop(e,sku){ e.preventDefault(); e.currentTarget.classList.remove('over'); lsStageFiles(sku,[...(e.dataTransfer.files||[])]); }
+function lsPick(input,sku){ const fs=[...input.files]; input.value=''; lsStageFiles(sku,fs); }
+async function lsStageFiles(sku,files){
+  files=files.filter(f=>f.type&&f.type.startsWith('image/')); if(!files.length) return;
+  if(!LS_STAGE[sku]) LS_STAGE[sku]=[];
+  for(const f of files){ const c=(await compressImageFile(f,2000,0.85))||(await readFileAsBase64(f)); if(!c) continue; LS_STAGE[sku].push({data:c.data,mediaType:c.mediaType,name:f.name,thumb:'data:'+c.mediaType+';base64,'+c.data}); }
+  renderFlow();
+}
+function lsStageRemove(sku,i){ if(LS_STAGE[sku]) LS_STAGE[sku].splice(i,1); renderFlow(); }
+// Can this room be finished now? (staged lifestyle counts toward the "1 lifestyle" requirement, since OK uploads them first.)
+function canFinish(p){
+  const stagedLs=(LS_STAGE[p.sku]||[]).length;
+  return missingBits(p).filter(x=>!(x==='1 lifestyle' && stagedLs>0)).length===0;
 }
 async function changeRoomKeyword(enc){ const sku=decodeURIComponent(enc); const p=groupProducts().find(x=>x.sku===sku); if(!p) return; const upd={...p,keyword:'',roomApproved:false}; const r=await api({action:'save-product',product:upd}); PRODUCTS=r.products; delete KWC[sku]; VOPEN=null; renderFlow(); }
 async function regenRoom(enc){ const sku=decodeURIComponent(enc); GEN_ROOM[sku]=true; renderFlow(); try{ await genContentForRoom(sku); }catch(e){ msg('Failed: '+e.message,'err'); } finally{ delete GEN_ROOM[sku]; renderFlow(); } }
-async function roomOk(enc){ const sku=decodeURIComponent(enc); const p=groupProducts().find(x=>x.sku===sku); if(!p) return; if(!roomReady(p)){ msg('Still missing: '+missingBits(p).join(' · '),'err'); return; } const upd={...p,roomApproved:true}; const r=await api({action:'save-product',product:upd}); PRODUCTS=r.products; VOPEN=null; renderFlow(); }
+async function roomOk(enc){
+  const sku=decodeURIComponent(enc);
+  let p=groupProducts().find(x=>x.sku===sku); if(!p) return;
+  // 1) Upload any staged lifestyle first — ONE AT A TIME (queue), so it never floods / hangs.
+  const toUpload=(LS_STAGE[sku]||[]).slice();
+  if(toUpload.length){
+    LS_UPLOADING[sku]=true; LS_PROGRESS[sku]='Uploading 0/'+toUpload.length+'…'; renderFlow();
+    const failed=[]; let done=0;
+    for(const s of toUpload){
+      try{ const r=await queuedUpload(()=>api({action:'upload-image',sku,slot:'lifestyle',image:s.data,imageMediaType:s.mediaType})); PRODUCTS=r.products; }
+      catch(e){ failed.push(s); }
+      done++; LS_PROGRESS[sku]='Uploading '+done+'/'+toUpload.length+'…'; renderFlow();
+    }
+    LS_STAGE[sku]=failed;                       // keep only the failed ones, for a retry
+    LS_UPLOADING[sku]=false; delete LS_PROGRESS[sku];
+    if(failed.length){ msg(failed.length+' lifestyle photo(s) failed — press OK again to retry.','err'); renderFlow(); return; }
+  }
+  // 2) Now it must be fully complete to mark the room done.
+  p=groupProducts().find(x=>x.sku===sku);
+  if(!roomReady(p)){ msg('Still missing: '+missingBits(p).join(' · '),'err'); renderFlow(); return; }
+  const upd={...p,roomApproved:true}; const r=await api({action:'save-product',product:upd}); PRODUCTS=r.products; VOPEN=null; renderFlow();
+}
 
 /* ---------- STAGE: send (one product per room) ---------- */
 function renderSendStage(){
