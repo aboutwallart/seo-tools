@@ -220,7 +220,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v4.11</span>
+  <span class="ver">v4.12</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -928,10 +928,10 @@ function roomKeywordColumn(p,idx){
                       : '<div class="empty">No options. Copy the Ubersuggest prompt or add one manually.</div>';
   }
   const enc=encodeURIComponent(p.sku);
-  return '<div class="rcol"><div class="rcol-hd" style="background:'+c+'">'+(na?'<span class="na">New Arrivals</span>':'')+'<div class="rn">'+esc(roomName(p))+'</div><div class="sk">'+esc(p.sku)+'</div></div>'+
+  return '<div class="rcol" id="rcol-'+enc+'"><div class="rcol-hd" style="background:'+c+'">'+(na?'<span class="na">New Arrivals</span>':'')+'<div class="rn">'+esc(roomName(p))+'</div><div class="sk">'+esc(p.sku)+'</div></div>'+
     '<div class="rcol-bd"><div class="kwt">Main keyword — pick one · top 40</div>'+body+
     '<button class="btn link" style="margin-top:8px" onclick="roomPrompt('+"'"+enc+"'"+')">Don\'t like these? Copy Ubersuggest prompt</button>'+
-    '<div style="margin-top:8px;display:flex;gap:6px"><input type="text" class="maninput" placeholder="add manually" onkeydown="if(event.key===\'Enter\'){event.preventDefault();roomAddManual(this.nextElementSibling,\''+enc+'\');}"><button class="btn primary small" onclick="roomAddManual(this,\''+enc+'\')">Add</button></div>'+
+    '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap"><input type="text" class="maninput" placeholder="add keyword" style="flex:1 1 110px" onkeydown="if(event.key===\'Enter\'){event.preventDefault();roomAddManual(this.parentElement.querySelector(\'button\'),\''+enc+'\');}"><input type="text" class="manvol" placeholder="vol" style="width:54px"><input type="text" class="mandiff" placeholder="diff" style="width:50px"><button class="btn primary small" onclick="roomAddManual(this,\''+enc+'\')">Add</button></div>'+
     '</div></div>';
 }
 function roomKwOption(p,o,oi,pos){
@@ -944,6 +944,7 @@ function roomKwOption(p,o,oi,pos){
   if(s.available) pills.push('<span class="srcpill" style="background:#cfead0;color:#1f5f1f">you rank</span>');
   if(s.gap) pills.push('<span class="srcpill" style="background:#f3e6b8;color:#6b551a">gap</span>');
   if(s.uber) pills.push('<span class="srcpill" style="background:#e6ddf5;color:#5b3a8c">UBER</span>');
+  if(s.manual) pills.push('<span class="srcpill" style="background:#e3e3e3;color:#444">manual</span>');
   if(s.gsc) pills.push('<span class="srcpill" style="background:#d9efe6;color:#1f5f4f">GSC</span>');
   if(s.gkp) pills.push('<span class="srcpill" style="background:#dbe7fb;color:#274b8f">Google KP</span>');
   const met=[];
@@ -951,6 +952,7 @@ function roomKwOption(p,o,oi,pos){
   if(s.available){ const b=[]; if(s.available.position!=null)b.push('pos '+s.available.position); if(s.available.clicks!=null)b.push(s.available.clicks+' clk'); met.push('you rank'+(b.length?' · '+b.join(' · '):'')); }
   if(s.gap) met.push('gap vol '+(s.gap.volume!=null?s.gap.volume:'—')+' · '+diffLabel(s.gap));
   if(s.uber) met.push('Uber vol '+(s.uber.volume!=null?s.uber.volume:'—')+' · '+diffLabel(s.uber));
+  if(s.manual){ const mp=[]; if(s.manual.volume!==''&&s.manual.volume!=null) mp.push('vol '+s.manual.volume); if(s.manual.difficulty!==''&&s.manual.difficulty!=null) mp.push('diff '+s.manual.difficulty); met.push(mp.length?mp.join(' · '):'manual'); }
   if(s.gsc) met.push('GSC '+(s.gsc.impressions!=null?s.gsc.impressions:'—')+' impr · pos '+(s.gsc.position!=null?s.gsc.position:'—'));
   if(s.gkp) met.push('Google KP vol '+(s.gkp.volume!=null?s.gkp.volume:'—')+(s.gkp.competition?' · '+compLabel(s.gkp.competition):''));
   const enc=encodeURIComponent(p.sku);
@@ -1025,6 +1027,16 @@ function selectByQuota(items){
   return out;
 }
 function ensureRoomKeywords(){ groupProducts().forEach(p=>{ if(!KWC[p.sku]) fetchRoomKw(p); }); }
+// Re-render ONE room's column in place (keeps every other column's typed text + scroll intact).
+// Used when a room finishes loading in the background, so it never wipes what you're typing elsewhere.
+function updateRoomColumn(sku){
+  if((OPEN_STAGE||naturalStageKey())!=='keywords') return false;
+  const g=groupProducts(); const idx=g.findIndex(x=>x.sku===sku); if(idx<0) return false;
+  const old=document.getElementById('rcol-'+encodeURIComponent(sku)); if(!old) return false;
+  const tmp=document.createElement('div'); tmp.innerHTML=roomKeywordColumn(g[idx],idx);
+  const neu=tmp.firstElementChild; if(!neu) return false;
+  old.replaceWith(neu); return true;
+}
 async function fetchRoomKw(p){
   KWC[p.sku]={loading:true,options:[]};
   const [gapR,gscR,availR,gkpR,matchR,uberR]=await Promise.all([
@@ -1049,14 +1061,29 @@ async function fetchRoomKw(p){
   const all=[...map.values()].map(o=>{ o.pot=mergedPot(o.sources); o.cat=catOf(o.keyword,p); return o; });
   const list=selectByQuota(all);
   KWC[p.sku]={loading:false,options:list};
-  if((OPEN_STAGE||naturalStageKey())==='keywords') renderFlow();
+  // Update ONLY this room's column — never redraw the whole screen (that wiped manual typing + jumped to top).
+  if((OPEN_STAGE||naturalStageKey())==='keywords'){ if(!updateRoomColumn(p.sku)) renderFlow(); }
 }
 async function roomPick(enc,oi){ const sku=decodeURIComponent(enc); const st=KWC[sku]; if(!st) return; const o=st.options[oi]; if(!o) return; await applyRoomKeyword(sku,o.keyword); }
-async function roomAddManual(btn,enc){ const box=btn&&btn.parentElement; const el=box&&box.querySelector('input'); const kw=((el&&el.value)||'').trim(); if(!kw){ msg('Type a keyword first.','err'); return; } if(el) el.value=''; await applyRoomKeyword(decodeURIComponent(enc),kw); }
+async function roomAddManual(btn,enc){
+  const box=btn&&btn.parentElement;
+  const kwEl=box&&box.querySelector('.maninput'), volEl=box&&box.querySelector('.manvol'), diffEl=box&&box.querySelector('.mandiff');
+  const kw=((kwEl&&kwEl.value)||'').trim();
+  if(!kw){ msg('Type a keyword first.','err'); return; }
+  const meta={ volume:((volEl&&volEl.value)||'').trim(), difficulty:((diffEl&&diffEl.value)||'').trim() };
+  if(kwEl) kwEl.value=''; if(volEl) volEl.value=''; if(diffEl) diffEl.value='';
+  await applyRoomKeyword(decodeURIComponent(enc),kw,meta);
+}
 async function roomPrompt(enc){ const sku=decodeURIComponent(enc); const p=groupProducts().find(x=>x.sku===sku); if(!p) return; try{ await navigator.clipboard.writeText(promptText(p)); msg('Prompt copied.','ok'); }catch{ msg('Could not copy.','err'); } }
-async function applyRoomKeyword(sku,kw){
+async function applyRoomKeyword(sku,kw,meta){
   try{ const rr=await api({action:'set-keyword',sku,keyword:kw}); if(rr.taken){ msg(rr.reason||'That keyword is already taken.','err'); return; } PRODUCTS=rr.products; msg('Keyword set: '+kw,'ok'); }
   catch(e){ msg('Could not set keyword: '+e.message,'err'); return; }
+  // A manually-typed keyword isn't in the suggestion list — add it as a card so it shows SELECTED (green, top),
+  // with the volume/difficulty you optionally typed, so the row is complete.
+  const st=KWC[sku];
+  if(st&&Array.isArray(st.options) && !st.options.some(o=>(o.keyword||'').toLowerCase()===kw.toLowerCase())){
+    st.options.unshift({ keyword:kw, sources:{ manual:{ volume:(meta&&meta.volume)||'', difficulty:(meta&&meta.difficulty)||'' } }, pot:1e8, cat:'other' });
+  }
   GEN_ROOM[sku]=true; renderFlow();
   try{ await genContentForRoom(sku); }
   catch(e){ msg('SEO generation failed ('+sku+'): '+e.message,'err'); }
@@ -1524,6 +1551,7 @@ function mergedRow(o,i,p){
   if(s.available) pills.push('<span class="srcpill" style="background:#cfead0;color:#1f5f1f">you rank</span>');
   if(s.gap) pills.push('<span class="srcpill" style="background:#f3e6b8;color:#6b551a">gap</span>');
   if(s.uber) pills.push('<span class="srcpill" style="background:#e6ddf5;color:#5b3a8c">UBER</span>');
+  if(s.manual) pills.push('<span class="srcpill" style="background:#e3e3e3;color:#444">manual</span>');
   if(s.gsc) pills.push('<span class="srcpill" style="background:#d9efe6;color:#1f5f4f">GSC</span>');
   if(s.gkp) pills.push('<span class="srcpill" style="background:#dbe7fb;color:#274b8f">Google KP</span>');
   const metrics=[];
