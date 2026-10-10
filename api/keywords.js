@@ -1,4 +1,9 @@
-// api/keywords.js — New Product Generator backend  ·  v0.49
+// api/keywords.js — New Product Generator backend  ·  v0.50
+// v0.50 (2026-10-10): (Item 4) matchedProductIdeas now excludes a keyword only when it's LOCKED *and owns a
+//   real page* (lockedWithUrlSet) — a LOCKED-but-no-url keyword (saved-for-future/deleted) still has no page
+//   so the NPG offers it again (fixes fireplace/office strengthen keywords not showing). (Item 3) strengthen
+//   keywords that fit any product (isGeneralKeyword: no room/style/colour) are returned marked general:true,
+//   offered as low-priority FILLER. (Item 1) new action save-products-many = save many products in ONE commit.
 // v0.48 (2026-10-06): DO FIRST = 3 buckets, nothing locked shown, clean URLs. syncCaptureTasks now returns
 //   each task with a `bucket`: 🟢 green (ranks on a FREE page → lock it → Start Here; computed live), 🔴 red
 //   (ranks on a TAKEN page → needs its own product/blog; persisted + auto-fed to the NPG pool), 🟡 yellow
@@ -349,6 +354,27 @@ async function lockedKeywordSet() {
   return set;
 }
 
+// Like lockedKeywordSet, but ONLY keywords that are LOCKED *and* own a real page (http url in col 2).
+// Used only inside the NPG's strengthen source (matchedProductIdeas): a keyword marked LOCKED but with
+// NO url (N/A — e.g. "saved for future" / deleted) still has no page, so it stays offerable in the NPG.
+async function lockedWithUrlSet() {
+  const set = new Set();
+  try {
+    const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/${REGISTRY_PATH}?t=${Date.now()}`);
+    if (!r.ok) return set;
+    const txt = await r.text();
+    txt.split('\n').forEach(line => {
+      if (!line.trim()) return;
+      const c = parseCSVLine(line.replace(/\r/g, ''));
+      const kw = (c[0] || '').toLowerCase();
+      const locked = (c[2] || '').toUpperCase();
+      const url = (c[1] || '').trim();
+      if (kw && locked === 'LOCKED' && /^https?:\/\//i.test(url)) set.add(kw);
+    });
+  } catch { /* ignore */ }
+  return set;
+}
+
 // Map of normalised URL -> the keyword it's LOCKED to (only rows with a real url + LOCKED). Used to tell,
 // for a keyword you rank for, whether the ranking page is already committed to ANOTHER keyword.
 // Strip the query string / hash AND the www. prefix: GSC reports variant URLs like
@@ -535,6 +561,16 @@ function gapClassify(kw, terms) {
   const colourArtHit = anyWord(kw, terms.colours) && anyWord(kw, ART_WORDS);
   if (themeHit || colourArtHit) return { qualifies: true, tier: 2 };
   return { qualifies: false, tier: 0 };
+}
+// A keyword is "general" when it names NO specific room, NO specific style and NO specific colour —
+// so it fits ANY wall-art product (e.g. "beautiful wall art", "wall art canvas"). Used in the NPG to
+// offer such strengthen keywords as low-priority FILLER when a product has few topic-matched options.
+function isGeneralKeyword(kw) {
+  const s = (kw || '').toLowerCase();
+  for (const key in ROOM_VOCAB) { if (wordMatch(s, key) || ROOM_VOCAB[key].some(ph => wordMatch(s, ph))) return false; }
+  for (const key in STYLE_VOCAB) { if (wordMatch(s, key) || STYLE_VOCAB[key].some(ph => wordMatch(s, ph))) return false; }
+  for (const w of s.split(/[^a-z]+/)) { if (COLOUR_VOCAB.has(w)) return false; }
+  return true;
 }
 async function gapResearch(body) {
   const products = Array.isArray(body.products) ? body.products : [];
@@ -751,18 +787,29 @@ async function readPerformingList() {
 // pageUrl/urlFree/lockedToKeyword/topSix, so a saved keyword whose ranking page is locked to ANOTHER
 // keyword can offer an admin link to that page.
 async function matchedProductIdeas(sku) {
-  const [ideas, products, urlLocks, perfList, locked] = await Promise.all([
-    readProductIdeas(), readProducts(), registryUrlLockMap(), readPerformingList(), lockedKeywordSet()
+  const [ideas, products, urlLocks, perfList, lockedWithUrl] = await Promise.all([
+    readProductIdeas(), readProducts(), registryUrlLockMap(), readPerformingList(), lockedWithUrlSet()
   ]);
   if (!ideas.length) return [];
   const p = products.find(x => (x.sku || '').toLowerCase() === (sku || '').toLowerCase());
   const terms = p ? gapTermsForProduct(p) : null;
   const perfByKw = {};
   perfList.forEach(k => { if (k && k.keyword) perfByKw[k.keyword.toLowerCase()] = k; });
+  // Item 4: only a keyword that OWNS a real page is "used up". A keyword marked LOCKED but with no url
+  // (saved-for-future / deleted) still has no page, so it stays offerable here in the NPG.
   return ideas
-    .filter(i => i.keyword && !locked.has((i.keyword || '').toLowerCase()))  // a used (locked) idea is no longer buildable
-    .filter(i => (!terms || gapClassify(i.keyword, terms).qualifies))
+    .filter(i => i.keyword && !lockedWithUrl.has((i.keyword || '').toLowerCase()))
     .map(i => {
+      // Item 3: topic = matches THIS product (shown normally); general = fits any product (offered as
+      // low-priority FILLER when options are thin); anything else (names another room/style/colour) is dropped.
+      let general = false;
+      if (terms) {
+        const cls = gapClassify(i.keyword, terms);
+        if (!cls.qualifies) {
+          if (isGeneralKeyword(i.keyword)) general = true;
+          else return null;
+        }
+      }
       const perf = perfByKw[(i.keyword || '').toLowerCase()] || {};
       // Prefer the stored ranking page (case-C ideas carry their own); fall back to the live performing list.
       const cleanRanking = i.pageUrl ? cleanUrl(i.pageUrl) : (perf.rankingUrl ? cleanUrl(perf.rankingUrl) : null);
@@ -778,9 +825,11 @@ async function matchedProductIdeas(sku) {
         urlFree: urlFree,
         lockedToKeyword: lockedTo || null,
         origin: i.origin || null,               // 'C' → NPG shows the distinct-colour pill
+        general: general,                        // true → NPG treats it as low-priority filler only
         topSix: (position != null && position <= 6)
       };
-    });
+    })
+    .filter(Boolean);
 }
 async function removeProductIdea(keyword) {
   keyword = (keyword || '').trim().toLowerCase();
@@ -3051,6 +3100,28 @@ export default async function handler(req, res) {
         else arr.push({ ...product, sent: false, createdAt: now, updatedAt: now });
         try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG save product: ${product.sku}`); return res.status(200).json({ ok: true, products: arr }); }
         catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
+      }
+    }
+
+    // Item 1: save SEVERAL products in ONE commit (multi-room saves) so N products no longer mean N
+    // commits → N Vercel builds hammering GitHub. Same image-protection rule as save-product on update.
+    if (action === 'save-products-many') {
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      const list = Array.isArray(body.products) ? body.products.filter(x => x && x.sku) : [];
+      if (!list.length) return res.status(400).json({ ok: false, error: 'products[] required' });
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const file = await ghGet(PRODUCTS_PATH);
+        let arr = [];
+        if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
+        if (!Array.isArray(arr)) arr = [];
+        const now = new Date().toISOString();
+        for (const product of list) {
+          const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === product.sku.toLowerCase());
+          if (idx >= 0) { const { images: _ignoreImages, ...rest } = product; arr[idx] = { ...arr[idx], ...rest, updatedAt: now }; }
+          else arr.push({ ...product, sent: false, createdAt: now, updatedAt: now });
+        }
+        try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG save ${list.length} product(s)`); return res.status(200).json({ ok: true, products: arr }); }
+        catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
       }
     }
 
