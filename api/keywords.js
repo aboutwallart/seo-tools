@@ -1,4 +1,4 @@
-// api/keywords.js — New Product Generator backend  ·  v0.48
+// api/keywords.js — New Product Generator backend  ·  v0.49
 // v0.48 (2026-10-06): DO FIRST = 3 buckets, nothing locked shown, clean URLs. syncCaptureTasks now returns
 //   each task with a `bucket`: 🟢 green (ranks on a FREE page → lock it → Start Here; computed live), 🔴 red
 //   (ranks on a TAKEN page → needs its own product/blog; persisted + auto-fed to the NPG pool), 🟡 yellow
@@ -181,6 +181,7 @@ const REPO = 'aboutwallart/seo-tools';
 const PRODUCTS_PATH = 'data/npg-products.json';
 const REGISTRY_PATH = 'data/keyword-locker-registry.csv';
 const GAP_PATH = 'data/competitors-gap.csv';
+const UBER_PATH = 'data/ubersuggest-keywords.csv'; // Ubersuggest keyword list (keyword,volume,difficulty,intent) — own source + "UBER" pill
 const ACTOR = 'santhej~dataforseo-labs-keyword-explorer';
 const SERPAPI_KEY = process.env.SERPAPI_KEY;
 const CATEGORY_SYNONYMS = ['wall art', 'art print', 'wall decor', 'wall hanging', 'canvas wall art', 'framed wall art', 'poster', 'wall pictures'];
@@ -478,6 +479,27 @@ async function readGapFile() {
   } catch { /* ignore */ }
   return rows;
 }
+// Ubersuggest list — same shape as the gap file (keyword · volume · difficulty), plus the search intent.
+async function readUberFile() {
+  const rows = [];
+  try {
+    const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/${UBER_PATH}?t=${Date.now()}`);
+    if (!r.ok) return rows;
+    let txt = await r.text();
+    txt = txt.replace(/^﻿/, ''); // strip BOM
+    const lines = txt.split('\n');
+    for (let i = 1; i < lines.length; i++) { // skip header
+      const line = lines[i].replace(/\r/g, '');
+      if (!line.trim()) continue;
+      const c = parseCSVLine(line);
+      const keyword = (c[0] || '').toLowerCase().trim();
+      if (!keyword) continue;
+      const difficultyRaw = c[2] != null ? c[2].trim() : '';
+      rows.push({ keyword, volume: normVolume(c[1]), difficulty: normDifficulty(c[2]), difficultyRaw: difficultyRaw || '', intent: (c[3] || '').trim() });
+    }
+  } catch { /* ignore */ }
+  return rows;
+}
 // ART_WORDS: signal that a keyword is about wall art / decor (used ONLY together with the product's own colour).
 const ART_WORDS = ['wall art', 'art print', 'print', 'prints', 'poster', 'posters', 'canvas', 'wall decor', 'artwork', 'painting', 'paintings', 'picture', 'pictures', 'wall hanging', 'wall pictures', 'art', 'decor'];
 function escRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
@@ -520,7 +542,7 @@ async function gapResearch(body) {
   // v0.45: NPG asks for a bigger pool (limit) so the frontend can balance by category (room/style/colour/
   // terms). Default stays MAX_OPTIONS_PER_PRODUCT for any other caller.
   const limit = Number(body.limit) > 0 ? Math.min(Math.floor(Number(body.limit)), 120) : MAX_OPTIONS_PER_PRODUCT;
-  const [gapRows, locked, allProducts] = await Promise.all([readGapFile(), lockedKeywordSet(), readProducts()]);
+  const [gapRows, locked, allProducts, dismissed] = await Promise.all([readGapFile(), lockedKeywordSet(), readProducts(), readPerformingDismissed()]);
   const results = products.map(p => {
     const terms = gapTermsForProduct(p);
     const allowedColours = colourWordsOf((p.primaryColour || []).concat(p.keywordWords || []));
@@ -528,7 +550,7 @@ async function gapResearch(body) {
     // opportunity = high volume + low difficulty; small colour bonus as a tie-breaker
     const opportunity = row => Math.sqrt(row.volume + 1) * (100 / (row.difficulty + 10)) + (anyWord(row.keyword, terms.colours) ? 1 : 0);
     const qualified = gapRows
-      .filter(row => !locked.has((row.keyword || '').toLowerCase()) && !inProgress.has(row.keyword))
+      .filter(row => !locked.has((row.keyword || '').toLowerCase()) && !inProgress.has(row.keyword) && !dismissed.has((row.keyword || '').toLowerCase()))
       .filter(row => colourOk(row.keyword, allowedColours))
       .map(row => ({ ...row, cls: gapClassify(row.keyword, terms) }))
       .filter(row => row.cls.qualifies);
@@ -539,6 +561,34 @@ async function gapResearch(body) {
     const options = [...tier1, ...tier2]
       .slice(0, limit)
       .map(row => ({ keyword: row.keyword, volume: row.volume, difficulty: row.difficulty, difficultyRaw: row.difficultyRaw }));
+    return { sku: p.sku || '', options };
+  });
+  return { results };
+}
+
+// Ubersuggest research — same topic-match + filters as gapResearch, but from the Ubersuggest list.
+// Excludes locked, in-progress and BANNED (dismissed) keywords, so a 🚫 ban hides them here too.
+async function uberResearch(body) {
+  const products = Array.isArray(body.products) ? body.products : [];
+  if (!products.length) return { results: [] };
+  const limit = Number(body.limit) > 0 ? Math.min(Math.floor(Number(body.limit)), 120) : MAX_OPTIONS_PER_PRODUCT;
+  const [uberRows, locked, allProducts, dismissed] = await Promise.all([readUberFile(), lockedKeywordSet(), readProducts(), readPerformingDismissed()]);
+  const results = products.map(p => {
+    const terms = gapTermsForProduct(p);
+    const allowedColours = colourWordsOf((p.primaryColour || []).concat(p.keywordWords || []));
+    const inProgress = inProgressKeywordMap(allProducts, p.sku);
+    const opportunity = row => Math.sqrt(row.volume + 1) * (100 / (row.difficulty + 10)) + (anyWord(row.keyword, terms.colours) ? 1 : 0);
+    const qualified = uberRows
+      .filter(row => !locked.has((row.keyword || '').toLowerCase()) && !inProgress.has(row.keyword) && !dismissed.has((row.keyword || '').toLowerCase()))
+      .filter(row => colourOk(row.keyword, allowedColours))
+      .map(row => ({ ...row, cls: gapClassify(row.keyword, terms) }))
+      .filter(row => row.cls.qualifies);
+    const byOpp = (a, b) => opportunity(b) - opportunity(a);
+    const tier1 = qualified.filter(r => r.cls.tier === 1).sort(byOpp);
+    const tier2 = qualified.filter(r => r.cls.tier === 2).sort(byOpp);
+    const options = [...tier1, ...tier2]
+      .slice(0, limit)
+      .map(row => ({ keyword: row.keyword, volume: row.volume, difficulty: row.difficulty, difficultyRaw: row.difficultyRaw, intent: row.intent }));
     return { sku: p.sku || '', options };
   });
   return { results };
@@ -2540,7 +2590,7 @@ async function googleKeywordIdeas(body) {
   if (manager && manager !== cid) attempts.push({ via: 'manager', login: manager });
   let lastErr = 'unknown';
   const debug = [];
-  const locked = await lockedKeywordSet();   // never offer a keyword already locked to a page
+  const [locked, dismissed] = await Promise.all([lockedKeywordSet(), readPerformingDismissed()]);   // never offer a keyword already locked, or banned
   for (const a of attempts) {
     const headers = { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
     if (a.login) headers['login-customer-id'] = a.login;
@@ -2557,7 +2607,7 @@ async function googleKeywordIdeas(body) {
             competition: m.competition || null,
             competitionIndex: (m.competitionIndex != null) ? Number(m.competitionIndex) : null
           };
-        }).filter(o => o.keyword && !locked.has(o.keyword.toLowerCase()) && !EXCLUDED_PRODUCT_TYPES.test(o.keyword));
+        }).filter(o => o.keyword && !locked.has(o.keyword.toLowerCase()) && !dismissed.has(o.keyword.toLowerCase()) && !EXCLUDED_PRODUCT_TYPES.test(o.keyword));
         return { options, via: a.via, v: '0.37' };
       }
       lastErr = (data.error && data.error.message) || ('HTTP ' + r.status);
@@ -2760,6 +2810,11 @@ export default async function handler(req, res) {
 
     if (action === 'gap-research') {
       const out = await gapResearch(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+
+    if (action === 'ubersuggest-keywords') {
+      const out = await uberResearch(body);
       return res.status(200).json({ ok: true, ...out });
     }
 
