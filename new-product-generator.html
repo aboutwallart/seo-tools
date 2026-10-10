@@ -220,7 +220,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v4.13</span>
+  <span class="ver">v4.14</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -704,7 +704,8 @@ async function saveCommonToAll(){
   };
   const styles=dvals('e-style'),colours=dvals('e-col'),occasions=dvals('e-occ');
   try{
-    for(const p of g){ const upd={...p,...common,collections:{...(p.collections||{}),'By Style':styles.slice(),'By Colour':colours.slice(),'By Occasion':occasions.slice()}}; const r=await api({action:'save-product',product:upd}); PRODUCTS=r.products; }
+    const ups=g.map(p=>({...p,...common,collections:{...(p.collections||{}),'By Style':styles.slice(),'By Colour':colours.slice(),'By Occasion':occasions.slice()}}));
+    const r=await api({action:'save-products-many',products:ups}); PRODUCTS=r.products;   // one commit for all rooms
     OPEN_STAGE='product'; renderFlow(); msg('Saved to all rooms.','ok');
   }catch(e){ msg('Save failed: '+e.message,'err'); }
 }
@@ -724,15 +725,16 @@ async function saveRooms(){
   if(toRemove.length && !confirm('Remove '+toRemove.map(x=>x.room).join(', ')+'? Their products will be deleted.')) return;
   try{
     for(const p of toRemove){ const r=await api({action:'delete-product',sku:p.sku}); PRODUCTS=r.products; delete KWC[p.sku]; }
-    const addedSkus=[];
+    const addedSkus=[]; const toCreate=[];
     for(const room of toAdd){
       const sku=skuForRoom(base,room);
       if(PRODUCTS.some(x=>(x.sku||'').toLowerCase()===sku.toLowerCase())) continue;
       const collections={'By Style':((p0.collections||{})['By Style']||[]).slice(),'By Colour':((p0.collections||{})['By Colour']||[]).slice(),'By Occasion':((p0.collections||{})['By Occasion']||[]).slice(),'By Room':[room]};
       if(room==='Living room') collections['Featured']=['New Arrivals'];
-      const product={sku,artBase:base,room,roomApproved:false,collections,set:p0.set,trends:(p0.trends||[]).slice(),primaryColour:(p0.primaryColour||[]).slice(),colour:p0.colour,templateSuffix:p0.templateSuffix,aiNotes:p0.aiNotes,keywordWords:(p0.keywordWords||[]).slice()};
-      const r=await api({action:'save-product',product}); PRODUCTS=r.products; addedSkus.push(sku);
+      toCreate.push({sku,artBase:base,room,roomApproved:false,collections,set:p0.set,trends:(p0.trends||[]).slice(),primaryColour:(p0.primaryColour||[]).slice(),colour:p0.colour,templateSuffix:p0.templateSuffix,aiNotes:p0.aiNotes,keywordWords:(p0.keywordWords||[]).slice()});
+      addedSkus.push(sku);
     }
+    if(toCreate.length){ const r=await api({action:'save-products-many',products:toCreate}); PRODUCTS=r.products; }   // one commit for all new rooms
     // Inherit the shared images (flats, singles, commons) a sibling already has, so a room added
     // later never ends up missing them. Lifestyle stays per-room.
     const src=bestSharedSource(g);
@@ -948,7 +950,8 @@ function roomKwOption(p,o,oi,pos){
   const s=o.sources||{};
   const isC = !!(s.matched && s.matched.origin==='C');
   const pills=[];
-  if(isC) pills.push('<span class="srcpill" style="background:#f6d9c7;color:#8a3b12">needs own page</span>');
+  if(isC && s.matched.general) pills.push('<span class="srcpill" style="background:#e7e2d6;color:#6b5a2a">general · any room</span>');
+  else if(isC) pills.push('<span class="srcpill" style="background:#f6d9c7;color:#8a3b12">needs own page</span>');
   if(s.available) pills.push('<span class="srcpill" style="background:#cfead0;color:#1f5f1f">you rank</span>');
   if(s.gap) pills.push('<span class="srcpill" style="background:#f3e6b8;color:#6b551a">gap</span>');
   if(s.uber) pills.push('<span class="srcpill" style="background:#e6ddf5;color:#5b3a8c">UBER</span>');
@@ -1060,7 +1063,7 @@ async function fetchRoomKw(p){
   const gap=((gapR&&gapR.results)||[]).find(x=>x.sku===p.sku)||((gapR&&gapR.results)||[])[0]||{options:[]};
   ((availR&&availR.ideas)||[]).forEach(o=>{ const s=slot(o.keyword); if(s) s.sources.available={clicks:o.clicks,position:o.position}; });
   // Case-C keywords (saved to build their own page) — carry origin + the page that already ranks.
-  ((matchR&&matchR.ideas)||[]).forEach(o=>{ const s=slot(o.keyword); if(s) s.sources.matched={origin:o.origin,pageUrl:o.pageUrl,lockedToKeyword:o.lockedToKeyword,position:o.position,clicks:o.clicks}; });
+  ((matchR&&matchR.ideas)||[]).forEach(o=>{ const s=slot(o.keyword); if(s) s.sources.matched={origin:o.origin,pageUrl:o.pageUrl,lockedToKeyword:o.lockedToKeyword,position:o.position,clicks:o.clicks,impressions:o.impressions,general:o.general}; });
   (gap.options||[]).forEach(o=>{ const s=slot(o.keyword); if(s) s.sources.gap={volume:o.volume,difficulty:o.difficulty,difficultyRaw:o.difficultyRaw}; });
   const uber=((uberR&&uberR.results)||[]).find(x=>x.sku===p.sku)||((uberR&&uberR.results)||[])[0]||{options:[]};
   (uber.options||[]).forEach(o=>{ const s=slot(o.keyword); if(s) s.sources.uber={volume:o.volume,difficulty:o.difficulty,difficultyRaw:o.difficultyRaw,intent:o.intent}; });
@@ -1611,6 +1614,8 @@ function mergedPot(s){
   if(s.uber){ const v=s.uber.volume||0,d=(s.uber.difficulty==null?50:s.uber.difficulty); best=Math.max(best,Math.sqrt(v+1)*(100/(d+10))); }
   if(s.gkp){ const v=s.gkp.volume||0,d=(s.gkp.competitionIndex==null?50:s.gkp.competitionIndex); best=Math.max(best,Math.sqrt(v+1)*(100/(d+10))); }
   if(s.gsc){ const im=s.gsc.impressions||0,ps=(s.gsc.position==null?20:s.gsc.position); best=Math.max(best,Math.sqrt(im+1)*(100/(ps+10))); }
+  if(s.matched && !s.matched.general){ const im=(s.matched.impressions||s.matched.clicks||0),ps=(s.matched.position==null?15:s.matched.position); best=Math.max(best,Math.sqrt(im+1)*(100/(ps+10))); } // strengthen keyword that fits this product (already ranks) → real priority
+  if(s.matched && s.matched.general && best<=0) best=0.1; // general filler → only surfaces when there are fewer than 40 better options
   return best;
 }
 function compLabel(c){ return ({LOW:'low comp',MEDIUM:'med comp',HIGH:'high comp'})[c]||''; }
