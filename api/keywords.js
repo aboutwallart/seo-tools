@@ -1,4 +1,6 @@
-// api/keywords.js — New Product Generator backend  ·  v0.50
+// api/keywords.js — New Product Generator backend  ·  v0.51
+// v0.51 (2026-10-10): FIX — setKeyword also uses lockedWithUrlSet, so picking a strengthen keyword that is
+//   LOCKED-but-no-url now SAVES instead of erroring "already locked in the registry" (consistent with Item 4).
 // v0.50 (2026-10-10): (Item 4) matchedProductIdeas now excludes a keyword only when it's LOCKED *and owns a
 //   real page* (lockedWithUrlSet) — a LOCKED-but-no-url keyword (saved-for-future/deleted) still has no page
 //   so the NPG offers it again (fixes fireplace/office strengthen keywords not showing). (Item 3) strengthen
@@ -1611,7 +1613,8 @@ async function setKeyword(sku, keyword) {
   keyword = (keyword || '').trim();
   if (!sku) throw new Error('sku required');
   if (!keyword) throw new Error('keyword required');
-  const locked = await lockedKeywordSet();
+  // Item 4: only a keyword that OWNS a real page is truly taken — a LOCKED-but-no-url one is still offerable.
+  const locked = await lockedWithUrlSet();
   if (locked.has(keyword.toLowerCase())) return { taken: true, reason: 'This keyword is already locked in the registry.' };
   for (let attempt = 0; attempt < 2; attempt++) {
     const file = await ghGet(PRODUCTS_PATH);
