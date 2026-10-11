@@ -1,4 +1,6 @@
-// api/keywords.js — New Product Generator backend  ·  v0.50
+// api/keywords.js — New Product Generator backend  ·  v0.51
+// v0.51 (2026-10-11): "general" keywords in matchedProductIdeas now SKIP the topic filter (gapClassify)
+//   too, not just the room veto — so manual "general" ideas show in EVERY room (dining/hallway/office/etc).
 // v0.50 (2026-10-11): ROOM VETO on top of the topic match (gapResearch/uberResearch/matchedProductIdeas):
 //   after gapClassify keeps only artwork-relevant keywords, drop any that NAME a different room than the
 //   product's (rooms from data/kw-assignments.json when present, else synonyms). Topic match untouched.
@@ -598,6 +600,12 @@ function roomVeto(keyword, productRooms, manualAssign) {
   if (!kwRooms.length) return false;
   return !kwRooms.some(r => productRooms.has(r));
 }
+// true if Mae classified this keyword as "general" in the manual file → it belongs in EVERY room,
+// so it must skip the topic filter (gapClassify) too, not only the room veto.
+function isGeneralAssign(keyword, manualAssign) {
+  const m = manualAssign && manualAssign[(keyword || '').toLowerCase()];
+  return !!(m && m.length && m.some(t => String(t).toLowerCase() === 'general'));
+}
 async function gapResearch(body) {
   const products = Array.isArray(body.products) ? body.products : [];
   if (!products.length) return { results: [] };
@@ -828,8 +836,8 @@ async function matchedProductIdeas(sku) {
   perfList.forEach(k => { if (k && k.keyword) perfByKw[k.keyword.toLowerCase()] = k; });
   return ideas
     .filter(i => i.keyword && !locked.has((i.keyword || '').toLowerCase()))  // a used (locked) idea is no longer buildable
-    .filter(i => (!terms || gapClassify(i.keyword, terms).qualifies))
-    .filter(i => !roomVeto(i.keyword, pRooms, manualAssign))                 // on top of topic: drop other-room keywords
+    .filter(i => isGeneralAssign(i.keyword, manualAssign) || !terms || gapClassify(i.keyword, terms).qualifies) // "general" skips the topic filter — it belongs in every room
+    .filter(i => !roomVeto(i.keyword, pRooms, manualAssign))                 // on top of topic: drop other-room keywords ("general" never vetoed)
     .map(i => {
       const perf = perfByKw[(i.keyword || '').toLowerCase()] || {};
       // Prefer the stored ranking page (case-C ideas carry their own); fall back to the live performing list.
