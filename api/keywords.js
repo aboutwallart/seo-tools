@@ -1,4 +1,7 @@
-// api/keywords.js — New Product Generator backend  ·  v0.51
+// api/keywords.js — New Product Generator backend  ·  v0.52
+// v0.52 (2026-10-11): keyword→where-it-goes = Mae's manual classification (data/kw-assignments.json) wins,
+//   else auto-classify by ASSIGN_SYN synonym table (room/style/general). matchedProductIdeas offers a
+//   strengthen keyword to a product only where its tags match (room/style) or when general.
 // v0.51 (2026-10-10): FIX — setKeyword also uses lockedWithUrlSet, so picking a strengthen keyword that is
 //   LOCKED-but-no-url now SAVES instead of erroring "already locked in the registry" (consistent with Item 4).
 // v0.50 (2026-10-10): (Item 4) matchedProductIdeas now excludes a keyword only when it's LOCKED *and owns a
@@ -574,6 +577,89 @@ function isGeneralKeyword(kw) {
   for (const w of s.split(/[^a-z]+/)) { if (COLOUR_VOCAB.has(w)) return false; }
   return true;
 }
+
+// ── Keyword → where-it-goes assignment (built from Mae's manual classification + synonyms) ──────────
+// Mae classifies each strengthen keyword by ROOM, by STYLE, "general" (every product) or "blog" (not the
+// NPG). This synonym table lets the NPG auto-classify NEW keywords the same way she would. A keyword can
+// map to several tags (floral → biophilic+farmhouse+shabby chic+french country, etc.) — all intentional.
+// Manual choices in data/kw-assignments.json always WIN over this table.
+const ASSIGN_SYN = {
+  // rooms
+  'living room': ['living room','living rooms','livingroom','lounge','lounges','sitting room','family room','snug'],
+  'bedroom': ['bedroom','above bed','over bed','master bedroom','guest bedroom'],
+  'nursery': ['nursery','baby room','baby nursery','kids','childrens',"children's",'playroom'],
+  'teens': ['teen','teens','teenage','teenager'],
+  'bathroom': ['bathroom','shower room','ensuite','en-suite','en suite','powder room','washroom','toilet','restroom','bath','spa'],
+  'kitchen': ['kitchen'],
+  'dining room': ['dining room','dining','breakfast room','breakfast nook'],
+  'hallway': ['hallway','hall','entryway','entrance','foyer','corridor','front room','entry room','staircase','stairway','landing','reception'],
+  'office': ['office','study','home office','workspace','desk'],
+  'laundry room': ['laundry','laundry room','utility room'],
+  'above fireplace': ['above fireplace','over fireplace','mantel','mantelpiece','fireplace','chimney breast'],
+  'games room': ['games room','game room','man cave'],
+  // styles
+  'biophilic': ['biophilic','botanical','floral','plants','greenery','leaves','foliage','nature'],
+  'farmhouse': ['farmhouse','botanical','floral','rustic','country','barn'],
+  'shabby chic': ['shabby chic','floral','romantic'],
+  'vintage': ['vintage'],
+  'japandi': ['japandi','relax','relaxing','calm','calming','zen','japan','japanese','asian','oriental','chinese','wabi-sabi','wabi sabi'],
+  'zen': ['zen','buddha','buddhist','buddhism','lotus','meditation'],
+  'scandinavian': ['scandinavian','scandi','nordic','forest','hygge'],
+  'travel': ['travel','map','maps','world','adventure','wanderlust','paris','london','new york','rome','venice','tokyo','barcelona','amsterdam','berlin','madrid','lisbon','dublin','prague','vienna','florence','milan','istanbul','dubai','singapore','sydney','edinburgh','oxford','cambridge'],
+  'christian': ['christian','faith','bible','scripture','cross','jesus','god'],
+  'islamic': ['islamic','islam','muslim','quran','arabic','arab','arabesque'],
+  'minimalism': ['minimalist','minimal','simple','clean'],
+  'masculine': ['masculine','male','manly','bold dark'],
+  'industrial': ['industrial','urban','loft','metal','concrete'],
+  'moroccan': ['moroccan','morocco','marrakech','arabesque'],
+  'abstract': ['abstract','geometric'],
+  'bohemian': ['bohemian','boho','hippie'],
+  'coastal': ['coastal','beach','sea','ocean','nautical','seaside'],
+  'tropical': ['tropical','palm','jungle','exotic'],
+  'wildlife': ['wildlife','animals','safari','lion','tiger','elephant','zebra','giraffe','leopard','cheetah','flamingo','peacock','panther','rhino','hippo','gorilla','parrot','toucan','panda'],
+  'sun & moon': ['sun and moon','sun & moon','celestial','moon','stars'],
+  'black & white': ['black and white','black & white','monochrome'],
+  'coffee': ['coffee','coffee house','cafe'],
+  'chinoiserie': ['chinoiserie'],
+  'mid century': ['mid century','mid-century','midcentury','retro','lux','luxury'],
+  'mediterranean': ['mediterranean','amalfi','positano','capri','cinque terre','riviera','santorini','sicily','sardinia'],
+  'contemporary': ['contemporary','modern'],
+  'maximalism': ['maximalism','maximalist'],
+  'french country': ['french country','provence','floral','florals','bees','hives','beehive'],
+  'old money': ['old money','maps','map','earth','equestrian','horse','horses','vintage'],
+  'marble': ['marble'],
+  'eclectic': ['eclectic'],
+  'country cottage': ['country cottage','cottagecore'],
+  'preppy': ['preppy'],
+  'transitional': ['transitional']
+};
+// Auto-classify a NEW keyword the way Mae would: every tag whose synonym it names; none → "general".
+function assignTagsFor(keyword) {
+  const kw = (keyword || '').toLowerCase();
+  const tags = [];
+  for (const key in ASSIGN_SYN) { if (ASSIGN_SYN[key].some(syn => wordMatch(kw, syn))) tags.push(key); }
+  return tags.length ? tags : ['general'];
+}
+// The product's own tags (its By Room + By Style names, mapped to canonical keys).
+function productAssignKeys(p) {
+  const col = p.collections || {};
+  const names = [].concat(col['By Room'] || [], col['By Style'] || []).map(n => String(n).toLowerCase().trim());
+  const keys = new Set();
+  names.forEach(n => {
+    if (ASSIGN_SYN[n]) { keys.add(n); return; }
+    for (const key in ASSIGN_SYN) { if (key === n || ASSIGN_SYN[key].some(syn => wordMatch(n, syn))) keys.add(key); }
+  });
+  return keys;
+}
+const KW_ASSIGN_PATH = 'data/kw-assignments.json';
+async function readKwAssignments() {
+  try {
+    const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/${KW_ASSIGN_PATH}?t=${Date.now()}`);
+    if (!r.ok) return {};
+    const j = await r.json();
+    return (j && typeof j === 'object' && !Array.isArray(j)) ? j : {};
+  } catch { return {}; }
+}
 async function gapResearch(body) {
   const products = Array.isArray(body.products) ? body.products : [];
   if (!products.length) return { results: [] };
@@ -789,31 +875,26 @@ async function readPerformingList() {
 // pageUrl/urlFree/lockedToKeyword/topSix, so a saved keyword whose ranking page is locked to ANOTHER
 // keyword can offer an admin link to that page.
 async function matchedProductIdeas(sku) {
-  const [ideas, products, urlLocks, perfList, lockedWithUrl] = await Promise.all([
-    readProductIdeas(), readProducts(), registryUrlLockMap(), readPerformingList(), lockedWithUrlSet()
+  const [ideas, products, urlLocks, perfList, lockedWithUrl, manualAssign] = await Promise.all([
+    readProductIdeas(), readProducts(), registryUrlLockMap(), readPerformingList(), lockedWithUrlSet(), readKwAssignments()
   ]);
   if (!ideas.length) return [];
   const p = products.find(x => (x.sku || '').toLowerCase() === (sku || '').toLowerCase());
-  const terms = p ? gapTermsForProduct(p) : null;
+  const pKeys = p ? productAssignKeys(p) : new Set();
   const perfByKw = {};
   perfList.forEach(k => { if (k && k.keyword) perfByKw[k.keyword.toLowerCase()] = k; });
-  // Item 4: only a keyword that OWNS a real page is "used up". A keyword marked LOCKED but with no url
-  // (saved-for-future / deleted) still has no page, so it stays offerable here in the NPG.
+  // Item 4: only a keyword that OWNS a real page is "used up". A LOCKED-but-no-url one still has no page.
   return ideas
     .filter(i => i.keyword && !lockedWithUrl.has((i.keyword || '').toLowerCase()))
     .map(i => {
-      // Item 3: topic = matches THIS product (shown normally); general = fits any product (offered as
-      // low-priority FILLER when options are thin); anything else (names another room/style/colour) is dropped.
-      let general = false;
-      if (terms) {
-        const cls = gapClassify(i.keyword, terms);
-        if (!cls.qualifies) {
-          if (isGeneralKeyword(i.keyword)) general = true;
-          else return null;
-        }
-      }
-      const perf = perfByKw[(i.keyword || '').toLowerCase()] || {};
-      // Prefer the stored ranking page (case-C ideas carry their own); fall back to the live performing list.
+      // Where does this keyword go? Mae's manual choice (kw-assignments.json) wins; else auto by synonyms.
+      const kwl = (i.keyword || '').toLowerCase();
+      const tags = (manualAssign[kwl] && manualAssign[kwl].length) ? manualAssign[kwl] : assignTagsFor(i.keyword);
+      if (tags.indexOf('blog') !== -1) return null;                       // belongs to a blog, not the NPG
+      const general = tags.indexOf('general') !== -1;
+      // offer when general (every product), or when a tag matches THIS product's room/style; else drop
+      if (!general && p && ![...pKeys].some(k => tags.indexOf(k) !== -1)) return null;
+      const perf = perfByKw[kwl] || {};
       const cleanRanking = i.pageUrl ? cleanUrl(i.pageUrl) : (perf.rankingUrl ? cleanUrl(perf.rankingUrl) : null);
       const lockedTo = i.lockedToKeyword || (cleanRanking ? urlLocks[normUrl(cleanRanking)] : null);
       const urlFree = !!(cleanRanking && !lockedTo);
@@ -827,7 +908,8 @@ async function matchedProductIdeas(sku) {
         urlFree: urlFree,
         lockedToKeyword: lockedTo || null,
         origin: i.origin || null,               // 'C' → NPG shows the distinct-colour pill
-        general: general,                        // true → NPG treats it as low-priority filler only
+        general: general,                        // true → fits any product (pill "general · any room")
+        tags: tags,
         topSix: (position != null && position <= 6)
       };
     })
