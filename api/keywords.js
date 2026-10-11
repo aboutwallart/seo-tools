@@ -1,17 +1,4 @@
-// api/keywords.js — New Product Generator backend  ·  v0.53
-// v0.53 (2026-10-11): GAP + UBER now use the SAME where-it-goes rule as the strengthen keywords
-//   (manual kw-assignments wins, else auto by ASSIGN_SYN) — a keyword only shows on a product whose
-//   room/style its tags match, or when general. Fixes "living room …" appearing on an Office product.
-// v0.52 (2026-10-11): keyword→where-it-goes = Mae's manual classification (data/kw-assignments.json) wins,
-//   else auto-classify by ASSIGN_SYN synonym table (room/style/general). matchedProductIdeas offers a
-//   strengthen keyword to a product only where its tags match (room/style) or when general.
-// v0.51 (2026-10-10): FIX — setKeyword also uses lockedWithUrlSet, so picking a strengthen keyword that is
-//   LOCKED-but-no-url now SAVES instead of erroring "already locked in the registry" (consistent with Item 4).
-// v0.50 (2026-10-10): (Item 4) matchedProductIdeas now excludes a keyword only when it's LOCKED *and owns a
-//   real page* (lockedWithUrlSet) — a LOCKED-but-no-url keyword (saved-for-future/deleted) still has no page
-//   so the NPG offers it again (fixes fireplace/office strengthen keywords not showing). (Item 3) strengthen
-//   keywords that fit any product (isGeneralKeyword: no room/style/colour) are returned marked general:true,
-//   offered as low-priority FILLER. (Item 1) new action save-products-many = save many products in ONE commit.
+// api/keywords.js — New Product Generator backend  ·  v0.49
 // v0.48 (2026-10-06): DO FIRST = 3 buckets, nothing locked shown, clean URLs. syncCaptureTasks now returns
 //   each task with a `bucket`: 🟢 green (ranks on a FREE page → lock it → Start Here; computed live), 🔴 red
 //   (ranks on a TAKEN page → needs its own product/blog; persisted + auto-fed to the NPG pool), 🟡 yellow
@@ -362,27 +349,6 @@ async function lockedKeywordSet() {
   return set;
 }
 
-// Like lockedKeywordSet, but ONLY keywords that are LOCKED *and* own a real page (http url in col 2).
-// Used only inside the NPG's strengthen source (matchedProductIdeas): a keyword marked LOCKED but with
-// NO url (N/A — e.g. "saved for future" / deleted) still has no page, so it stays offerable in the NPG.
-async function lockedWithUrlSet() {
-  const set = new Set();
-  try {
-    const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/${REGISTRY_PATH}?t=${Date.now()}`);
-    if (!r.ok) return set;
-    const txt = await r.text();
-    txt.split('\n').forEach(line => {
-      if (!line.trim()) return;
-      const c = parseCSVLine(line.replace(/\r/g, ''));
-      const kw = (c[0] || '').toLowerCase();
-      const locked = (c[2] || '').toUpperCase();
-      const url = (c[1] || '').trim();
-      if (kw && locked === 'LOCKED' && /^https?:\/\//i.test(url)) set.add(kw);
-    });
-  } catch { /* ignore */ }
-  return set;
-}
-
 // Map of normalised URL -> the keyword it's LOCKED to (only rows with a real url + LOCKED). Used to tell,
 // for a keyword you rank for, whether the ranking page is already committed to ANOTHER keyword.
 // Strip the query string / hash AND the www. prefix: GSC reports variant URLs like
@@ -570,123 +536,29 @@ function gapClassify(kw, terms) {
   if (themeHit || colourArtHit) return { qualifies: true, tier: 2 };
   return { qualifies: false, tier: 0 };
 }
-// A keyword is "general" when it names NO specific room, NO specific style and NO specific colour —
-// so it fits ANY wall-art product (e.g. "beautiful wall art", "wall art canvas"). Used in the NPG to
-// offer such strengthen keywords as low-priority FILLER when a product has few topic-matched options.
-function isGeneralKeyword(kw) {
-  const s = (kw || '').toLowerCase();
-  for (const key in ROOM_VOCAB) { if (wordMatch(s, key) || ROOM_VOCAB[key].some(ph => wordMatch(s, ph))) return false; }
-  for (const key in STYLE_VOCAB) { if (wordMatch(s, key) || STYLE_VOCAB[key].some(ph => wordMatch(s, ph))) return false; }
-  for (const w of s.split(/[^a-z]+/)) { if (COLOUR_VOCAB.has(w)) return false; }
-  return true;
-}
-
-// ── Keyword → where-it-goes assignment (built from Mae's manual classification + synonyms) ──────────
-// Mae classifies each strengthen keyword by ROOM, by STYLE, "general" (every product) or "blog" (not the
-// NPG). This synonym table lets the NPG auto-classify NEW keywords the same way she would. A keyword can
-// map to several tags (floral → biophilic+farmhouse+shabby chic+french country, etc.) — all intentional.
-// Manual choices in data/kw-assignments.json always WIN over this table.
-const ASSIGN_SYN = {
-  // rooms
-  'living room': ['living room','living rooms','livingroom','lounge','lounges','sitting room','family room','snug'],
-  'bedroom': ['bedroom','above bed','over bed','master bedroom','guest bedroom'],
-  'nursery': ['nursery','baby room','baby nursery','kids','childrens',"children's",'playroom'],
-  'teens': ['teen','teens','teenage','teenager'],
-  'bathroom': ['bathroom','shower room','ensuite','en-suite','en suite','powder room','washroom','toilet','restroom','bath','spa'],
-  'kitchen': ['kitchen'],
-  'dining room': ['dining room','dining','breakfast room','breakfast nook'],
-  'hallway': ['hallway','hall','entryway','entrance','foyer','corridor','front room','entry room','staircase','stairway','landing','reception'],
-  'office': ['office','study','home office','workspace','desk'],
-  'laundry room': ['laundry','laundry room','utility room'],
-  'above fireplace': ['above fireplace','over fireplace','mantel','mantelpiece','fireplace','chimney breast'],
-  'games room': ['games room','game room','man cave'],
-  // styles
-  'biophilic': ['biophilic','botanical','floral','plants','greenery','leaves','foliage','nature'],
-  'farmhouse': ['farmhouse','botanical','floral','rustic','country','barn'],
-  'shabby chic': ['shabby chic','floral','romantic'],
-  'vintage': ['vintage'],
-  'japandi': ['japandi','relax','relaxing','calm','calming','zen','japan','japanese','asian','oriental','chinese','wabi-sabi','wabi sabi'],
-  'zen': ['zen','buddha','buddhist','buddhism','lotus','meditation'],
-  'scandinavian': ['scandinavian','scandi','nordic','forest','hygge'],
-  'travel': ['travel','map','maps','world','adventure','wanderlust','paris','london','new york','rome','venice','tokyo','barcelona','amsterdam','berlin','madrid','lisbon','dublin','prague','vienna','florence','milan','istanbul','dubai','singapore','sydney','edinburgh','oxford','cambridge'],
-  'christian': ['christian','faith','bible','scripture','cross','jesus','god'],
-  'islamic': ['islamic','islam','muslim','quran','arabic','arab','arabesque'],
-  'minimalism': ['minimalist','minimal','simple','clean'],
-  'masculine': ['masculine','male','manly','bold dark'],
-  'industrial': ['industrial','urban','loft','metal','concrete'],
-  'moroccan': ['moroccan','morocco','marrakech','arabesque'],
-  'abstract': ['abstract','geometric'],
-  'bohemian': ['bohemian','boho','hippie'],
-  'coastal': ['coastal','beach','sea','ocean','nautical','seaside'],
-  'tropical': ['tropical','palm','jungle','exotic'],
-  'wildlife': ['wildlife','animals','safari','lion','tiger','elephant','zebra','giraffe','leopard','cheetah','flamingo','peacock','panther','rhino','hippo','gorilla','parrot','toucan','panda'],
-  'sun & moon': ['sun and moon','sun & moon','celestial','moon','stars'],
-  'black & white': ['black and white','black & white','monochrome'],
-  'coffee': ['coffee','coffee house','cafe'],
-  'chinoiserie': ['chinoiserie'],
-  'mid century': ['mid century','mid-century','midcentury','retro','lux','luxury'],
-  'mediterranean': ['mediterranean','amalfi','positano','capri','cinque terre','riviera','santorini','sicily','sardinia'],
-  'contemporary': ['contemporary','modern'],
-  'maximalism': ['maximalism','maximalist'],
-  'french country': ['french country','provence','floral','florals','bees','hives','beehive'],
-  'old money': ['old money','maps','map','earth','equestrian','horse','horses','vintage'],
-  'marble': ['marble'],
-  'eclectic': ['eclectic'],
-  'country cottage': ['country cottage','cottagecore'],
-  'preppy': ['preppy'],
-  'transitional': ['transitional']
-};
-// Auto-classify a NEW keyword the way Mae would: every tag whose synonym it names; none → "general".
-function assignTagsFor(keyword) {
-  const kw = (keyword || '').toLowerCase();
-  const tags = [];
-  for (const key in ASSIGN_SYN) { if (ASSIGN_SYN[key].some(syn => wordMatch(kw, syn))) tags.push(key); }
-  return tags.length ? tags : ['general'];
-}
-// The product's own tags (its By Room + By Style names, mapped to canonical keys).
-function productAssignKeys(p) {
-  const col = p.collections || {};
-  const names = [].concat(col['By Room'] || [], col['By Style'] || []).map(n => String(n).toLowerCase().trim());
-  const keys = new Set();
-  names.forEach(n => {
-    if (ASSIGN_SYN[n]) { keys.add(n); return; }
-    for (const key in ASSIGN_SYN) { if (key === n || ASSIGN_SYN[key].some(syn => wordMatch(n, syn))) keys.add(key); }
-  });
-  return keys;
-}
-const KW_ASSIGN_PATH = 'data/kw-assignments.json';
-async function readKwAssignments() {
-  try {
-    const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/${KW_ASSIGN_PATH}?t=${Date.now()}`);
-    if (!r.ok) return {};
-    const j = await r.json();
-    return (j && typeof j === 'object' && !Array.isArray(j)) ? j : {};
-  } catch { return {}; }
-}
 async function gapResearch(body) {
   const products = Array.isArray(body.products) ? body.products : [];
   if (!products.length) return { results: [] };
   // v0.45: NPG asks for a bigger pool (limit) so the frontend can balance by category (room/style/colour/
   // terms). Default stays MAX_OPTIONS_PER_PRODUCT for any other caller.
   const limit = Number(body.limit) > 0 ? Math.min(Math.floor(Number(body.limit)), 120) : MAX_OPTIONS_PER_PRODUCT;
-  const [gapRows, locked, allProducts, dismissed, manualAssign] = await Promise.all([readGapFile(), lockedKeywordSet(), readProducts(), readPerformingDismissed(), readKwAssignments()]);
+  const [gapRows, locked, allProducts, dismissed] = await Promise.all([readGapFile(), lockedKeywordSet(), readProducts(), readPerformingDismissed()]);
   const results = products.map(p => {
     const terms = gapTermsForProduct(p);
-    const pKeys = productAssignKeys(p);
     const allowedColours = colourWordsOf((p.primaryColour || []).concat(p.keywordWords || []));
     const inProgress = inProgressKeywordMap(allProducts, p.sku);
     // opportunity = high volume + low difficulty; small colour bonus as a tie-breaker
     const opportunity = row => Math.sqrt(row.volume + 1) * (100 / (row.difficulty + 10)) + (anyWord(row.keyword, terms.colours) ? 1 : 0);
-    // Same where-it-goes rule as the strengthen keywords: Mae's manual choice wins, else auto by synonyms;
-    // offer only where the keyword's room/style tag matches THIS product (or it's general).
     const qualified = gapRows
       .filter(row => !locked.has((row.keyword || '').toLowerCase()) && !inProgress.has(row.keyword) && !dismissed.has((row.keyword || '').toLowerCase()))
       .filter(row => colourOk(row.keyword, allowedColours))
-      .filter(row => !EXCLUDED_PRODUCT_TYPES.test(row.keyword || ''))
-      .map(row => { const kw = (row.keyword || '').toLowerCase(); const tags = (manualAssign[kw] && manualAssign[kw].length) ? manualAssign[kw] : assignTagsFor(row.keyword); return { ...row, tags }; })
-      .filter(row => row.tags.indexOf('blog') === -1 && (row.tags.indexOf('general') !== -1 || [...pKeys].some(k => row.tags.indexOf(k) !== -1)));
-    const options = qualified
-      .sort((a, b) => opportunity(b) - opportunity(a))
+      .map(row => ({ ...row, cls: gapClassify(row.keyword, terms) }))
+      .filter(row => row.cls.qualifies);
+    // tier 1 = manual/extra words first; tier 2 = the rest. Within each tier, best opportunity first.
+    const byOpp = (a, b) => opportunity(b) - opportunity(a);
+    const tier1 = qualified.filter(r => r.cls.tier === 1).sort(byOpp);
+    const tier2 = qualified.filter(r => r.cls.tier === 2).sort(byOpp);
+    const options = [...tier1, ...tier2]
       .slice(0, limit)
       .map(row => ({ keyword: row.keyword, volume: row.volume, difficulty: row.difficulty, difficultyRaw: row.difficultyRaw }));
     return { sku: p.sku || '', options };
@@ -700,22 +572,21 @@ async function uberResearch(body) {
   const products = Array.isArray(body.products) ? body.products : [];
   if (!products.length) return { results: [] };
   const limit = Number(body.limit) > 0 ? Math.min(Math.floor(Number(body.limit)), 120) : MAX_OPTIONS_PER_PRODUCT;
-  const [uberRows, locked, allProducts, dismissed, manualAssign] = await Promise.all([readUberFile(), lockedKeywordSet(), readProducts(), readPerformingDismissed(), readKwAssignments()]);
+  const [uberRows, locked, allProducts, dismissed] = await Promise.all([readUberFile(), lockedKeywordSet(), readProducts(), readPerformingDismissed()]);
   const results = products.map(p => {
     const terms = gapTermsForProduct(p);
-    const pKeys = productAssignKeys(p);
     const allowedColours = colourWordsOf((p.primaryColour || []).concat(p.keywordWords || []));
     const inProgress = inProgressKeywordMap(allProducts, p.sku);
     const opportunity = row => Math.sqrt(row.volume + 1) * (100 / (row.difficulty + 10)) + (anyWord(row.keyword, terms.colours) ? 1 : 0);
-    // Same where-it-goes rule as the strengthen keywords (manual choice wins, else auto by synonyms).
     const qualified = uberRows
       .filter(row => !locked.has((row.keyword || '').toLowerCase()) && !inProgress.has(row.keyword) && !dismissed.has((row.keyword || '').toLowerCase()))
       .filter(row => colourOk(row.keyword, allowedColours))
-      .filter(row => !EXCLUDED_PRODUCT_TYPES.test(row.keyword || ''))
-      .map(row => { const kw = (row.keyword || '').toLowerCase(); const tags = (manualAssign[kw] && manualAssign[kw].length) ? manualAssign[kw] : assignTagsFor(row.keyword); return { ...row, tags }; })
-      .filter(row => row.tags.indexOf('blog') === -1 && (row.tags.indexOf('general') !== -1 || [...pKeys].some(k => row.tags.indexOf(k) !== -1)));
-    const options = qualified
-      .sort((a, b) => opportunity(b) - opportunity(a))
+      .map(row => ({ ...row, cls: gapClassify(row.keyword, terms) }))
+      .filter(row => row.cls.qualifies);
+    const byOpp = (a, b) => opportunity(b) - opportunity(a);
+    const tier1 = qualified.filter(r => r.cls.tier === 1).sort(byOpp);
+    const tier2 = qualified.filter(r => r.cls.tier === 2).sort(byOpp);
+    const options = [...tier1, ...tier2]
       .slice(0, limit)
       .map(row => ({ keyword: row.keyword, volume: row.volume, difficulty: row.difficulty, difficultyRaw: row.difficultyRaw, intent: row.intent }));
     return { sku: p.sku || '', options };
@@ -880,26 +751,20 @@ async function readPerformingList() {
 // pageUrl/urlFree/lockedToKeyword/topSix, so a saved keyword whose ranking page is locked to ANOTHER
 // keyword can offer an admin link to that page.
 async function matchedProductIdeas(sku) {
-  const [ideas, products, urlLocks, perfList, lockedWithUrl, manualAssign] = await Promise.all([
-    readProductIdeas(), readProducts(), registryUrlLockMap(), readPerformingList(), lockedWithUrlSet(), readKwAssignments()
+  const [ideas, products, urlLocks, perfList, locked] = await Promise.all([
+    readProductIdeas(), readProducts(), registryUrlLockMap(), readPerformingList(), lockedKeywordSet()
   ]);
   if (!ideas.length) return [];
   const p = products.find(x => (x.sku || '').toLowerCase() === (sku || '').toLowerCase());
-  const pKeys = p ? productAssignKeys(p) : new Set();
+  const terms = p ? gapTermsForProduct(p) : null;
   const perfByKw = {};
   perfList.forEach(k => { if (k && k.keyword) perfByKw[k.keyword.toLowerCase()] = k; });
-  // Item 4: only a keyword that OWNS a real page is "used up". A LOCKED-but-no-url one still has no page.
   return ideas
-    .filter(i => i.keyword && !lockedWithUrl.has((i.keyword || '').toLowerCase()))
+    .filter(i => i.keyword && !locked.has((i.keyword || '').toLowerCase()))  // a used (locked) idea is no longer buildable
+    .filter(i => (!terms || gapClassify(i.keyword, terms).qualifies))
     .map(i => {
-      // Where does this keyword go? Mae's manual choice (kw-assignments.json) wins; else auto by synonyms.
-      const kwl = (i.keyword || '').toLowerCase();
-      const tags = (manualAssign[kwl] && manualAssign[kwl].length) ? manualAssign[kwl] : assignTagsFor(i.keyword);
-      if (tags.indexOf('blog') !== -1) return null;                       // belongs to a blog, not the NPG
-      const general = tags.indexOf('general') !== -1;
-      // offer when general (every product), or when a tag matches THIS product's room/style; else drop
-      if (!general && p && ![...pKeys].some(k => tags.indexOf(k) !== -1)) return null;
-      const perf = perfByKw[kwl] || {};
+      const perf = perfByKw[(i.keyword || '').toLowerCase()] || {};
+      // Prefer the stored ranking page (case-C ideas carry their own); fall back to the live performing list.
       const cleanRanking = i.pageUrl ? cleanUrl(i.pageUrl) : (perf.rankingUrl ? cleanUrl(perf.rankingUrl) : null);
       const lockedTo = i.lockedToKeyword || (cleanRanking ? urlLocks[normUrl(cleanRanking)] : null);
       const urlFree = !!(cleanRanking && !lockedTo);
@@ -913,12 +778,9 @@ async function matchedProductIdeas(sku) {
         urlFree: urlFree,
         lockedToKeyword: lockedTo || null,
         origin: i.origin || null,               // 'C' → NPG shows the distinct-colour pill
-        general: general,                        // true → fits any product (pill "general · any room")
-        tags: tags,
         topSix: (position != null && position <= 6)
       };
-    })
-    .filter(Boolean);
+    });
 }
 async function removeProductIdea(keyword) {
   keyword = (keyword || '').trim().toLowerCase();
@@ -1700,8 +1562,7 @@ async function setKeyword(sku, keyword) {
   keyword = (keyword || '').trim();
   if (!sku) throw new Error('sku required');
   if (!keyword) throw new Error('keyword required');
-  // Item 4: only a keyword that OWNS a real page is truly taken — a LOCKED-but-no-url one is still offerable.
-  const locked = await lockedWithUrlSet();
+  const locked = await lockedKeywordSet();
   if (locked.has(keyword.toLowerCase())) return { taken: true, reason: 'This keyword is already locked in the registry.' };
   for (let attempt = 0; attempt < 2; attempt++) {
     const file = await ghGet(PRODUCTS_PATH);
@@ -3190,28 +3051,6 @@ export default async function handler(req, res) {
         else arr.push({ ...product, sent: false, createdAt: now, updatedAt: now });
         try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG save product: ${product.sku}`); return res.status(200).json({ ok: true, products: arr }); }
         catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
-      }
-    }
-
-    // Item 1: save SEVERAL products in ONE commit (multi-room saves) so N products no longer mean N
-    // commits → N Vercel builds hammering GitHub. Same image-protection rule as save-product on update.
-    if (action === 'save-products-many') {
-      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
-      const list = Array.isArray(body.products) ? body.products.filter(x => x && x.sku) : [];
-      if (!list.length) return res.status(400).json({ ok: false, error: 'products[] required' });
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const file = await ghGet(PRODUCTS_PATH);
-        let arr = [];
-        if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
-        if (!Array.isArray(arr)) arr = [];
-        const now = new Date().toISOString();
-        for (const product of list) {
-          const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === product.sku.toLowerCase());
-          if (idx >= 0) { const { images: _ignoreImages, ...rest } = product; arr[idx] = { ...arr[idx], ...rest, updatedAt: now }; }
-          else arr.push({ ...product, sent: false, createdAt: now, updatedAt: now });
-        }
-        try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG save ${list.length} product(s)`); return res.status(200).json({ ok: true, products: arr }); }
-        catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
       }
     }
 
