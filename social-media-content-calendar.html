@@ -211,7 +211,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.79 · 13 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.80 · 11 Oct 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -708,6 +708,7 @@
       <button type="button" id="mpAddOcc" class="mp-btn-sm">+ Add occasion</button>
     </div>
     <button type="button" id="mpBuild" class="mp-btn mp-btn-go" style="margin-top:6px;">Build the month plan →</button>
+    <div id="mpBuildProg" class="small mp-muted" style="display:none;margin-top:8px;">⏳ Bringing products…</div>
   </div>
 
   <div id="mpPlanWrap" style="display:none;">
@@ -1095,13 +1096,37 @@
     renderDays();
     // filler pools: Tab 1 UNUSED cards first (read straight from the page), then a general art fallback
     TAB1SET = {}; TAB1POOL = readTab1Pool();
-    fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'suggest-products',limit:80})}).then(function(r){return r.json();}).catch(function(){return {};})
-    .then(function(res){
-      POOL = (res&&res.ok&&res.products)?res.products:[];
+    var prog = $('mpBuildProg');
+    if(prog){ prog.style.display=''; prog.textContent='⏳ Bringing products (new + old)… 0'; }
+    fetchFullPool(function(got,total){
+      if(prog) prog.textContent='⏳ Bringing products (new + old)… '+got.toLocaleString()+(total!=null?(' / '+total.toLocaleString()):'');
+    }).then(function(pool){
+      POOL = pool || [];
+      if(prog) prog.style.display='none';
       autoFillFillers();
       renderDays();
     });
   });
+
+  // Fetch the WHOLE active catalogue, one page (tanda) at a time, so new + old products all have a chance
+  // (not just the oldest 250). onProgress(gotSoFar, totalOrNull) fires after each page so the UI can show
+  // "X / total". Resolves with the full, shuffled pool. Costs zero Claude tokens — it only hits Shopify.
+  function fetchFullPool(onProgress){
+    return new Promise(function(resolve){
+      var all=[], cursor=null, total=null;
+      function step(){
+        fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'suggest-products',paged:true,cursor:cursor})})
+          .then(function(r){return r.json();}).catch(function(){return {};})
+          .then(function(res){
+            if(res&&res.ok&&Array.isArray(res.products)){ all=all.concat(res.products); if(res.total!=null) total=res.total; }
+            if(onProgress) onProgress(all.length, total);
+            if(res&&res.ok&&res.hasMore&&res.nextCursor){ cursor=res.nextCursor; step(); }
+            else { for(var i=all.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)); var t=all[i]; all[i]=all[j]; all[j]=t; } resolve(all); }
+          });
+      }
+      step();
+    });
+  }
 
   // build the "Tab 1 unused" filler pool from the page itself (no server call — can never come back empty)
   function readTab1Pool(){
@@ -1418,11 +1443,11 @@
         if(c.classList.contains('done')) tier1.push(sku); else tier2.push(sku);
       });
       shuffle(tier1); shuffle(tier2);
-      if(stat) stat.textContent='Filling empty days… getting your product pool…';
-      fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'suggest-products',limit:80})})
-        .then(function(r){return r.json();}).catch(function(){return {};})
-        .then(function(res){
-          var pool=(res&&res.ok&&res.products)?res.products:[];
+      if(stat) stat.textContent='⏳ Bringing products (new + old)… 0';
+      fetchFullPool(function(got,total){
+        if(stat) stat.textContent='⏳ Bringing products (new + old)… '+got.toLocaleString()+(total!=null?(' / '+total.toLocaleString()):'');
+      })
+        .then(function(pool){
           var tier3=[]; pool.forEach(function(p){ var sku=(p.sku||'').trim(); if(eligible(sku)){ picked[sku.toUpperCase()]=1; tier3.push(sku); } });
           shuffle(tier3);
           var queue = tier1.concat(tier2).concat(tier3);
