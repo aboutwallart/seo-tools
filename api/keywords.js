@@ -1,4 +1,7 @@
-// api/keywords.js — New Product Generator backend  ·  v0.49
+// api/keywords.js — New Product Generator backend  ·  v0.50
+// v0.50 (2026-10-11): ROOM VETO on top of the topic match (gapResearch/uberResearch/matchedProductIdeas):
+//   after gapClassify keeps only artwork-relevant keywords, drop any that NAME a different room than the
+//   product's (rooms from data/kw-assignments.json when present, else synonyms). Topic match untouched.
 // v0.48 (2026-10-06): DO FIRST = 3 buckets, nothing locked shown, clean URLs. syncCaptureTasks now returns
 //   each task with a `bucket`: 🟢 green (ranks on a FREE page → lock it → Start Here; computed live), 🔴 red
 //   (ranks on a TAKEN page → needs its own product/blog; persisted + auto-fed to the NPG pool), 🟡 yellow
@@ -536,15 +539,75 @@ function gapClassify(kw, terms) {
   if (themeHit || colourArtHit) return { qualifies: true, tier: 2 };
   return { qualifies: false, tier: 0 };
 }
+
+// ── Room veto (applied ON TOP of the topic match, never instead of it) ───────────────────────────────
+// After gapClassify keeps only keywords relevant to the ARTWORK (style/colour/terms), this drops any that
+// name a DIFFERENT room than the product's — so a "living room" keyword never shows on an Office product.
+// Rooms come from Mae's manual file (data/kw-assignments.json) when present, else from the synonym table.
+// Styles/colours are NOT vetoed here — the topic match already handles those.
+const ASSIGN_ROOM_SYN = {
+  'living room': ['living room','living rooms','livingroom','lounge','lounges','sitting room','family room','snug'],
+  'bedroom': ['bedroom','above bed','over bed','master bedroom','guest bedroom'],
+  'nursery': ['nursery','baby room','baby nursery','kids','childrens',"children's",'playroom'],
+  'teens': ['teen','teens','teenage','teenager'],
+  'bathroom': ['bathroom','shower room','ensuite','en-suite','en suite','powder room','washroom','toilet','restroom','bath','spa'],
+  'kitchen': ['kitchen'],
+  'dining room': ['dining room','dining','breakfast room','breakfast nook'],
+  'hallway': ['hallway','hall','entryway','entrance','foyer','corridor','front room','entry room','staircase','stairway','landing','reception'],
+  'office': ['office','study','home office','workspace','desk'],
+  'laundry room': ['laundry','laundry room','utility room'],
+  'above fireplace': ['above fireplace','over fireplace','mantel','mantelpiece','fireplace','chimney breast'],
+  'games room': ['games room','game room','man cave']
+};
+const ASSIGN_ROOM_KEYS = new Set(Object.keys(ASSIGN_ROOM_SYN));
+function roomsNamedInKeyword(kw) {
+  const s = (kw || '').toLowerCase(); const out = [];
+  for (const key in ASSIGN_ROOM_SYN) { if (ASSIGN_ROOM_SYN[key].some(syn => wordMatch(s, syn))) out.push(key); }
+  return out;
+}
+function productRoomKeys(p) {
+  const rooms = ((p.collections || {})['By Room'] || []).map(n => String(n).toLowerCase().trim());
+  const keys = new Set();
+  rooms.forEach(n => {
+    if (ASSIGN_ROOM_KEYS.has(n)) { keys.add(n); return; }
+    for (const key in ASSIGN_ROOM_SYN) { if (key === n || ASSIGN_ROOM_SYN[key].some(syn => wordMatch(n, syn))) keys.add(key); }
+  });
+  return keys;
+}
+const KW_ASSIGN_PATH = 'data/kw-assignments.json';
+async function readKwAssignments() {
+  try {
+    const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/${KW_ASSIGN_PATH}?t=${Date.now()}`);
+    if (!r.ok) return {};
+    const j = await r.json();
+    return (j && typeof j === 'object' && !Array.isArray(j)) ? j : {};
+  } catch { return {}; }
+}
+// true → DROP: the keyword names a room the product is NOT. Mae's manual rooms win; "general" never vetoes.
+function roomVeto(keyword, productRooms, manualAssign) {
+  const kwl = (keyword || '').toLowerCase();
+  const manual = manualAssign && manualAssign[kwl];
+  let kwRooms;
+  if (manual && manual.length) {
+    const lower = manual.map(t => String(t).toLowerCase());
+    if (lower.indexOf('general') !== -1) return false;
+    kwRooms = lower.filter(t => ASSIGN_ROOM_KEYS.has(t));
+  } else {
+    kwRooms = roomsNamedInKeyword(keyword);
+  }
+  if (!kwRooms.length) return false;
+  return !kwRooms.some(r => productRooms.has(r));
+}
 async function gapResearch(body) {
   const products = Array.isArray(body.products) ? body.products : [];
   if (!products.length) return { results: [] };
   // v0.45: NPG asks for a bigger pool (limit) so the frontend can balance by category (room/style/colour/
   // terms). Default stays MAX_OPTIONS_PER_PRODUCT for any other caller.
   const limit = Number(body.limit) > 0 ? Math.min(Math.floor(Number(body.limit)), 120) : MAX_OPTIONS_PER_PRODUCT;
-  const [gapRows, locked, allProducts, dismissed] = await Promise.all([readGapFile(), lockedKeywordSet(), readProducts(), readPerformingDismissed()]);
+  const [gapRows, locked, allProducts, dismissed, manualAssign] = await Promise.all([readGapFile(), lockedKeywordSet(), readProducts(), readPerformingDismissed(), readKwAssignments()]);
   const results = products.map(p => {
     const terms = gapTermsForProduct(p);
+    const pRooms = productRoomKeys(p);
     const allowedColours = colourWordsOf((p.primaryColour || []).concat(p.keywordWords || []));
     const inProgress = inProgressKeywordMap(allProducts, p.sku);
     // opportunity = high volume + low difficulty; small colour bonus as a tie-breaker
@@ -553,7 +616,8 @@ async function gapResearch(body) {
       .filter(row => !locked.has((row.keyword || '').toLowerCase()) && !inProgress.has(row.keyword) && !dismissed.has((row.keyword || '').toLowerCase()))
       .filter(row => colourOk(row.keyword, allowedColours))
       .map(row => ({ ...row, cls: gapClassify(row.keyword, terms) }))
-      .filter(row => row.cls.qualifies);
+      .filter(row => row.cls.qualifies)
+      .filter(row => !roomVeto(row.keyword, pRooms, manualAssign));   // on top of topic: drop other-room keywords
     // tier 1 = manual/extra words first; tier 2 = the rest. Within each tier, best opportunity first.
     const byOpp = (a, b) => opportunity(b) - opportunity(a);
     const tier1 = qualified.filter(r => r.cls.tier === 1).sort(byOpp);
@@ -572,9 +636,10 @@ async function uberResearch(body) {
   const products = Array.isArray(body.products) ? body.products : [];
   if (!products.length) return { results: [] };
   const limit = Number(body.limit) > 0 ? Math.min(Math.floor(Number(body.limit)), 120) : MAX_OPTIONS_PER_PRODUCT;
-  const [uberRows, locked, allProducts, dismissed] = await Promise.all([readUberFile(), lockedKeywordSet(), readProducts(), readPerformingDismissed()]);
+  const [uberRows, locked, allProducts, dismissed, manualAssign] = await Promise.all([readUberFile(), lockedKeywordSet(), readProducts(), readPerformingDismissed(), readKwAssignments()]);
   const results = products.map(p => {
     const terms = gapTermsForProduct(p);
+    const pRooms = productRoomKeys(p);
     const allowedColours = colourWordsOf((p.primaryColour || []).concat(p.keywordWords || []));
     const inProgress = inProgressKeywordMap(allProducts, p.sku);
     const opportunity = row => Math.sqrt(row.volume + 1) * (100 / (row.difficulty + 10)) + (anyWord(row.keyword, terms.colours) ? 1 : 0);
@@ -582,7 +647,8 @@ async function uberResearch(body) {
       .filter(row => !locked.has((row.keyword || '').toLowerCase()) && !inProgress.has(row.keyword) && !dismissed.has((row.keyword || '').toLowerCase()))
       .filter(row => colourOk(row.keyword, allowedColours))
       .map(row => ({ ...row, cls: gapClassify(row.keyword, terms) }))
-      .filter(row => row.cls.qualifies);
+      .filter(row => row.cls.qualifies)
+      .filter(row => !roomVeto(row.keyword, pRooms, manualAssign));   // on top of topic: drop other-room keywords
     const byOpp = (a, b) => opportunity(b) - opportunity(a);
     const tier1 = qualified.filter(r => r.cls.tier === 1).sort(byOpp);
     const tier2 = qualified.filter(r => r.cls.tier === 2).sort(byOpp);
@@ -751,17 +817,19 @@ async function readPerformingList() {
 // pageUrl/urlFree/lockedToKeyword/topSix, so a saved keyword whose ranking page is locked to ANOTHER
 // keyword can offer an admin link to that page.
 async function matchedProductIdeas(sku) {
-  const [ideas, products, urlLocks, perfList, locked] = await Promise.all([
-    readProductIdeas(), readProducts(), registryUrlLockMap(), readPerformingList(), lockedKeywordSet()
+  const [ideas, products, urlLocks, perfList, locked, manualAssign] = await Promise.all([
+    readProductIdeas(), readProducts(), registryUrlLockMap(), readPerformingList(), lockedKeywordSet(), readKwAssignments()
   ]);
   if (!ideas.length) return [];
   const p = products.find(x => (x.sku || '').toLowerCase() === (sku || '').toLowerCase());
   const terms = p ? gapTermsForProduct(p) : null;
+  const pRooms = p ? productRoomKeys(p) : new Set();
   const perfByKw = {};
   perfList.forEach(k => { if (k && k.keyword) perfByKw[k.keyword.toLowerCase()] = k; });
   return ideas
     .filter(i => i.keyword && !locked.has((i.keyword || '').toLowerCase()))  // a used (locked) idea is no longer buildable
     .filter(i => (!terms || gapClassify(i.keyword, terms).qualifies))
+    .filter(i => !roomVeto(i.keyword, pRooms, manualAssign))                 // on top of topic: drop other-room keywords
     .map(i => {
       const perf = perfByKw[(i.keyword || '').toLowerCase()] || {};
       // Prefer the stored ranking page (case-C ideas carry their own); fall back to the live performing list.
