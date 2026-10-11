@@ -1,4 +1,7 @@
-// api/keywords.js — New Product Generator backend  ·  v0.52
+// api/keywords.js — New Product Generator backend  ·  v0.53
+// v0.53 (2026-10-11): GAP + UBER now use the SAME where-it-goes rule as the strengthen keywords
+//   (manual kw-assignments wins, else auto by ASSIGN_SYN) — a keyword only shows on a product whose
+//   room/style its tags match, or when general. Fixes "living room …" appearing on an Office product.
 // v0.52 (2026-10-11): keyword→where-it-goes = Mae's manual classification (data/kw-assignments.json) wins,
 //   else auto-classify by ASSIGN_SYN synonym table (room/style/general). matchedProductIdeas offers a
 //   strengthen keyword to a product only where its tags match (room/style) or when general.
@@ -666,23 +669,24 @@ async function gapResearch(body) {
   // v0.45: NPG asks for a bigger pool (limit) so the frontend can balance by category (room/style/colour/
   // terms). Default stays MAX_OPTIONS_PER_PRODUCT for any other caller.
   const limit = Number(body.limit) > 0 ? Math.min(Math.floor(Number(body.limit)), 120) : MAX_OPTIONS_PER_PRODUCT;
-  const [gapRows, locked, allProducts, dismissed] = await Promise.all([readGapFile(), lockedKeywordSet(), readProducts(), readPerformingDismissed()]);
+  const [gapRows, locked, allProducts, dismissed, manualAssign] = await Promise.all([readGapFile(), lockedKeywordSet(), readProducts(), readPerformingDismissed(), readKwAssignments()]);
   const results = products.map(p => {
     const terms = gapTermsForProduct(p);
+    const pKeys = productAssignKeys(p);
     const allowedColours = colourWordsOf((p.primaryColour || []).concat(p.keywordWords || []));
     const inProgress = inProgressKeywordMap(allProducts, p.sku);
     // opportunity = high volume + low difficulty; small colour bonus as a tie-breaker
     const opportunity = row => Math.sqrt(row.volume + 1) * (100 / (row.difficulty + 10)) + (anyWord(row.keyword, terms.colours) ? 1 : 0);
+    // Same where-it-goes rule as the strengthen keywords: Mae's manual choice wins, else auto by synonyms;
+    // offer only where the keyword's room/style tag matches THIS product (or it's general).
     const qualified = gapRows
       .filter(row => !locked.has((row.keyword || '').toLowerCase()) && !inProgress.has(row.keyword) && !dismissed.has((row.keyword || '').toLowerCase()))
       .filter(row => colourOk(row.keyword, allowedColours))
-      .map(row => ({ ...row, cls: gapClassify(row.keyword, terms) }))
-      .filter(row => row.cls.qualifies);
-    // tier 1 = manual/extra words first; tier 2 = the rest. Within each tier, best opportunity first.
-    const byOpp = (a, b) => opportunity(b) - opportunity(a);
-    const tier1 = qualified.filter(r => r.cls.tier === 1).sort(byOpp);
-    const tier2 = qualified.filter(r => r.cls.tier === 2).sort(byOpp);
-    const options = [...tier1, ...tier2]
+      .filter(row => !EXCLUDED_PRODUCT_TYPES.test(row.keyword || ''))
+      .map(row => { const kw = (row.keyword || '').toLowerCase(); const tags = (manualAssign[kw] && manualAssign[kw].length) ? manualAssign[kw] : assignTagsFor(row.keyword); return { ...row, tags }; })
+      .filter(row => row.tags.indexOf('blog') === -1 && (row.tags.indexOf('general') !== -1 || [...pKeys].some(k => row.tags.indexOf(k) !== -1)));
+    const options = qualified
+      .sort((a, b) => opportunity(b) - opportunity(a))
       .slice(0, limit)
       .map(row => ({ keyword: row.keyword, volume: row.volume, difficulty: row.difficulty, difficultyRaw: row.difficultyRaw }));
     return { sku: p.sku || '', options };
@@ -696,21 +700,22 @@ async function uberResearch(body) {
   const products = Array.isArray(body.products) ? body.products : [];
   if (!products.length) return { results: [] };
   const limit = Number(body.limit) > 0 ? Math.min(Math.floor(Number(body.limit)), 120) : MAX_OPTIONS_PER_PRODUCT;
-  const [uberRows, locked, allProducts, dismissed] = await Promise.all([readUberFile(), lockedKeywordSet(), readProducts(), readPerformingDismissed()]);
+  const [uberRows, locked, allProducts, dismissed, manualAssign] = await Promise.all([readUberFile(), lockedKeywordSet(), readProducts(), readPerformingDismissed(), readKwAssignments()]);
   const results = products.map(p => {
     const terms = gapTermsForProduct(p);
+    const pKeys = productAssignKeys(p);
     const allowedColours = colourWordsOf((p.primaryColour || []).concat(p.keywordWords || []));
     const inProgress = inProgressKeywordMap(allProducts, p.sku);
     const opportunity = row => Math.sqrt(row.volume + 1) * (100 / (row.difficulty + 10)) + (anyWord(row.keyword, terms.colours) ? 1 : 0);
+    // Same where-it-goes rule as the strengthen keywords (manual choice wins, else auto by synonyms).
     const qualified = uberRows
       .filter(row => !locked.has((row.keyword || '').toLowerCase()) && !inProgress.has(row.keyword) && !dismissed.has((row.keyword || '').toLowerCase()))
       .filter(row => colourOk(row.keyword, allowedColours))
-      .map(row => ({ ...row, cls: gapClassify(row.keyword, terms) }))
-      .filter(row => row.cls.qualifies);
-    const byOpp = (a, b) => opportunity(b) - opportunity(a);
-    const tier1 = qualified.filter(r => r.cls.tier === 1).sort(byOpp);
-    const tier2 = qualified.filter(r => r.cls.tier === 2).sort(byOpp);
-    const options = [...tier1, ...tier2]
+      .filter(row => !EXCLUDED_PRODUCT_TYPES.test(row.keyword || ''))
+      .map(row => { const kw = (row.keyword || '').toLowerCase(); const tags = (manualAssign[kw] && manualAssign[kw].length) ? manualAssign[kw] : assignTagsFor(row.keyword); return { ...row, tags }; })
+      .filter(row => row.tags.indexOf('blog') === -1 && (row.tags.indexOf('general') !== -1 || [...pKeys].some(k => row.tags.indexOf(k) !== -1)));
+    const options = qualified
+      .sort((a, b) => opportunity(b) - opportunity(a))
       .slice(0, limit)
       .map(row => ({ keyword: row.keyword, volume: row.volume, difficulty: row.difficulty, difficultyRaw: row.difficultyRaw, intent: row.intent }));
     return { sku: p.sku || '', options };
