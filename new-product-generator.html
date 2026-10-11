@@ -220,7 +220,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v4.13</span>
+  <span class="ver">v4.14</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -930,9 +930,17 @@ function roomKeywordColumn(p,idx){
   let body;
   if(!state||state.loading) body='<div class="empty"><span class="spin" style="border-color:'+c+';border-top-color:transparent"></span>Searching…</div>';
   else{
-    let ord=state.options.map((o,oi)=>({o,oi})).filter(it=>!takenElsewhere.has((it.o.keyword||'').toLowerCase()));
-    if(p.keyword){ const kl=p.keyword.toLowerCase(); ord.sort((a,b)=>((b.o.keyword.toLowerCase()===kl)?1:0)-((a.o.keyword.toLowerCase()===kl)?1:0)); }
-    body = ord.length ? ord.map((it,pos)=>roomKwOption(p,it.o,it.oi,pos)).join('')
+    let items=state.options.map((o,oi)=>({o,oi})).filter(it=>!takenElsewhere.has((it.o.keyword||'').toLowerCase()));
+    const kl=p.keyword?p.keyword.toLowerCase():null;
+    const top=items.filter(it=>!it.o._below);
+    const bottom=items.filter(it=>it.o._below);
+    if(kl){ const bump=it=>(it.o.keyword.toLowerCase()===kl)?1:0; top.sort((a,b)=>bump(b)-bump(a)); bottom.sort((a,b)=>bump(b)-bump(a)); }
+    let html=top.map((it,pos)=>roomKwOption(p,it.o,it.oi,pos)).join('');
+    if(bottom.length){
+      html+='<div class="kwt" style="margin-top:14px;color:#8a3b12">Already ranks — needs its own page <span style="font-weight:400;color:var(--muted)">(pick one if nothing above fits)</span></div>';
+      html+=bottom.map((it,pos)=>roomKwOption(p,it.o,it.oi,top.length+pos)).join('');
+    }
+    body = (top.length||bottom.length) ? html
                       : '<div class="empty">No options. Copy the Ubersuggest prompt or add one manually.</div>';
   }
   const enc=encodeURIComponent(p.sku);
@@ -1017,7 +1025,12 @@ function catOf(keyword,p){
 // All keywords ordered BEST → WORST by potential (high volume + low difficulty).
 // Caps: colours ≤ KW_COLOUR_MAX, Ubersuggest-only ≤ KW_UBER_MAX. Nothing is forced to the bottom.
 function selectByQuota(items){
-  const sorted=[...items].sort((a,b)=>b.pot-a.pot);
+  // Keywords WITH a search number (pot>0) fill the TOP block (ordered, capped at KW_TOTAL).
+  // Keywords WITHOUT a number (pot===0 — e.g. "needs own page", which only carry rank position)
+  // go to a SEPARATE block below, so they're always reachable even when the top block is full.
+  const withNum=items.filter(o=>o.pot>0);
+  const noNum=items.filter(o=>!(o.pot>0));
+  const sorted=[...withNum].sort((a,b)=>b.pot-a.pot);
   const out=[]; const seen=new Set();
   let colourCount=0, uberCount=0;
   for(const o of sorted){
@@ -1027,12 +1040,18 @@ function selectByQuota(items){
     const isUberOnly = !!s.uber && !(s.gap||s.gsc||s.gkp||s.available||s.matched);
     if(isColour && colourCount>=KW_COLOUR_MAX) continue;      // colours: max 5
     if(isUberOnly && uberCount>=KW_UBER_MAX) continue;        // Ubersuggest-only: max 10
-    seen.add(k); out.push(o);
+    seen.add(k); o._below=false; out.push(o);
     if(isColour) colourCount++;
     if(isUberOnly) uberCount++;
     if(out.length>=KW_TOTAL) break;
   }
-  return out;
+  const below=[];
+  for(const o of noNum){
+    const k=(o.keyword||'').toLowerCase(); if(!k||seen.has(k)) continue;
+    seen.add(k); o._below=true; below.push(o);
+    if(below.length>=KW_TOTAL) break;
+  }
+  return out.concat(below);
 }
 function ensureRoomKeywords(){ groupProducts().forEach(p=>{ if(!KWC[p.sku]) fetchRoomKw(p); }); }
 // Re-render ONE room's column in place (keeps every other column's typed text + scroll intact).
