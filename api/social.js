@@ -598,6 +598,45 @@ module.exports = async (req, res) => {
       var limit = Math.min(parseInt(body.limit, 10) || 8, 100);
       const domain = process.env.SHOPIFY_STORE_DOMAIN, stoken = process.env.SHOPIFY_ACCESS_TOKEN;
       if (!domain || !stoken) return res.status(500).json({ ok: false, error: 'Shopify not configured' });
+
+      // --- PAGED MODE: fetch the whole active catalogue one page at a time. The front drives the loop
+      //     (passing back the cursor) and shows progress, so new + old products all get a chance, not just
+      //     the oldest 250. Returns RAW products (no used-filter, no shuffle) — the front filters/mixes. ---
+      if (body.paged) {
+        const after = body.cursor || null;
+        const gqp = 'query($q:String!,$after:String){ products(first:250, after:$after, sortKey:CREATED_AT, query:$q){ edges{ node{ title handle vendor onlineStoreUrl featuredImage{url} room:metafield(namespace:"custom",key:"room_type"){value} skumf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } pageInfo{ hasNextPage endCursor } } }';
+        const prp = await fetch('https://' + domain + '/admin/api/2025-01/graphql.json', {
+          method: 'POST', headers: { 'X-Shopify-Access-Token': stoken, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: gqp, variables: { q: "vendor:'About Wall Art' status:active", after: after } })
+        });
+        if (!prp.ok) return res.status(prp.status).json({ ok: false, error: 'Shopify error ' + prp.status });
+        const pdp = await prp.json();
+        const conn = (pdp && pdp.data && pdp.data.products) || {};
+        const edges = conn.edges || [];
+        var pageOut = [];
+        edges.forEach(function (e) {
+          var n = (e && e.node) || {};
+          if (!isAWA(n.vendor)) return;
+          var sku = (n.skumf && n.skumf.value) || '';
+          if (!sku) return;
+          var room = ''; try { var arr = JSON.parse((n.room && n.room.value) || '[]'); room = (arr[0] || '').toString().split(',')[0].trim(); } catch (e2) { room = (n.room && n.room.value) || ''; }
+          pageOut.push({ sku: sku, title: n.title || '', handle: n.handle || '', url: n.onlineStoreUrl || ('https://aboutwallart.com/products/' + (n.handle || '')), image: (n.featuredImage && n.featuredImage.url) || '', room: room });
+        });
+        var resp = { ok: true, products: pageOut, nextCursor: (conn.pageInfo && conn.pageInfo.endCursor) || null, hasMore: !!(conn.pageInfo && conn.pageInfo.hasNextPage) };
+        // on the FIRST page (no cursor yet) also return the REAL catalogue count, so the front shows "X / total"
+        if (!after) {
+          try {
+            const cnt = await fetch('https://' + domain + '/admin/api/2025-01/graphql.json', {
+              method: 'POST', headers: { 'X-Shopify-Access-Token': stoken, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ query: 'query($q:String!){ productsCount(query:$q){ count } }', variables: { q: "vendor:'About Wall Art' status:active" } })
+            });
+            const cntd = await cnt.json();
+            resp.total = (cntd && cntd.data && cntd.data.productsCount && typeof cntd.data.productsCount.count === 'number') ? cntd.data.productsCount.count : null;
+          } catch (eC) { resp.total = null; }
+        }
+        return res.status(200).json(resp);
+      }
+
       // pool = every active About Wall Art product (the Discountable Products smart collection is all AWA products) — 1000+, never runs low
       const gq = 'query($q:String!,$n:Int!){ products(first:$n, query:$q){ nodes{ title handle vendor onlineStoreUrl featuredImage{url} room:metafield(namespace:"custom",key:"room_type"){value} skumf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } }';
       const sr = await fetch('https://' + domain + '/admin/api/2025-01/graphql.json', {
