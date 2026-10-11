@@ -220,7 +220,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v4.14</span>
+  <span class="ver">v4.15</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -1614,8 +1614,7 @@ function mergedPot(s){
   if(s.uber){ const v=s.uber.volume||0,d=(s.uber.difficulty==null?50:s.uber.difficulty); best=Math.max(best,Math.sqrt(v+1)*(100/(d+10))); }
   if(s.gkp){ const v=s.gkp.volume||0,d=(s.gkp.competitionIndex==null?50:s.gkp.competitionIndex); best=Math.max(best,Math.sqrt(v+1)*(100/(d+10))); }
   if(s.gsc){ const im=s.gsc.impressions||0,ps=(s.gsc.position==null?20:s.gsc.position); best=Math.max(best,Math.sqrt(im+1)*(100/(ps+10))); }
-  if(s.matched && !s.matched.general){ const im=(s.matched.impressions||s.matched.clicks||0),ps=(s.matched.position==null?15:s.matched.position); best=Math.max(best,Math.sqrt(im+1)*(100/(ps+10))); } // strengthen keyword that fits this product (already ranks) → real priority
-  if(s.matched && s.matched.general && best<=0) best=0.1; // general filler → only surfaces when there are fewer than 40 better options
+  if(s.matched){ const im=(s.matched.impressions||s.matched.clicks||0),ps=(s.matched.position==null?15:s.matched.position); best=Math.max(best,Math.sqrt(im+1)*(100/(ps+10))); } // strengthen keyword (already ranks) → real priority, general or room/style alike
   return best;
 }
 function compLabel(c){ return ({LOW:'low comp',MEDIUM:'med comp',HIGH:'high comp'})[c]||''; }
