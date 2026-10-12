@@ -1,4 +1,6 @@
-// api/etsy.js — AWA ETSY backend (OAuth + API test harness)  ·  v0.6
+// api/etsy.js — AWA ETSY backend (OAuth + API test harness)  ·  v0.7
+// v0.7 (2026-10-12): diagnose taxonomyProperties now includes supports_variations (which Etsy attributes
+//   can be used as a non-custom variation — the possible 3rd branch).
 // v0.6 (2026-10-12): test-draft title lowercased (Etsy rejects titles with too many all-caps words).
 // v0.5 (2026-10-12): create-draft needs readiness_state_id (physical listings). test-draft now reads it
 //   from an existing listing's inventory offering and passes it to both the create and the inventory PUT.
@@ -165,10 +167,13 @@ module.exports = async (req, res) => {
         // taxonomy properties (Style / Occasion options) for this listing's category
         if (sample.taxonomy_id) {
           const props = await call('/seller-taxonomy/nodes/' + sample.taxonomy_id + '/properties');
-          out.taxonomyProperties = (props.json && props.json.results ? props.json.results : []).map(p => ({
+          const allProps = (props.json && props.json.results ? props.json.results : []);
+          out.supportsVariations = allProps.filter(p => p.supports_variations).map(p => p.display_name || p.name);
+          out.taxonomyProperties = allProps.map(p => ({
             name: p.name,
             display_name: p.display_name,
             is_required: p.is_required,
+            supports_variations: p.supports_variations,
             possible_values: (p.possible_values || []).map(v => v.name).slice(0, 60)
           }));
         }
