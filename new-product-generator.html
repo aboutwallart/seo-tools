@@ -220,7 +220,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v4.15</span>
+  <span class="ver">v4.16</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -458,6 +458,8 @@ let LS_PROGRESS = {};     // { sku: "Uploading 2/5…" }
 // v4.15 — batched writes (1 commit each) + per-room progress. Kills the commit flood that rate-limited GitHub.
 let SEO_DRAFT = {};       // { sku: {content, keyword} } — generated/edited SEO held in the browser until "Save all SEO"
 let SEO_SAVING = false;
+let SEO_SAVED = false;    // true right after a successful "Save all SEO" → button turns green "✓ SEO saved"
+let IMG_SAVED = false;    // true right after a successful "Upload all images" → button turns green "✓ Images uploaded"
 let IMG_UPLOADING = false; let IMG_PROGRESS = ''; let IMG_DONE = {}; // IMG_DONE: { sku|'__shared': true } ticks per room/sector
 let SEND_RUNNING = false; let SEND_PROGRESS = ''; let SEND_DONE = {}; // SEND_DONE: { sku: true } green tick per room
 // After any server call that reassigns PRODUCTS, re-apply SEO that was generated but not yet saved,
@@ -757,18 +759,47 @@ function artInlineBody(){
 }
 /* ---- inner content reused inside the accordion ---- */
 function keywordColsInner(g){ return keywordLegend()+'<p class="sub">Top 40 per room, balanced by type (room · terms · style · colour). The recommended one is highlighted in green — click a card to use it (that generates its SEO). Scroll sideways →</p><div class="roomcols">'+g.map((p,i)=>roomKeywordColumn(p,i)).join('')+'</div>'; }
+// Images still missing for a room, counting STAGED (not-yet-uploaded) shared + lifestyle as present.
+// Gates "Upload all images" and feeds the per-room "Missing" line, so it clears as you drag photos in.
+function imagesMissingStaged(p){
+  const img=p.images||{lifestyle:[],individuals:[],flats:{},commons:{}};
+  const m=(p.set||'').match(/\d+/); const setSize=m?parseInt(m[0],10):1;
+  const sharedSlots=new Set(SHARED_STAGE.map(s=>s.slot));
+  const sharedInd=SHARED_STAGE.filter(s=>s.slot==='individual').length;
+  const stagedLs=(LS_STAGE[p.sku]||[]).length;
+  const miss=[];
+  if(((img.lifestyle||[]).length+stagedLs)<1) miss.push('1 lifestyle');
+  const haveInd=(img.individuals||[]).length+sharedInd;
+  if(haveInd<setSize){ const n=setSize-haveInd; miss.push(n+' single'+(n>1?'s':'')); }
+  const FLAB={flatUnframed:'Unframed',flatWhite:'White',flatOak:'Oak',flatBlack:'Black',flatCanvas:'Canvas'};
+  ['flatUnframed','flatWhite','flatOak','flatBlack','flatCanvas'].forEach(s=>{ if(!(img.flats||{})[s] && !sharedSlots.has(s)) miss.push(FLAB[s]); });
+  if(!(img.commons||{}).commonLady && !sharedSlots.has('commonLady')) miss.push('Lady photo');
+  if(!(img.commons||{}).commonUnboxing && !sharedSlots.has('commonUnboxing')) miss.push('Unboxing');
+  return miss;
+}
 function reviewInner(g){
   const anyStaged=SHARED_STAGE.length || g.some(p=>(LS_STAGE[p.sku]||[]).length);
   const seoCount=g.filter(p=>(SEO_DRAFT[p.sku]&&SEO_DRAFT[p.sku].content)||p.content).length;
+  const seoDirty=Object.keys(SEO_DRAFT).length>0;
+  const imgIncomplete=g.filter(p=>imagesMissingStaged(p).length);          // rooms still missing some image
+  const canUpload=anyStaged && imgIncomplete.length===0;                   // only let upload when ALL complete
+  const okStyle='style="background:var(--ok);color:#fff;border-color:var(--ok)"';
   const seoBtn=SEO_SAVING
      ? '<button class="btn primary" disabled><span class="spin"></span>Saving SEO…</button>'
-     : '<button class="btn primary" '+(seoCount?'':'disabled')+' onclick="saveAllSeo()">💾 Save all SEO ('+seoCount+') — 1 commit</button>';
+     : (SEO_SAVED && !seoDirty)
+       ? '<button class="btn" '+okStyle+' disabled>✓ SEO saved</button>'
+       : '<button class="btn primary" '+(seoCount?'':'disabled')+' onclick="saveAllSeo()">💾 Save all SEO ('+seoCount+') — 1 commit</button>';
   const imgBtn=IMG_UPLOADING
      ? '<button class="btn primary" disabled><span class="spin"></span>'+esc(IMG_PROGRESS||'Uploading…')+'</button>'
-     : '<button class="btn primary" '+(anyStaged?'':'disabled')+' onclick="uploadAllImages()">⬆ Upload all images — 1 commit</button>';
-  const bar='<div class="actions" style="margin-top:16px;gap:10px;flex-wrap:wrap">'+seoBtn+imgBtn+'</div>'+
-     '<p class="sub" style="margin-top:8px">Order: generate each room’s SEO → <b>Save all SEO</b> → stage photos → <b>Upload all images</b>. Each button saves everything in one commit; progress shows per room.</p>';
-  return '<p class="sub">Open a room, check its SEO and add its lifestyle photos, then save SEO &amp; upload images below.</p>'+renderSharedBox()+'<div class="vlist">'+g.map(reviewRoom).join('')+'</div>'+bar;
+     : (IMG_SAVED && !anyStaged)
+       ? '<button class="btn" '+okStyle+' disabled>✓ Images uploaded</button>'
+       : '<button class="btn primary" '+(canUpload?'':'disabled title="Arrastrá todas las imágenes de todas las rooms primero"')+' onclick="uploadAllImages()">⬆ Upload all images — 1 commit</button>';
+  const gate=(!IMG_UPLOADING && anyStaged && imgIncomplete.length)
+     ? '<p class="sub" style="margin-top:8px;color:var(--warn)">Falta antes de subir: '+imgIncomplete.map(p=>esc(roomName(p))+' ('+imagesMissingStaged(p).map(esc).join(', ')+')').join(' · ')+'</p>'
+     : '';
+  const bar='<div class="actions" style="margin-top:16px;gap:10px;flex-wrap:wrap">'+seoBtn+imgBtn+'</div>'+gate+
+     '<p class="sub" style="margin-top:8px">Orden: generá el SEO de cada room → <b>Save all SEO</b> → arrastrá las fotos → <b>Upload all images</b> (se desbloquea cuando está todo completo). Cada botón guarda todo en 1 commit; el progreso se ve por room.</p>';
+  return '<p class="sub">Abrí una room, revisá su SEO y arrastrá sus lifestyle. Después guardá el SEO y subí las imágenes abajo.</p>'+renderSharedBox()+'<div class="vlist">'+g.map(reviewRoom).join('')+'</div>'+bar;
 }
 function sendInner(g){
   const anyReady=g.some(roomReady);
@@ -1151,6 +1182,7 @@ async function genContentForRoom(sku){
   const p=PRODUCTS.find(x=>x.sku===sku);
   if(p){ p.content=r.content; p.contentKeyword=p.keyword||''; }
   SEO_DRAFT[sku]={ content:r.content, keyword:(p&&p.keyword)||'' };
+  SEO_SAVED=false;   // new unsaved SEO → button back to "Save all SEO"
 }
 
 /* ---------- STAGE: review (vertical list — everything per room) ---------- */
@@ -1176,7 +1208,7 @@ function renderSharedBox(){
     ? '<div class="dz dz-full busy"><span class="dz-spinicon"></span>'+esc(SHARED_PROGRESS||'Uploading…')+'</div>'
     : '<div class="dz dz-full" onclick="document.getElementById(\'sharedfile\').click()" ondragover="event.preventDefault();this.classList.add(\'over\')" ondragleave="this.classList.remove(\'over\')" ondrop="onSharedDrop(event)">📷 Drop flats + singles here — add as many tandas as you need. Nothing uploads until you press the button below.</div>';
   const btn = (staged && !SHARED_UPLOADING)
-    ? '<div class="actions" style="margin-top:12px"><button class="btn primary" onclick="uploadSharedAll()">Upload all '+staged+' to every room</button><button class="btn ghost" onclick="sharedClear()">Clear</button></div>'
+    ? '<div class="actions" style="margin-top:12px;align-items:center"><span class="sub" style="margin-right:auto">'+staged+' staged — suben con <b>Upload all images</b> (abajo).</span><button class="btn ghost" onclick="sharedClear()">Clear</button></div>'
     : '';
   const err = (!SHARED_UPLOADING && SHARED_PROGRESS) ? '<div class="msg show info" style="margin-top:10px">'+esc(SHARED_PROGRESS)+'</div>' : '';
   return '<div class="sharedbox"><div class="sectlab" style="margin-bottom:6px">Shared images — flats + singles (add in batches, then upload once to every room)</div>'+
@@ -1201,6 +1233,7 @@ function onSharedPicked(input){ const fs=[...input.files]; input.value=''; share
 async function sharedStageFiles(files){
   files=files.filter(f=>f.type&&f.type.startsWith('image/'));
   if(!files.length) return;
+  IMG_SAVED=false;   // new shared photos staged → not "uploaded" anymore
   for(const f of files){
     const lc=f.name.toLowerCase();
     const slot = /_b212_v2/.test(lc) ? 'commonUnboxing'
@@ -1248,28 +1281,26 @@ function reviewRoom(p){
   const enc=encodeURIComponent(p.sku);
   const gen=!!GEN_ROOM[p.sku];
   const miss=missingBits(p);
-  const ready=miss.length===0;
-  const stagedLs=(LS_STAGE[p.sku]||[]).length;
-  const missShown=miss.filter(x=>!(x==='1 lifestyle' && stagedLs>0));
-  const okOk=canFinish(p);
+  const ready=miss.length===0;                 // all info actually uploaded → ready to send
+  const imgMiss=imagesMissingStaged(p);        // images still to drag in (counts staged)
+  // What this room still needs: keyword / SEO / images (images count staged, so it clears as you drag).
+  const missShown=[].concat(p.keyword?[]:['keyword'], p.content?[]:['SEO'], imgMiss);
   let status;
   if(ready && p.roomApproved) status='<span class="vst" style="color:var(--ok);font-weight:700">✓ done</span>';
   else if(gen) status='<span class="vst">generating…</span>';
   else if(ready) status='<span class="vst" style="color:var(--ok);font-weight:700">ready</span>';
+  else if(missShown.length===0) status='<span class="vst" style="color:var(--ok);font-weight:700">staged ✓</span>';
   else status='';
   const kwTxt=p.keyword?'<span style="color:var(--accent);font-weight:600">'+esc(p.keyword)+'</span>':'<span style="color:var(--muted)">no keyword yet</span>';
   const titleTxt=(p.content&&p.content.productTitle)?' · '+esc(p.content.productTitle):'';
   const sub='<div class="vhsub">'+kwTxt+titleTxt+'</div>';
-  const stageNote = stagedLs>0 ? '<span style="color:var(--warn)">'+(missShown.length?' · ':'')+stagedLs+' lifestyle draft'+(stagedLs>1?'s':'')+' (press OK to upload)</span>' : '';
-  const missLine=(!gen && (missShown.length||stageNote))?'<div class="vmiss">'+(missShown.length?'Missing: '+missShown.map(esc).join(' · '):'')+stageNote+'</div>':'';
-  const okBtn='<button class="okbtn-sm'+(p.roomApproved?' done':'')+'" '+(okOk?'':'disabled title="Finish the missing items first"')+' onclick="event.stopPropagation();roomOk('+"'"+enc+"'"+')">'+(p.roomApproved?'Done ✓':(stagedLs>0?'OK — upload':'OK'))+'</button>';
+  const missLine=(!gen && missShown.length)?'<div class="vmiss">Missing: '+missShown.map(esc).join(' · ')+'</div>':'';
   const body=open?('<div class="vbd">'+reviewRoomBody(p)+'</div>'):'';
   const annex='<div class="vimg">'+reviewRoomImages(p)+'</div>';
   return '<div class="vroom'+(open?' open':'')+(ready?' ready':'')+'">'+
     '<div class="vhd">'+
       '<span class="vdot" style="background:'+dot+'"></span>'+
       '<div class="vhtxt" style="cursor:pointer" onclick="toggleV('+"'"+enc+"'"+')"><div class="vhtop"><span class="vrn">'+esc(roomName(p))+'</span>'+(na?'<span class="srcpill" style="background:#cfead0;color:#1f5f1f;margin-left:4px">New Arrivals</span>':'')+'<span class="vst" style="margin-left:4px">· '+esc(p.sku)+'</span>'+status+'</div>'+sub+missLine+'</div>'+
-      okBtn+
       '<span class="vchev" style="cursor:pointer" onclick="toggleV('+"'"+enc+"'"+')">'+(open?'▾':'▸')+'</span>'+
     '</div>'+body+annex+'</div>';
 }
@@ -1319,6 +1350,7 @@ function lsDrop(e,sku){ e.preventDefault(); e.currentTarget.classList.remove('ov
 function lsPick(input,sku){ const fs=[...input.files]; input.value=''; lsStageFiles(sku,fs); }
 async function lsStageFiles(sku,files){
   files=files.filter(f=>f.type&&f.type.startsWith('image/')); if(!files.length) return;
+  IMG_SAVED=false;   // new photos staged → not "uploaded" anymore
   if(!LS_STAGE[sku]) LS_STAGE[sku]=[];
   for(const f of files){ const c=(await compressImageFile(f,2000,0.85))||(await readFileAsBase64(f)); if(!c) continue; LS_STAGE[sku].push({data:c.data,mediaType:c.mediaType,name:f.name,thumb:'data:'+c.mediaType+';base64,'+c.data}); }
   renderFlow();
@@ -1364,7 +1396,7 @@ async function saveAllSeo(){
   if(!rooms.length){ msg('No SEO to save yet — generate it per room first.','info'); return; }
   SEO_SAVING=true; renderFlow();
   const products=rooms.map(p=>{ const d=SEO_DRAFT[p.sku]; const content=(d&&d.content)||p.content; return { sku:p.sku, content, contentKeyword:p.keyword||'', contentApproved:true }; });
-  try{ const r=await api({action:'save-products-batch', products}); PRODUCTS=r.products; SEO_DRAFT={}; msg('All SEO saved in one commit ✓','ok'); }
+  try{ const r=await api({action:'save-products-batch', products}); PRODUCTS=r.products; SEO_DRAFT={}; SEO_SAVED=true; msg('All SEO saved in one commit ✓','ok'); }
   catch(e){ msg('Save SEO failed: '+e.message,'err'); }
   finally{ SEO_SAVING=false; renderFlow(); }
 }
@@ -1408,6 +1440,7 @@ async function uploadAllImages(){
     // mark complete rooms done — in one commit
     const toApprove=groupProducts().filter(p=>roomReady(p)&&!p.roomApproved).map(p=>({sku:p.sku,roomApproved:true}));
     if(toApprove.length){ IMG_PROGRESS='Marking rooms done…'; renderFlow(); const r2=await api({action:'save-products-batch',products:toApprove}); PRODUCTS=r2.products; reapplySeoDraft(); }
+    if(!errors.length) IMG_SAVED=true;   // button turns green "✓ Images uploaded"
     msg(errors.length?('Some images failed: '+errors.join(' · ')):'All images uploaded in one commit ✓', errors.length?'err':'ok');
   }catch(e){ msg('Upload failed: '+e.message,'err'); }
   finally{ IMG_UPLOADING=false; IMG_PROGRESS=''; renderFlow(); }
@@ -1437,23 +1470,28 @@ async function sendAllRooms(){
   const ready=groupProducts().filter(roomReady);
   if(!ready.length){ msg('No rooms ready to send.','info'); return; }
   SEND_RUNNING=true; SEND_DONE={}; SEND_PROGRESS=''; renderFlow();
-  const sent=[]; const errors=[];
+  const sent=[]; const fails=[]; const notes=[];
+  // A collection-skip ("Skipped X — it only holds the Living-room versions…") is EXPECTED and correct,
+  // not a problem Mae needs to act on → never shown. Only real failures are red.
+  const isBenign=(w)=>/skipped/i.test(w) && /(only holds|isn['’]?t marked|not marked|doesn['’]?t include)/i.test(w);
   for(const p of ready){
     SEND_PROGRESS='Sending '+roomName(p)+'…'; renderFlow();
     try{
       const r=await api({action:'send-to-shopify', sku:p.sku, commit:false});
       sent.push({ sku:p.sku, shopifyProductId:r.shopifyProductId, shopifyHandle:r.shopifyHandle, keyword:r.keyword, productUrl:r.productUrl });
-      (r.warnings||[]).forEach(w=>errors.push(roomName(p)+': '+w));
+      (r.warnings||[]).forEach(w=>{ if(!isBenign(w)) notes.push(roomName(p)+': '+w); });
       SEND_DONE[p.sku]=true; renderFlow();
-    }catch(e){ errors.push(roomName(p)+': '+e.message); }
+    }catch(e){ fails.push(roomName(p)+': '+e.message); }
   }
   if(sent.length){
     SEND_PROGRESS='Saving '+sent.length+' room(s) in one commit…'; renderFlow();
-    try{ const r=await api({action:'commit-sends', sent}); PRODUCTS=r.products; (r.warnings||[]).forEach(w=>errors.push(w)); }
-    catch(e){ errors.push('save: '+e.message); }
+    try{ const r=await api({action:'commit-sends', sent}); PRODUCTS=r.products; (r.warnings||[]).forEach(w=>{ if(!isBenign(w)) notes.push(w); }); }
+    catch(e){ fails.push('save: '+e.message); }
   }
   SEND_RUNNING=false; SEND_PROGRESS='';
-  msg(errors.length?('Done with warnings: '+errors.join(' · ')):(sent.length+' room(s) sent to Shopify ✓'), errors.length?'err':'ok');
+  if(fails.length) msg('Algunas rooms NO se enviaron: '+fails.join(' · '), 'err');        // red = real problem
+  else if(notes.length) msg(sent.length+' room(s) enviadas ✓ · nota: '+notes.join(' · '), 'ok'); // green + calm note
+  else if(sent.length) msg(sent.length+' room(s) enviadas a Shopify ✓', 'ok');            // green success
   renderFlow();
 }
 
@@ -1989,6 +2027,7 @@ async function saveContentField(sku,key){
   // v4.15: edit stays in the browser (no commit) — saved with every room via "Save all SEO".
   p.content={...(p.content||{}), [key]:val};
   SEO_DRAFT[sku]={ content:p.content, keyword:p.keyword||'' };
+  SEO_SAVED=false;
   renderFlow(); msg('Edited — press “Save all SEO” to save it.','info');
 }
 function copyContentField(key){
@@ -2022,6 +2061,7 @@ async function saveAiItem(sku,ai){
   // v4.15: edit stays in the browser (no commit) — saved with every room via "Save all SEO".
   p.content={...p.content, aiItems:items};
   SEO_DRAFT[sku]={ content:p.content, keyword:p.keyword||'' };
+  SEO_SAVED=false;
   renderFlow(); msg('Edited — press “Save all SEO” to save it.','info');
 }
 function copyAiItem(ai){
