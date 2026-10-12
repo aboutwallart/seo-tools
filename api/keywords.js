@@ -1619,6 +1619,10 @@ async function generateContent(body) {
     generatedAt: new Date().toISOString()
   };
 
+  // Batched SEO (commit:false): return the generated content WITHOUT writing it to GitHub. The tool
+  // holds it in the browser and writes every room's SEO together in ONE commit ("Save all SEO").
+  if (body.commit === false) return { content };
+
   // save onto the product (SHA-conflict retry ×1, same pattern as save-product)
   for (let attempt = 0; attempt < 2; attempt++) {
     const file = await ghGet(PRODUCTS_PATH);
@@ -2467,7 +2471,7 @@ async function fetchAllPublicationIds() {
   const data = await shopifyGQL(`query{ publications(first:50){ nodes{ id } } }`);
   return (data.publications.nodes || []).map(n => n.id);
 }
-async function sendToShopify(sku) {
+async function sendToShopify(sku, opts = {}) {
   if (!sku) throw new Error('sku required');
   const products = await readProducts();
   const product = products.find(p => (p.sku || '').toLowerCase() === sku.toLowerCase());
@@ -2599,10 +2603,18 @@ async function sendToShopify(sku) {
     }
   } catch (e) { warnings.push('Could not publish to channels: ' + String(e.message || e)); }
 
+  const productUrl = `https://aboutwallart.com/products/${created.handle}`;
+
+  // Batched send (commit:false): the Shopify product is live, but skip the per-room registry lock and
+  // the per-room products write — the caller collects every room and commits them together (ONE
+  // products commit + ONE registry commit) so a multi-room send no longer floods GitHub.
+  if (opts.commit === false) {
+    return { sku, shopifyProductId: created.id, shopifyHandle: created.handle, onlineStoreUrl: created.onlineStoreUrl || null, keyword: product.keyword, productUrl, warnings };
+  }
+
   // Mandatory: lock the keyword in the registry the moment the product is live, so it can never be
   // offered again for another product. If this fails, the product is still created — surface a warning
   // rather than losing the created product.
-  const productUrl = `https://aboutwallart.com/products/${created.handle}`;
   try { await lockKeywordInRegistry(product.keyword, product.sku, productUrl); }
   catch (e) { warnings.push('Keyword NOT locked in the registry — add it by hand. Reason: ' + String(e.message || e)); }
 
@@ -2619,6 +2631,146 @@ async function sendToShopify(sku) {
     } catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
   }
   throw new Error('write conflict, try again');
+}
+
+/* =====================================================================
+   BATCHED WRITES (v4.15) — upload/generate/send do the per-item work with
+   per-room progress, then write GitHub in ONE commit. Kills the commit flood
+   that was rate-limiting GitHub (403 / git_info_fail) and breaking Vercel.
+   ===================================================================== */
+
+// Phase A (images): upload ONE image to Shopify and return its record — NO GitHub write.
+// The browser loops this per image (showing room-by-room progress), collects the records, then calls
+// commit-images ONCE. `shared` = flats/singles/commons shared by every room (generic name, no index).
+async function shopifyUploadOnly(body) {
+  const { slot, image, imageMediaType, keyword, productTitle, set, n, shared } = body || {};
+  if (!slot) throw new Error('slot required');
+  if (!image) throw new Error('image required');
+  if (slot !== 'lifestyle' && slot !== 'individual' && !FLAT_SLOTS.includes(slot) && !COMMON_SLOTS.includes(slot)) throw new Error('invalid slot: ' + slot);
+  const ext = extFromMime(imageMediaType);
+  let filename, alt;
+  if (shared) {
+    const baseName = slot === 'individual' ? 'individual' : slot.replace('flat', '').toLowerCase();
+    filename = `shared-${baseName}.${ext}`;
+    alt = baseName;
+  } else {
+    const setMatch = String(set || '').match(/\d+/);
+    const setSize = setMatch ? parseInt(setMatch[0], 10) : 1;
+    const idx = Math.max(1, parseInt(n, 10) || 1);
+    filename = `${slugifyKeyword(keyword)}-${slot === 'individual' ? 'individual-' + idx : slot === 'lifestyle' ? 'lifestyle-' + idx : slot.replace('flat', '').toLowerCase()}.${ext}`;
+    alt = altFor(slot, { content: { productTitle }, keyword, set }, idx, setSize);
+  }
+  const uploaded = await uploadImageToShopify(image, filename, imageMediaType, alt);
+  return { record: { gid: uploaded.gid, url: uploaded.url, filename, alt } };
+}
+
+// Phase B (images): apply many already-uploaded records (from shopifyUploadOnly) to their rooms in ONE
+// commit. items: [{ sku, slot, record }]. lifestyle/individual append (respect set size); flats/commons set.
+async function commitImages(body) {
+  const items = Array.isArray(body.items) ? body.items : [];
+  if (!items.length) throw new Error('no image items');
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const file = await ghGet(PRODUCTS_PATH);
+    let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
+    if (!Array.isArray(arr)) arr = [];
+    const applied = [], skipped = [];
+    for (const it of items) {
+      const { sku, slot, record } = it || {};
+      if (!sku || !slot || !record) { skipped.push({ why: 'bad item' }); continue; }
+      const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === String(sku).toLowerCase());
+      if (idx < 0) { skipped.push({ sku, why: 'not found' }); continue; }
+      const product = arr[idx];
+      const images = product.images ? { ...product.images, lifestyle: [...(product.images.lifestyle || [])], individuals: [...(product.images.individuals || [])], flats: { ...(product.images.flats || {}) }, commons: { ...(product.images.commons || {}) } } : { lifestyle: [], individuals: [], flats: {}, commons: {} };
+      if (slot === 'lifestyle') images.lifestyle.push({ ...record });
+      else if (slot === 'individual') {
+        const m = (product.set || '').match(/\d+/); const ss = m ? parseInt(m[0], 10) : 1;
+        if (images.individuals.length >= ss) { skipped.push({ sku, slot, why: 'set full' }); arr[idx] = { ...product, images }; continue; }
+        images.individuals.push({ ...record });
+      } else if (COMMON_SLOTS.includes(slot)) images.commons[slot] = { ...record };
+      else if (FLAT_SLOTS.includes(slot)) images.flats[slot] = { ...record };
+      else { skipped.push({ sku, slot, why: 'invalid slot' }); continue; }
+      arr[idx] = { ...product, images, updatedAt: new Date().toISOString() };
+      applied.push({ sku, slot });
+    }
+    try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG upload images (batch): ${applied.length} image(s)`); return { products: arr, applied, skipped }; }
+    catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
+  }
+  throw new Error('write conflict, try again');
+}
+
+// Merge many product updates in ONE commit (same rule as save-product: never overwrites server-side
+// images). products: [{ sku, ...fields }]. Used by "Save all SEO" and any multi-room save.
+async function saveProductsBatch(body) {
+  const list = Array.isArray(body.products) ? body.products : [];
+  if (!list.length) throw new Error('no products');
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const file = await ghGet(PRODUCTS_PATH);
+    let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
+    if (!Array.isArray(arr)) arr = [];
+    const now = new Date().toISOString();
+    for (const prod of list) {
+      if (!prod || !prod.sku) continue;
+      const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === String(prod.sku).toLowerCase());
+      if (idx >= 0) { const { images: _ignoreImages, ...rest } = prod; arr[idx] = { ...arr[idx], ...rest, updatedAt: now }; }
+      else arr.push({ ...prod, sent: false, createdAt: now, updatedAt: now });
+    }
+    try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG save products (batch): ${list.length}`); return { products: arr }; }
+    catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
+  }
+  throw new Error('write conflict, try again');
+}
+
+// Lock many keywords in the registry in ONE commit (idempotent — skips ones already LOCKED COMMERCIAL).
+async function lockKeywordsInRegistryBatch(entries) {
+  entries = (entries || []).filter(e => e && (e.keyword || '').trim());
+  if (!entries.length) return { ok: true, locked: 0 };
+  const today = new Date().toISOString().slice(0, 10);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const reg = await ghGet(REGISTRY_PATH);
+    if (reg.content == null) throw new Error('registry not found');
+    const existing = reg.content.split('\n').map(l => l.replace(/\r/g, ''));
+    const lockedSet = new Set();
+    for (const line of existing) { if (!line.trim()) continue; const c = parseCSVLine(line); if ((c[2] || '').toUpperCase() === 'LOCKED' && (c[10] || '').toUpperCase() === 'COMMERCIAL') lockedSet.add((c[0] || '').toLowerCase()); }
+    const rows = []; let added = 0;
+    for (const e of entries) {
+      const kw = (e.keyword || '').trim(); if (!kw) continue;
+      if (lockedSet.has(kw.toLowerCase())) continue;
+      lockedSet.add(kw.toLowerCase());
+      const source = 'NPG' + (e.sku ? ':' + e.sku : '');
+      rows.push(`${csvField(kw)},${csvField(e.productUrl || 'N/A')},LOCKED,DONE,OPTIMIZED,N/A,N/A,N/A,N/A,${csvField(source)},COMMERCIAL,${csvField(today)}`);
+      added++;
+    }
+    if (!added) return { ok: true, locked: 0 };
+    const updated = reg.content.trimEnd() + '\n' + rows.join('\n') + '\n';
+    try { await ghPut(REGISTRY_PATH, updated, reg.sha, `NPG lock keywords (batch): ${added}`); return { ok: true, locked: added }; }
+    catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
+  }
+  throw new Error('registry write conflict, try again');
+}
+
+// Phase B (send): mark many rooms as sent (ONE products commit) and lock their keywords (ONE registry
+// commit). sent: [{ sku, shopifyProductId, shopifyHandle, keyword, productUrl }].
+async function commitSends(body) {
+  const sent = Array.isArray(body.sent) ? body.sent : [];
+  if (!sent.length) throw new Error('no sends');
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const file = await ghGet(PRODUCTS_PATH);
+    let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
+    if (!Array.isArray(arr)) arr = [];
+    const now = new Date().toISOString();
+    for (const s of sent) {
+      const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === String(s.sku).toLowerCase());
+      if (idx < 0) continue;
+      arr[idx] = { ...arr[idx], sent: true, shopifyProductId: s.shopifyProductId, shopifyHandle: s.shopifyHandle, sentAt: now, updatedAt: now };
+    }
+    try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG sent to Shopify (batch): ${sent.length} room(s)`); break; }
+    catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
+  }
+  const warnings = [];
+  try { await lockKeywordsInRegistryBatch(sent.map(s => ({ keyword: s.keyword, sku: s.sku, productUrl: s.productUrl }))); }
+  catch (e) { warnings.push('Some keywords were NOT locked in the registry — add them by hand. Reason: ' + String(e.message || e)); }
+  const products = await readProducts();
+  return { products, warnings };
 }
 
 /* ------------- Google Keyword Planner (Google Ads API v22) ------------- */
@@ -3088,7 +3240,29 @@ export default async function handler(req, res) {
     if (action === 'send-to-shopify') {
       if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
       if (!process.env.SHOPIFY_STORE_DOMAIN || !process.env.SHOPIFY_ACCESS_TOKEN) return res.status(500).json({ ok: false, error: 'Shopify credentials not configured' });
-      const out = await sendToShopify(body.sku);
+      const out = await sendToShopify(body.sku, { commit: body.commit });
+      return res.status(200).json({ ok: true, ...out });
+    }
+
+    // ----- Batched writes (v4.15): per-item work with progress, then ONE commit -----
+    if (action === 'shopify-upload') {           // Phase A images: upload to Shopify, no GitHub write
+      if (!process.env.SHOPIFY_STORE_DOMAIN || !process.env.SHOPIFY_ACCESS_TOKEN) return res.status(500).json({ ok: false, error: 'Shopify credentials not configured' });
+      const out = await shopifyUploadOnly(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+    if (action === 'commit-images') {            // Phase B images: write all records in ONE commit
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      const out = await commitImages(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+    if (action === 'save-products-batch') {      // Save many rooms (e.g. all SEO) in ONE commit
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      const out = await saveProductsBatch(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+    if (action === 'commit-sends') {             // Phase B send: mark sent + lock keywords (1+1 commit)
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      const out = await commitSends(body);
       return res.status(200).json({ ok: true, ...out });
     }
 
