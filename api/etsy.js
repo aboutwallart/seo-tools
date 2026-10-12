@@ -1,4 +1,6 @@
-// api/etsy.js — AWA ETSY backend (OAuth + API test harness)  ·  v0.4
+// api/etsy.js — AWA ETSY backend (OAuth + API test harness)  ·  v0.5
+// v0.5 (2026-10-12): create-draft needs readiness_state_id (physical listings). test-draft now reads it
+//   from an existing listing's inventory offering and passes it to both the create and the inventory PUT.
 // v0.4 (2026-10-12): action=test-draft — creates an INACTIVE draft listing + sets inventory with 3
 //   variations (Frame/Size/Paper via custom props 513/514/515, max_variations_supported=3) to confirm
 //   Etsy accepts a 3rd variation. Reports every step's raw status/response. Never touches live listings;
@@ -206,6 +208,16 @@ module.exports = async (req, res) => {
       const retId = rp.json && rp.json.results && rp.json.results[0] && rp.json.results[0].return_policy_id;
       steps.push({ step: 'return-policies', status: rp.status, picked: retId, count: rp.json && rp.json.count });
 
+      // readiness_state_id (processing profile) — Etsy requires it for physical listings. Grab it from an existing listing.
+      let readiness = null;
+      const lst0 = await call('/shops/' + shopId + '/listings/active?limit=1');
+      const sampleId = lst0.json && lst0.json.results && lst0.json.results[0] && lst0.json.results[0].listing_id;
+      if (sampleId) {
+        const sinv = await call('/listings/' + sampleId + '/inventory');
+        try { readiness = sinv.json.products[0].offerings[0].readiness_state_id; } catch (e) {}
+      }
+      steps.push({ step: 'readiness', from_listing: sampleId, readiness_state_id: readiness });
+
       const form = new URLSearchParams({
         quantity: '25',
         title: 'ZZZ API TEST DRAFT - safe to delete',
@@ -218,6 +230,7 @@ module.exports = async (req, res) => {
       });
       if (shipId) form.set('shipping_profile_id', String(shipId));
       if (retId) form.set('return_policy_id', String(retId));
+      if (readiness) form.set('readiness_state_id', String(readiness));
       const cr = await call('/shops/' + shopId + '/listings', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form.toString() });
       const listingId = cr.json && cr.json.listing_id;
       steps.push({ step: 'create-draft', status: cr.status, listing_id: listingId, error: cr.status >= 300 ? cr.json : undefined });
@@ -225,12 +238,12 @@ module.exports = async (req, res) => {
 
       const invBody = {
         products: [
-          { sku: '', offerings: [{ price: 30.0, quantity: 25, is_enabled: true }], property_values: [
+          { sku: '', offerings: [{ price: 30.0, quantity: 25, is_enabled: true, readiness_state_id: readiness || undefined }], property_values: [
             { property_id: 513, property_name: 'Frame', value_ids: [], values: ['Unframed'], scale_id: null },
             { property_id: 514, property_name: 'Size', value_ids: [], values: ['A4'], scale_id: null },
             { property_id: 515, property_name: 'Paper', value_ids: [], values: ['Satin photo paper'], scale_id: null }
           ] },
-          { sku: '', offerings: [{ price: 41.0, quantity: 25, is_enabled: true }], property_values: [
+          { sku: '', offerings: [{ price: 41.0, quantity: 25, is_enabled: true, readiness_state_id: readiness || undefined }], property_values: [
             { property_id: 513, property_name: 'Frame', value_ids: [], values: ['Framed'], scale_id: null },
             { property_id: 514, property_name: 'Size', value_ids: [], values: ['A3'], scale_id: null },
             { property_id: 515, property_name: 'Paper', value_ids: [], values: ['Matte museum art paper'], scale_id: null }
