@@ -1,4 +1,5 @@
-// api/etsy.js — AWA ETSY backend (OAuth + API test harness)  ·  v0.5
+// api/etsy.js — AWA ETSY backend (OAuth + API test harness)  ·  v0.6
+// v0.6 (2026-10-12): test-draft title lowercased (Etsy rejects titles with too many all-caps words).
 // v0.5 (2026-10-12): create-draft needs readiness_state_id (physical listings). test-draft now reads it
 //   from an existing listing's inventory offering and passes it to both the create and the inventory PUT.
 // v0.4 (2026-10-12): action=test-draft — creates an INACTIVE draft listing + sets inventory with 3
@@ -220,7 +221,7 @@ module.exports = async (req, res) => {
 
       const form = new URLSearchParams({
         quantity: '25',
-        title: 'ZZZ API TEST DRAFT - safe to delete',
+        title: 'zzz test draft api check - safe to delete',
         description: 'Temporary draft created to test 3 variations via API. Inactive. Safe to delete.',
         price: '30.00',
         who_made: 'i_did',
