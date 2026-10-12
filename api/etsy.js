@@ -1,4 +1,8 @@
-// api/etsy.js — AWA ETSY backend (OAuth + API test harness)  ·  v0.2
+// api/etsy.js — AWA ETSY backend (OAuth + API test harness)  ·  v0.3
+// v0.3 (2026-10-12): diagnose now fetches the sample listing's INVENTORY via /listings/{id}/inventory
+//   (variation properties + per-offering prices → see Frame/Size/Paper structure and whether regional
+//   prices live in offerings). includes=Inventory on getListingsByShop returned null, so we fetch it
+//   from the inventory endpoint directly.
 // v0.2 (2026-10-12): x-api-key header must be "keystring:shared_secret" on EVERY call (keystring alone →
 //   403 "Shared secret is required in x-api-key header"). Now sends both.
 // v0.1 (2026-10-12): First cut. Etsy Open API v3 OAuth 2.0 (PKCE) + diagnose/taxonomy/test-draft actions
@@ -136,13 +140,20 @@ module.exports = async (req, res) => {
           title: sample.title,
           taxonomy_id: sample.taxonomy_id,
           price: sample.price,
-          priceFieldsSeen: Object.keys(sample).filter(k => /price/i.test(k)),
-          inventory_variation_types: sample.inventory && sample.inventory.products && sample.inventory.products[0]
-            ? (sample.inventory.products[0].property_values || []).map(p => p.property_name)
-            : null,
-          offerings_sample: sample.inventory && sample.inventory.products && sample.inventory.products[0]
-            ? sample.inventory.products[0].offerings
-            : null
+          priceFieldsSeen: Object.keys(sample).filter(k => /price/i.test(k))
+        };
+        // inventory via its own endpoint → variation properties + per-offering prices
+        const inv = await call('/listings/' + sample.listing_id + '/inventory');
+        const prods = (inv.json && inv.json.products) || [];
+        out.inventory = {
+          status: inv.status,
+          product_count: prods.length,
+          variation_properties: prods[0] ? (prods[0].property_values || []).map(p => ({ property_id: p.property_id, name: p.property_name, scale: p.scale_name })) : null,
+          sample_products: prods.slice(0, 4).map(p => ({
+            sku: p.sku,
+            variation: (p.property_values || []).map(v => v.property_name + ': ' + (v.values || []).join('/')),
+            offerings: (p.offerings || []).map(o => ({ price: o.price, quantity: o.quantity }))
+          }))
         };
         // taxonomy properties (Style / Occasion options) for this listing's category
         if (sample.taxonomy_id) {
