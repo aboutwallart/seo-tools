@@ -1,11 +1,15 @@
-// api/etsy.js — AWA ETSY backend (OAuth + API test harness)  ·  v0.1
+// api/etsy.js — AWA ETSY backend (OAuth + API test harness)  ·  v0.2
+// v0.2 (2026-10-12): x-api-key header must be "keystring:shared_secret" on EVERY call (keystring alone →
+//   403 "Shared secret is required in x-api-key header"). Now sends both.
 // v0.1 (2026-10-12): First cut. Etsy Open API v3 OAuth 2.0 (PKCE) + diagnose/taxonomy/test-draft actions
 //   to CHECK what the API allows before building the real tool. Token kept in httpOnly cookies (repo is
 //   PUBLIC → never store the token in the repo). Write-test creates an INACTIVE draft only, never touches
-//   live listings. Needs env: ETSY_KEYSTRING (client id). Redirect URI registered: /api/etsy.
+//   live listings. Needs env: ETSY_KEYSTRING (client id) + ETSY_SHARED_SECRET. Redirect URI: /api/etsy.
 const crypto = require('crypto');
 
 const KEY = process.env.ETSY_KEYSTRING;
+const SECRET = process.env.ETSY_SHARED_SECRET;
+const APIKEY = KEY + ':' + SECRET; // Etsy wants keystring:shared_secret in x-api-key
 const REDIRECT = 'https://tools.aboutwallart.com/api/etsy';
 const SCOPES = 'listings_r listings_w shops_r';
 const API = 'https://openapi.etsy.com/v3/application';
@@ -92,7 +96,7 @@ module.exports = async (req, res) => {
   async function call(path, opts) {
     const doFetch = (tok) => fetch(API + path, {
       method: (opts && opts.method) || 'GET',
-      headers: Object.assign({ 'x-api-key': KEY, 'Authorization': 'Bearer ' + tok }, (opts && opts.headers) || {}),
+      headers: Object.assign({ 'x-api-key': APIKEY, 'Authorization': 'Bearer ' + tok }, (opts && opts.headers) || {}),
       body: opts && opts.body
     });
     let r = await doFetch(at);
