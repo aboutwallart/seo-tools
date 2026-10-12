@@ -1,4 +1,8 @@
-// api/etsy.js — AWA ETSY backend (OAuth + API test harness)  ·  v0.3
+// api/etsy.js — AWA ETSY backend (OAuth + API test harness)  ·  v0.4
+// v0.4 (2026-10-12): action=test-draft — creates an INACTIVE draft listing + sets inventory with 3
+//   variations (Frame/Size/Paper via custom props 513/514/515, max_variations_supported=3) to confirm
+//   Etsy accepts a 3rd variation. Reports every step's raw status/response. Never touches live listings;
+//   the draft stays inactive and its id is returned so Mae can delete it.
 // v0.3 (2026-10-12): diagnose now fetches the sample listing's INVENTORY via /listings/{id}/inventory
 //   (variation properties + per-offering prices → see Frame/Size/Paper structure and whether regional
 //   prices live in offerings). includes=Inventory on getListingsByShop returned null, so we fetch it
@@ -183,6 +187,60 @@ module.exports = async (req, res) => {
     if (q.action === 'taxonomy' && q.taxonomy_id) {
       const props = await call('/seller-taxonomy/nodes/' + q.taxonomy_id + '/properties');
       finish(200, { ok: true, properties: props.json });
+      return;
+    }
+
+    // ----- WRITE TEST: create inactive draft + 3 variations (safe; draft only) -----
+    if (q.action === 'test-draft') {
+      const steps = [];
+      const me = await call('/users/me');
+      const shopId = me.json && me.json.shop_id;
+      steps.push({ step: 'me', status: me.status, shop_id: shopId });
+      if (!shopId) { finish(200, { ok: false, steps }); return; }
+
+      const sp = await call('/shops/' + shopId + '/shipping-profiles');
+      const shipId = sp.json && sp.json.results && sp.json.results[0] && sp.json.results[0].shipping_profile_id;
+      steps.push({ step: 'shipping-profiles', status: sp.status, picked: shipId, count: sp.json && sp.json.count });
+
+      const rp = await call('/shops/' + shopId + '/policies/return');
+      const retId = rp.json && rp.json.results && rp.json.results[0] && rp.json.results[0].return_policy_id;
+      steps.push({ step: 'return-policies', status: rp.status, picked: retId, count: rp.json && rp.json.count });
+
+      const form = new URLSearchParams({
+        quantity: '25',
+        title: 'ZZZ API TEST DRAFT - safe to delete',
+        description: 'Temporary draft created to test 3 variations via API. Inactive. Safe to delete.',
+        price: '30.00',
+        who_made: 'i_did',
+        when_made: 'made_to_order',
+        taxonomy_id: '1029',
+        type: 'physical'
+      });
+      if (shipId) form.set('shipping_profile_id', String(shipId));
+      if (retId) form.set('return_policy_id', String(retId));
+      const cr = await call('/shops/' + shopId + '/listings', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form.toString() });
+      const listingId = cr.json && cr.json.listing_id;
+      steps.push({ step: 'create-draft', status: cr.status, listing_id: listingId, error: cr.status >= 300 ? cr.json : undefined });
+      if (!listingId) { finish(200, { ok: false, note: 'No se pudo crear el draft (mirá create-draft)', steps }); return; }
+
+      const invBody = {
+        products: [
+          { sku: '', offerings: [{ price: 30.0, quantity: 25, is_enabled: true }], property_values: [
+            { property_id: 513, property_name: 'Frame', value_ids: [], values: ['Unframed'], scale_id: null },
+            { property_id: 514, property_name: 'Size', value_ids: [], values: ['A4'], scale_id: null },
+            { property_id: 515, property_name: 'Paper', value_ids: [], values: ['Satin photo paper'], scale_id: null }
+          ] },
+          { sku: '', offerings: [{ price: 41.0, quantity: 25, is_enabled: true }], property_values: [
+            { property_id: 513, property_name: 'Frame', value_ids: [], values: ['Framed'], scale_id: null },
+            { property_id: 514, property_name: 'Size', value_ids: [], values: ['A3'], scale_id: null },
+            { property_id: 515, property_name: 'Paper', value_ids: [], values: ['Matte museum art paper'], scale_id: null }
+          ] }
+        ],
+        price_on_property: [], quantity_on_property: [], sku_on_property: []
+      };
+      const inv = await call('/listings/' + listingId + '/inventory?max_variations_supported=3', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(invBody) });
+      steps.push({ step: 'set-inventory-3var', status: inv.status, result: inv.status < 300 ? '3 variaciones ACEPTADAS' : inv.json });
+      finish(200, { ok: inv.status < 300, three_variations_accepted: inv.status < 300, listing_id_to_delete: listingId, steps });
       return;
     }
 
