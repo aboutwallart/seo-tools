@@ -27,7 +27,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">Banco de pruebas de la API · v0.3</p>
+  <p class="ver">Banco de pruebas de la API · v0.4</p>
 
   <div class="card">
     <h2>1 · Conexión</h2>
@@ -47,6 +47,16 @@
     </div>
     <pre id="out" style="margin-top:14px; display:none"></pre>
   </div>
+
+  <div class="card">
+    <h2>3 · Prueba de escritura (3 variaciones)</h2>
+    <p class="sub">Crea un <b>draft inactivo</b> de prueba y le mete 3 variaciones (Frame + Size + Paper) para confirmar si Etsy las acepta. No toca tus listings vivos. El draft queda inactivo — después lo borrás en Etsy (te doy el id).</p>
+    <div class="row">
+      <button id="writeBtn" class="ghost" onclick="runWrite()" disabled>Correr prueba de escritura</button>
+      <button class="ghost" onclick="copyOut2()">Copiar resultado</button>
+    </div>
+    <pre id="out2" style="margin-top:14px; display:none"></pre>
+  </div>
 </div>
 
 <script>
@@ -56,6 +66,7 @@
     pill.textContent = on ? 'Conectado' : 'Sin conectar';
     document.getElementById('connectBtn').textContent = on ? 'Reconectar' : 'Conectar con Etsy';
     document.getElementById('diagBtn').disabled = !on;
+    document.getElementById('writeBtn').disabled = !on;
   }
   async function checkStatus(){
     try{ var r = await fetch('/api/etsy?action=status'); var j = await r.json(); setConnected(!!j.connected); }
@@ -73,6 +84,20 @@
   }
   function copyOut(){
     var t = document.getElementById('out').textContent || '';
+    navigator.clipboard.writeText(t).then(function(){ alert('Copiado. Pegámelo en el chat.'); });
+  }
+  async function runWrite(){
+    var out = document.getElementById('out2');
+    out.style.display = 'block';
+    out.textContent = 'Creando draft de prueba en Etsy…';
+    try{
+      var r = await fetch('/api/etsy?action=test-draft&t=' + Date.now());
+      var j = await r.json();
+      out.textContent = JSON.stringify(j, null, 2);
+    }catch(e){ out.textContent = 'Error: ' + (e && e.message || e); }
+  }
+  function copyOut2(){
+    var t = document.getElementById('out2').textContent || '';
     navigator.clipboard.writeText(t).then(function(){ alert('Copiado. Pegámelo en el chat.'); });
   }
   if (location.search.indexOf('connected=1') >= 0) { setConnected(true); }
