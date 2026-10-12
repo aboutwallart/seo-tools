@@ -27,7 +27,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">Banco de pruebas de la API · v0.7</p>
+  <p class="ver">Banco de pruebas de la API · v0.9</p>
 
   <div class="card">
     <h2>1 · Conexión</h2>
@@ -56,6 +56,20 @@
       <button class="ghost" onclick="copyOut2()">Copiar resultado</button>
     </div>
     <pre id="out2" style="margin-top:14px; display:none"></pre>
+  </div>
+
+  <div class="card">
+    <h2>4 · Comparar actores de Apify</h2>
+    <p class="sub">Trae el producto de Shopify (por SKU print files) + corre los 2 actores de keywords de Etsy y te muestra, lado a lado, cuántas keywords, una muestra y el <b>costo real</b> de cada uno. Tarda ~1-2 min (los actores corren de verdad, gastan unos centavos de Apify).</p>
+    <div class="row" style="margin-bottom:10px">
+      <input id="apSku" type="text" value="LIVJPN28" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:inherit;width:150px" placeholder="SKU">
+      <input id="apSeed" type="text" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:inherit;flex:1;min-width:180px" placeholder="seed (opcional, ej. japanese wall art)">
+    </div>
+    <div class="row">
+      <button id="apBtn" onclick="runApify()">Comparar actores</button>
+      <button class="ghost" onclick="copyOut3()">Copiar resultado</button>
+    </div>
+    <pre id="out3" style="margin-top:14px; display:none"></pre>
   </div>
 </div>
 
@@ -98,6 +112,22 @@
   }
   function copyOut2(){
     var t = document.getElementById('out2').textContent || '';
+    navigator.clipboard.writeText(t).then(function(){ alert('Copiado. Pegámelo en el chat.'); });
+  }
+  async function runApify(){
+    var out = document.getElementById('out3');
+    out.style.display = 'block';
+    out.textContent = 'Trayendo producto + corriendo los 2 actores… (puede tardar 1-2 min)';
+    var sku = encodeURIComponent(document.getElementById('apSku').value || 'LIVJPN28');
+    var seed = encodeURIComponent(document.getElementById('apSeed').value || '');
+    try{
+      var r = await fetch('/api/etsy?action=apify-compare&sku=' + sku + '&seed=' + seed + '&t=' + Date.now());
+      var j = await r.json();
+      out.textContent = JSON.stringify(j, null, 2);
+    }catch(e){ out.textContent = 'Error: ' + (e && e.message || e); }
+  }
+  function copyOut3(){
+    var t = document.getElementById('out3').textContent || '';
     navigator.clipboard.writeText(t).then(function(){ alert('Copiado. Pegámelo en el chat.'); });
   }
   if (location.search.indexOf('connected=1') >= 0) { setConnected(true); }
