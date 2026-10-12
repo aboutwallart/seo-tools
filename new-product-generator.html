@@ -220,7 +220,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v4.14</span>
+  <span class="ver">v4.15</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -455,6 +455,14 @@ let SHARED_PROGRESS = ''; // progress/error text during the shared upload
 let LS_STAGE = {};        // { sku: [{data, mediaType, name, thumb}] } — staged lifestyle, not yet uploaded
 let LS_UPLOADING = {};    // { sku: true } while that room is uploading
 let LS_PROGRESS = {};     // { sku: "Uploading 2/5…" }
+// v4.15 — batched writes (1 commit each) + per-room progress. Kills the commit flood that rate-limited GitHub.
+let SEO_DRAFT = {};       // { sku: {content, keyword} } — generated/edited SEO held in the browser until "Save all SEO"
+let SEO_SAVING = false;
+let IMG_UPLOADING = false; let IMG_PROGRESS = ''; let IMG_DONE = {}; // IMG_DONE: { sku|'__shared': true } ticks per room/sector
+let SEND_RUNNING = false; let SEND_PROGRESS = ''; let SEND_DONE = {}; // SEND_DONE: { sku: true } green tick per room
+// After any server call that reassigns PRODUCTS, re-apply SEO that was generated but not yet saved,
+// so switching between images/SEO never drops uncommitted SEO from the screen.
+function reapplySeoDraft(){ for(const sku in SEO_DRAFT){ const p=PRODUCTS.find(x=>x.sku===sku); if(p && SEO_DRAFT[sku] && SEO_DRAFT[sku].content && !p.content){ p.content=SEO_DRAFT[sku].content; } } }
 // Global upload queue — every image upload runs ONE AT A TIME (they all write the same products file,
 // so running them in parallel caused sha conflicts: the hang + silent failures).
 let UPLOAD_CHAIN = Promise.resolve();
@@ -749,15 +757,34 @@ function artInlineBody(){
 }
 /* ---- inner content reused inside the accordion ---- */
 function keywordColsInner(g){ return keywordLegend()+'<p class="sub">Top 40 per room, balanced by type (room · terms · style · colour). The recommended one is highlighted in green — click a card to use it (that generates its SEO). Scroll sideways →</p><div class="roomcols">'+g.map((p,i)=>roomKeywordColumn(p,i)).join('')+'</div>'; }
-function reviewInner(g){ return '<p class="sub">Open a room, check its SEO and add its lifestyle photos, then mark it done.</p>'+renderSharedBox()+'<div class="vlist">'+g.map(reviewRoom).join('')+'</div>'; }
+function reviewInner(g){
+  const anyStaged=SHARED_STAGE.length || g.some(p=>(LS_STAGE[p.sku]||[]).length);
+  const seoCount=g.filter(p=>(SEO_DRAFT[p.sku]&&SEO_DRAFT[p.sku].content)||p.content).length;
+  const seoBtn=SEO_SAVING
+     ? '<button class="btn primary" disabled><span class="spin"></span>Saving SEO…</button>'
+     : '<button class="btn primary" '+(seoCount?'':'disabled')+' onclick="saveAllSeo()">💾 Save all SEO ('+seoCount+') — 1 commit</button>';
+  const imgBtn=IMG_UPLOADING
+     ? '<button class="btn primary" disabled><span class="spin"></span>'+esc(IMG_PROGRESS||'Uploading…')+'</button>'
+     : '<button class="btn primary" '+(anyStaged?'':'disabled')+' onclick="uploadAllImages()">⬆ Upload all images — 1 commit</button>';
+  const bar='<div class="actions" style="margin-top:16px;gap:10px;flex-wrap:wrap">'+seoBtn+imgBtn+'</div>'+
+     '<p class="sub" style="margin-top:8px">Order: generate each room’s SEO → <b>Save all SEO</b> → stage photos → <b>Upload all images</b>. Each button saves everything in one commit; progress shows per room.</p>';
+  return '<p class="sub">Open a room, check its SEO and add its lifestyle photos, then save SEO &amp; upload images below.</p>'+renderSharedBox()+'<div class="vlist">'+g.map(reviewRoom).join('')+'</div>'+bar;
+}
 function sendInner(g){
   const anyReady=g.some(roomReady);
   const rows=g.map(p=>{ const na=((p.collections&&p.collections['Featured'])||[]).includes('New Arrivals'); const enc=encodeURIComponent(p.sku); const ready=roomReady(p);
-    return '<tr><td style="padding:8px">'+esc(roomName(p))+'</td><td style="padding:8px;font-family:ui-monospace,Menlo,monospace">'+esc(p.sku)+'</td><td style="padding:8px">'+esc(p.keyword||'')+'</td><td style="padding:8px">'+(p.content?'✓':'—')+'</td><td style="padding:8px">'+(imagesComplete(p)?'✓':'partial')+'</td><td style="padding:8px">'+(na?'✓':'—')+'</td><td style="padding:8px"><button class="btn ghost small" '+(ready?'':'disabled title="Finish keyword, SEO and all images first"')+' onclick="sendRoom('+"'"+enc+"'"+')">Send</button></td></tr>';
+    const tick=SEND_DONE[p.sku]?' <span style="color:var(--ok);font-weight:700" title="Sent">✓</span>':'';
+    const sendCell=SEND_DONE[p.sku]
+      ? '<span style="color:var(--ok);font-weight:700">Sent ✓</span>'
+      : '<button class="btn ghost small" '+(ready&&!SEND_RUNNING?'':'disabled title="Finish keyword, SEO and all images first"')+' onclick="sendRoom('+"'"+enc+"'"+')">Send</button>';
+    return '<tr><td style="padding:8px">'+esc(roomName(p))+tick+'</td><td style="padding:8px;font-family:ui-monospace,Menlo,monospace">'+esc(p.sku)+'</td><td style="padding:8px">'+esc(p.keyword||'')+'</td><td style="padding:8px">'+(p.content?'✓':'—')+'</td><td style="padding:8px">'+(imagesComplete(p)?'✓':'partial')+'</td><td style="padding:8px">'+(na?'✓':'—')+'</td><td style="padding:8px">'+sendCell+'</td></tr>';
   }).join('');
-  return '<p class="sub">One product per room, created as Draft. A room can be sent only once its keyword, SEO and all images are in.</p>'+
+  const sendAllBtn=SEND_RUNNING
+    ? '<button class="btn primary" disabled><span class="spin"></span>'+esc(SEND_PROGRESS||'Sending…')+'</button>'
+    : '<button class="btn primary" id="sendAllBtn" '+(anyReady?'':'disabled')+' onclick="sendAllRooms()">Send all ready to Shopify</button>';
+  return '<p class="sub">One product per room, created as Draft. A room can be sent only once its keyword, SEO and all images are in. All rooms save in one commit; each turns green ✓ as it’s sent.</p>'+
     '<table class="aptbl" style="width:100%;border-collapse:collapse;font-size:13px"><tr style="text-align:left;color:var(--muted)"><th style="padding:8px">Room</th><th style="padding:8px">SKU</th><th style="padding:8px">Keyword</th><th style="padding:8px">SEO</th><th style="padding:8px">Images</th><th style="padding:8px">New Arr.</th><th></th></tr>'+rows+'</table>'+
-    '<div class="actions" style="margin-top:14px"><button class="btn primary" id="sendAllBtn" '+(anyReady?'':'disabled')+' onclick="sendAllRooms()">Send all ready to Shopify</button></div>';
+    '<div class="actions" style="margin-top:14px">'+sendAllBtn+'</div>';
 }
 async function deleteArtGroup(){
   const g=groupProducts(); if(!g.length) return;
@@ -1118,10 +1145,12 @@ async function applyRoomKeyword(sku,kw,meta){
 }
 async function genContentForRoom(sku){
   if(!ART_IMAGE) throw new Error('Artwork image missing — re-upload it.');
-  const r=await api({action:'generate-content', sku, image:ART_IMAGE.data, imageMediaType:ART_IMAGE.mediaType});
-  PRODUCTS=r.products;
+  // v4.15: generate WITHOUT committing — the SEO is held in the browser and saved for every room
+  // together in ONE commit via "Save all SEO". No per-room commit here (that was part of the flood).
+  const r=await api({action:'generate-content', sku, image:ART_IMAGE.data, imageMediaType:ART_IMAGE.mediaType, commit:false});
   const p=PRODUCTS.find(x=>x.sku===sku);
-  if(p){ const upd={...p, contentKeyword:p.keyword||'', contentApproved:true}; const rr=await api({action:'save-product',product:upd}); PRODUCTS=rr.products; }
+  if(p){ p.content=r.content; p.contentKeyword=p.keyword||''; }
+  SEO_DRAFT[sku]={ content:r.content, keyword:(p&&p.keyword)||'' };
 }
 
 /* ---------- STAGE: review (vertical list — everything per room) ---------- */
@@ -1196,16 +1225,19 @@ async function uploadSharedAll(){
     return 0;
   });
   SHARED_UPLOADING=true; SHARED_PROGRESS='Uploading 0/'+SHARED_STAGE.length+'…'; renderFlow();
-  let done=0; const errors=[];
+  let done=0; const errors=[]; const items=[];
+  // Phase A: one Shopify upload per image (no commit), applied to every room.
   for(const i of order){
     const s=SHARED_STAGE[i];
-    try{ const r=await api({action:'upload-shared-image',skus,slot:s.slot,image:s.data,imageMediaType:s.mediaType}); PRODUCTS=r.products; }
+    try{ const r=await api({action:'shopify-upload',slot:s.slot,image:s.data,imageMediaType:s.mediaType,shared:true}); for(const sku of skus) items.push({sku,slot:s.slot,record:r.record}); }
     catch(e){ errors.push(s.name+': '+e.message); }
     done++; SHARED_PROGRESS='Uploading '+done+'/'+SHARED_STAGE.length+'…'; renderFlow();
   }
+  // Phase B: write every record in ONE commit.
+  if(items.length){ try{ const r=await api({action:'commit-images',items}); PRODUCTS=r.products; reapplySeoDraft(); }catch(e){ errors.push('save: '+e.message); } }
   SHARED_UPLOADING=false;
   if(errors.length){ SHARED_PROGRESS='Some images failed: '+errors.join(' · '); }
-  else { SHARED_PROGRESS=''; SHARED_STAGE=[]; msg('Shared images added to every room.','ok'); }
+  else { SHARED_PROGRESS=''; SHARED_STAGE=[]; msg('Shared images added to every room (1 commit).','ok'); }
   renderFlow();
 }
 function reviewRoom(p){
@@ -1302,16 +1334,18 @@ async function regenRoom(enc){ const sku=decodeURIComponent(enc); GEN_ROOM[sku]=
 async function roomOk(enc){
   const sku=decodeURIComponent(enc);
   let p=groupProducts().find(x=>x.sku===sku); if(!p) return;
-  // 1) Upload any staged lifestyle first — ONE AT A TIME (queue), so it never floods / hangs.
+  // 1) Upload any staged lifestyle first — Shopify upload per photo, then ONE commit (v4.15).
   const toUpload=(LS_STAGE[sku]||[]).slice();
   if(toUpload.length){
     LS_UPLOADING[sku]=true; LS_PROGRESS[sku]='Uploading 0/'+toUpload.length+'…'; renderFlow();
-    const failed=[]; let done=0;
+    const failed=[]; const items=[]; let done=0;
+    const existing=((p.images&&p.images.lifestyle)||[]).length;
     for(const s of toUpload){
-      try{ const r=await queuedUpload(()=>api({action:'upload-image',sku,slot:'lifestyle',image:s.data,imageMediaType:s.mediaType})); PRODUCTS=r.products; }
+      try{ const r=await api({action:'shopify-upload',slot:'lifestyle',image:s.data,imageMediaType:s.mediaType,keyword:p.keyword,productTitle:(p.content&&p.content.productTitle)||'',set:p.set,n:existing+items.length+1}); items.push({sku,slot:'lifestyle',record:r.record}); }
       catch(e){ failed.push(s); }
       done++; LS_PROGRESS[sku]='Uploading '+done+'/'+toUpload.length+'…'; renderFlow();
     }
+    if(items.length){ try{ const r=await api({action:'commit-images',items}); PRODUCTS=r.products; reapplySeoDraft(); }catch(e){ failed.push(...toUpload); } }
     LS_STAGE[sku]=failed;                       // keep only the failed ones, for a retry
     LS_UPLOADING[sku]=false; delete LS_PROGRESS[sku];
     if(failed.length){ msg(failed.length+' lifestyle photo(s) failed — press OK again to retry.','err'); renderFlow(); return; }
@@ -1320,6 +1354,63 @@ async function roomOk(enc){
   p=groupProducts().find(x=>x.sku===sku);
   if(!roomReady(p)){ msg('Still missing: '+missingBits(p).join(' · '),'err'); renderFlow(); return; }
   const upd={...p,roomApproved:true}; const r=await api({action:'save-product',product:upd}); PRODUCTS=r.products; VOPEN=null; renderFlow();
+}
+
+/* ---------- v4.15: one-commit batch buttons (SEO · all images) ---------- */
+// Save every room's generated/edited SEO in ONE commit.
+async function saveAllSeo(){
+  const g=groupProducts();
+  const rooms=g.filter(p=>(SEO_DRAFT[p.sku]&&SEO_DRAFT[p.sku].content)||p.content);
+  if(!rooms.length){ msg('No SEO to save yet — generate it per room first.','info'); return; }
+  SEO_SAVING=true; renderFlow();
+  const products=rooms.map(p=>{ const d=SEO_DRAFT[p.sku]; const content=(d&&d.content)||p.content; return { sku:p.sku, content, contentKeyword:p.keyword||'', contentApproved:true }; });
+  try{ const r=await api({action:'save-products-batch', products}); PRODUCTS=r.products; SEO_DRAFT={}; msg('All SEO saved in one commit ✓','ok'); }
+  catch(e){ msg('Save SEO failed: '+e.message,'err'); }
+  finally{ SEO_SAVING=false; renderFlow(); }
+}
+// Upload EVERY staged image — shared (all rooms) + each room's lifestyle — in ONE commit, with
+// per-room/sector progress and a tick as each finishes.
+async function uploadAllImages(){
+  const g=groupProducts(); const skus=g.map(p=>p.sku);
+  const sharedCount=SHARED_STAGE.length;
+  const roomsWithLs=g.filter(p=>(LS_STAGE[p.sku]||[]).length);
+  if(!sharedCount && !roomsWithLs.length){ msg('No images staged to upload.','info'); return; }
+  IMG_UPLOADING=true; IMG_DONE={}; IMG_PROGRESS=''; renderFlow();
+  const items=[]; const errors=[];
+  try{
+    // ---- shared (flats / singles / commons): one Shopify upload each, applied to every room ----
+    if(sharedCount){
+      const order=SHARED_STAGE.map((s,i)=>i).sort((a,b)=>{ const A=SHARED_STAGE[a],B=SHARED_STAGE[b]; if(A.slot==='individual'&&B.slot==='individual') return A.name.localeCompare(B.name); return 0; });
+      let done=0;
+      for(const i of order){
+        const s=SHARED_STAGE[i];
+        IMG_PROGRESS='Shared images: '+(done+1)+'/'+sharedCount+'…'; renderFlow();
+        try{ const r=await api({action:'shopify-upload',slot:s.slot,image:s.data,imageMediaType:s.mediaType,shared:true}); for(const sku of skus) items.push({sku,slot:s.slot,record:r.record}); }
+        catch(e){ errors.push('shared '+(s.name||s.slot)+': '+e.message); }
+        done++;
+      }
+      IMG_DONE['__shared']=true; renderFlow();
+    }
+    // ---- per-room lifestyle ----
+    for(const p of roomsWithLs){
+      const ls=LS_STAGE[p.sku]||[]; const existing=((p.images&&p.images.lifestyle)||[]).length; let done=0;
+      for(const s of ls){
+        IMG_PROGRESS=roomName(p)+': '+(done+1)+'/'+ls.length+'…'; renderFlow();
+        try{ const r=await api({action:'shopify-upload',slot:'lifestyle',image:s.data,imageMediaType:s.mediaType,keyword:p.keyword,productTitle:(p.content&&p.content.productTitle)||'',set:p.set,n:existing+done+1}); items.push({sku:p.sku,slot:'lifestyle',record:r.record}); }
+        catch(e){ errors.push(roomName(p)+' lifestyle: '+e.message); }
+        done++;
+      }
+      IMG_DONE[p.sku]=true; renderFlow();
+    }
+    // ---- ONE commit for every image ----
+    if(items.length){ IMG_PROGRESS='Saving all images in one commit…'; renderFlow(); const r=await api({action:'commit-images',items}); PRODUCTS=r.products; reapplySeoDraft(); }
+    if(!errors.length){ SHARED_STAGE=[]; for(const p of roomsWithLs) LS_STAGE[p.sku]=[]; }
+    // mark complete rooms done — in one commit
+    const toApprove=groupProducts().filter(p=>roomReady(p)&&!p.roomApproved).map(p=>({sku:p.sku,roomApproved:true}));
+    if(toApprove.length){ IMG_PROGRESS='Marking rooms done…'; renderFlow(); const r2=await api({action:'save-products-batch',products:toApprove}); PRODUCTS=r2.products; reapplySeoDraft(); }
+    msg(errors.length?('Some images failed: '+errors.join(' · ')):'All images uploaded in one commit ✓', errors.length?'err':'ok');
+  }catch(e){ msg('Upload failed: '+e.message,'err'); }
+  finally{ IMG_UPLOADING=false; IMG_PROGRESS=''; renderFlow(); }
 }
 
 /* ---------- STAGE: send (one product per room) ---------- */
@@ -1340,9 +1431,29 @@ async function doSendRoom(sku){
   catch(e){ msg('Send failed ('+sku+'): '+e.message,'err'); return false; }
 }
 async function sendRoom(enc){ await doSendRoom(decodeURIComponent(enc)); renderFlow(); }
+// v4.15: create each ready room on Shopify (per-room progress + green tick), then mark them all sent
+// and lock their keywords in ONE products commit + ONE registry commit (no per-room flood).
 async function sendAllRooms(){
-  const btn=document.getElementById('sendAllBtn'); if(btn){ btn.disabled=true; btn.innerHTML='<span class="spin"></span>Sending…'; }
-  for(const p of groupProducts().filter(roomReady)){ await doSendRoom(p.sku); }
+  const ready=groupProducts().filter(roomReady);
+  if(!ready.length){ msg('No rooms ready to send.','info'); return; }
+  SEND_RUNNING=true; SEND_DONE={}; SEND_PROGRESS=''; renderFlow();
+  const sent=[]; const errors=[];
+  for(const p of ready){
+    SEND_PROGRESS='Sending '+roomName(p)+'…'; renderFlow();
+    try{
+      const r=await api({action:'send-to-shopify', sku:p.sku, commit:false});
+      sent.push({ sku:p.sku, shopifyProductId:r.shopifyProductId, shopifyHandle:r.shopifyHandle, keyword:r.keyword, productUrl:r.productUrl });
+      (r.warnings||[]).forEach(w=>errors.push(roomName(p)+': '+w));
+      SEND_DONE[p.sku]=true; renderFlow();
+    }catch(e){ errors.push(roomName(p)+': '+e.message); }
+  }
+  if(sent.length){
+    SEND_PROGRESS='Saving '+sent.length+' room(s) in one commit…'; renderFlow();
+    try{ const r=await api({action:'commit-sends', sent}); PRODUCTS=r.products; (r.warnings||[]).forEach(w=>errors.push(w)); }
+    catch(e){ errors.push('save: '+e.message); }
+  }
+  SEND_RUNNING=false; SEND_PROGRESS='';
+  msg(errors.length?('Done with warnings: '+errors.join(' · ')):(sent.length+' room(s) sent to Shopify ✓'), errors.length?'err':'ok');
   renderFlow();
 }
 
@@ -1875,9 +1986,10 @@ function editContentField(sku,key){
 async function saveContentField(sku,key){
   const val=document.getElementById('ta-'+key).value;
   const p=PRODUCTS.find(x=>x.sku===sku); if(!p) return;
-  const updated={...p, content:{...(p.content||{}), [key]:val}};
-  try{ const r=await api({action:'save-product',product:updated}); PRODUCTS=r.products; renderFlow(); msg('Saved.','ok'); }
-  catch(e){ msg('Save failed: '+e.message,'err'); }
+  // v4.15: edit stays in the browser (no commit) — saved with every room via "Save all SEO".
+  p.content={...(p.content||{}), [key]:val};
+  SEO_DRAFT[sku]={ content:p.content, keyword:p.keyword||'' };
+  renderFlow(); msg('Edited — press “Save all SEO” to save it.','info');
 }
 function copyContentField(key){
   const raw=document.getElementById('field-'+key).dataset.raw;
@@ -1907,9 +2019,10 @@ async function saveAiItem(sku,ai){
   const p=PRODUCTS.find(x=>x.sku===sku); if(!p) return;
   const items=[...(p.content.aiItems||[])];
   items[ai]={...items[ai], content:val};
-  const updated={...p, content:{...p.content, aiItems:items}};
-  try{ const r=await api({action:'save-product',product:updated}); PRODUCTS=r.products; renderFlow(); msg('Saved.','ok'); }
-  catch(e){ msg('Save failed: '+e.message,'err'); }
+  // v4.15: edit stays in the browser (no commit) — saved with every room via "Save all SEO".
+  p.content={...p.content, aiItems:items};
+  SEO_DRAFT[sku]={ content:p.content, keyword:p.keyword||'' };
+  renderFlow(); msg('Edited — press “Save all SEO” to save it.','info');
 }
 function copyAiItem(ai){
   const raw=document.getElementById('aiblock-'+ai).dataset.raw;
