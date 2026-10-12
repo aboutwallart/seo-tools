@@ -1,4 +1,7 @@
-// api/etsy.js — AWA ETSY backend (OAuth + API test harness)  ·  v0.7
+// api/etsy.js — AWA ETSY backend (OAuth + API test harness)  ·  v0.9
+// v0.9 (2026-10-12): action=apify-compare — fetches a Shopify product by custom.sku_for_print_files and
+//   runs BOTH Etsy-keyword actors (axlymxp A5KKVgfRFWo268Ggi + astravalabs IC91ej8ZL7pBKaA5n) with a seed,
+//   returning each one's keyword count, sample and real cost (usageTotalUsd) side by side. No Etsy auth.
 // v0.7 (2026-10-12): diagnose taxonomyProperties now includes supports_variations (which Etsy attributes
 //   can be used as a non-custom variation — the possible 3rd branch).
 // v0.6 (2026-10-12): test-draft title lowercased (Etsy rejects titles with too many all-caps words).
@@ -101,6 +104,50 @@ module.exports = async (req, res) => {
   const rt = ck.etsy_rt || '';
 
   if (q.action === 'status') { res.status(200).json({ ok: true, connected: !!at || !!rt }); return; }
+
+  // ----- APIFY ACTOR COMPARISON (no Etsy auth; uses Shopify + Apify env) -----
+  if (q.action === 'apify-compare') {
+    const APIFY = process.env.APIFY_TOKEN;
+    const SHOP = process.env.SHOPIFY_STORE_DOMAIN, STOK = process.env.SHOPIFY_ACCESS_TOKEN;
+    if (!APIFY) { res.status(500).json({ ok: false, error: 'APIFY_TOKEN no está configurado en Vercel' }); return; }
+    const out = { ok: true };
+    const sku = q.sku || 'LIVJPN28';
+    try {
+      if (SHOP && STOK) {
+        const gq = 'query($q:String!){ products(first:1, query:$q){ edges{ node{ title handle productType tags featuredImage{url} room:metafield(namespace:"custom",key:"room_type"){value} skumf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } } }';
+        const r = await fetch('https://' + SHOP + '/admin/api/2025-01/graphql.json', { method: 'POST', headers: { 'X-Shopify-Access-Token': STOK, 'Content-Type': 'application/json' }, body: JSON.stringify({ query: gq, variables: { q: 'metafield:custom.sku_for_print_files:' + sku } }) });
+        const j = await r.json();
+        const node = j && j.data && j.data.products && j.data.products.edges[0] && j.data.products.edges[0].node;
+        out.product = node ? { sku: sku, title: node.title, handle: node.handle, productType: node.productType, room: node.room && node.room.value, tags: (node.tags || []).slice(0, 15), image: node.featuredImage && node.featuredImage.url } : { note: 'no se encontró producto para ' + sku };
+      } else { out.product = { note: 'Shopify no configurado' }; }
+
+      const seed = q.seed || (out.product && out.product.room ? out.product.room + ' wall art' : 'japanese wall art');
+      out.seed = seed;
+
+      async function runActor(id, input) {
+        const t0 = Date.now();
+        let items = [], status = 0;
+        try {
+          const rr = await fetch('https://api.apify.com/v2/acts/' + id + '/run-sync-get-dataset-items?token=' + APIFY + '&format=json', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
+          status = rr.status;
+          items = await rr.json();
+        } catch (e) { return { error: String(e && e.message || e) }; }
+        let cost = null, cu = null, runStatus = null;
+        try {
+          const lr = await fetch('https://api.apify.com/v2/acts/' + id + '/runs?token=' + APIFY + '&limit=1&desc=true');
+          const lj = await lr.json();
+          const run = lj.data && lj.data.items && lj.data.items[0];
+          if (run) { cost = run.usageTotalUsd; cu = run.stats && run.stats.computeUnits; runStatus = run.status; }
+        } catch (e) {}
+        return { status: status, run_status: runStatus, count: Array.isArray(items) ? items.length : 0, cost_usd: cost, compute_units: cu, took_s: Math.round((Date.now() - t0) / 1000), sample: Array.isArray(items) ? items.slice(0, 12) : items };
+      }
+
+      out.axlymxp = await runActor('A5KKVgfRFWo268Ggi', { seedKeywords: [seed], maxKeywordsPerSeed: 25, includeCompetition: true, includeSeedRow: true, country: 'GB', currency: 'GBP' });
+      out.astravalabs = await runActor('IC91ej8ZL7pBKaA5n', { keywords: [seed], expandPrefixes: true, maxTotalResults: 200 });
+      res.status(200).json(out);
+    } catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e), partial: out }); }
+    return;
+  }
 
   if (!at && !rt) { res.status(401).json({ ok: false, error: 'No conectado. Tocá "Conectar con Etsy" primero.' }); return; }
 
