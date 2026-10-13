@@ -1,31 +1,10 @@
-// api/etsy.js — AWA ETSY backend (OAuth + API test harness)  ·  v0.11
-// v0.11 (2026-10-13): action=apify-seedtest — runs axlymxp with ALL wall-art-synonym seeds in ONE run
-//   (per-seed demand so weak synonyms show) + the first 2 seeds individually, to learn the Apify
-//   billing model (per-run vs per-seed). Default seeds = the 10 base wall-art terms. No Etsy auth.
-// v0.10 (2026-10-13): FIX apify-compare seed — custom.room_type is a JSON-array string (e.g. ["Living room"]);
-//   now parsed → first room lowercased → clean seed "living room wall art" (was broken "[\"Living room\"] wall art").
-// v0.9 (2026-10-12): action=apify-compare — fetches a Shopify product by custom.sku_for_print_files and
-//   runs BOTH Etsy-keyword actors (axlymxp A5KKVgfRFWo268Ggi + astravalabs IC91ej8ZL7pBKaA5n) with a seed,
-//   returning each one's keyword count, sample and real cost (usageTotalUsd) side by side. No Etsy auth.
-// v0.7 (2026-10-12): diagnose taxonomyProperties now includes supports_variations (which Etsy attributes
-//   can be used as a non-custom variation — the possible 3rd branch).
-// v0.6 (2026-10-12): test-draft title lowercased (Etsy rejects titles with too many all-caps words).
-// v0.5 (2026-10-12): create-draft needs readiness_state_id (physical listings). test-draft now reads it
-//   from an existing listing's inventory offering and passes it to both the create and the inventory PUT.
-// v0.4 (2026-10-12): action=test-draft — creates an INACTIVE draft listing + sets inventory with 3
-//   variations (Frame/Size/Paper via custom props 513/514/515, max_variations_supported=3) to confirm
-//   Etsy accepts a 3rd variation. Reports every step's raw status/response. Never touches live listings;
-//   the draft stays inactive and its id is returned so Mae can delete it.
-// v0.3 (2026-10-12): diagnose now fetches the sample listing's INVENTORY via /listings/{id}/inventory
-//   (variation properties + per-offering prices → see Frame/Size/Paper structure and whether regional
-//   prices live in offerings). includes=Inventory on getListingsByShop returned null, so we fetch it
-//   from the inventory endpoint directly.
-// v0.2 (2026-10-12): x-api-key header must be "keystring:shared_secret" on EVERY call (keystring alone →
-//   403 "Shared secret is required in x-api-key header"). Now sends both.
-// v0.1 (2026-10-12): First cut. Etsy Open API v3 OAuth 2.0 (PKCE) + diagnose/taxonomy/test-draft actions
-//   to CHECK what the API allows before building the real tool. Token kept in httpOnly cookies (repo is
-//   PUBLIC → never store the token in the repo). Write-test creates an INACTIVE draft only, never touches
-//   live listings. Needs env: ETSY_KEYSTRING (client id) + ETSY_SHARED_SECRET. Redirect URI: /api/etsy.
+// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.12
+// v0.12 (2026-10-13): TAB 1 built. Removed test actions (test-draft, apify-compare, apify-seedtest).
+//   Kept OAuth (auth/status/tokenExchange/call) + diagnose. New actions:
+//   tab1-load (Shopify product by custom.sku_for_print_files + By Room/Style/Colour from mega-menu + variants),
+//   tab1-keywords (Apify axlymxp, ONE batched run, <=15 seeds), tab1-generate (Claude: title, 13 tags, description, attributes),
+//   tab1-meta (Etsy: shop sections + taxonomy 1029 properties), tab1-publish (draft + inventory 513/514 + attributes),
+//   tab1-image (uploads ONE Shopify image to the draft). Token refresh now also on 403 + when only refresh token left.
 const crypto = require('crypto');
 
 const KEY = process.env.ETSY_KEYSTRING;
@@ -35,6 +14,174 @@ const REDIRECT = 'https://tools.aboutwallart.com/api/etsy';
 const SCOPES = 'listings_r listings_w shops_r';
 const API = 'https://openapi.etsy.com/v3/application';
 const TOKEN_URL = 'https://api.etsy.com/v3/public/oauth/token';
+
+
+// ================= TAB 1 DATA (from handovers/AWA-ETSY-project-2026-10-12.md) =================
+const SHOP_ID = '25023670', TAXONOMY = '1029', READINESS = '1410830180137', SHIPPING = '113487783584', RETURNS = '1082803901616';
+const APIFY_ACTOR = 'A5KKVgfRFWo268Ggi'; // axlymxp
+const WALL_ART_TERMS = ['wall art', 'art prints', 'wall decor', 'wall hangings', 'wall prints', 'canvas prints', 'wall pictures', 'wall posters', 'canvas art', 'art decor'];
+const ROOMS = ['Living room', 'Bedroom', 'Nursery', 'Teens', 'Bathroom', 'Kitchen', 'Dining room', 'Hallway', 'Office', 'Laundry room', 'Above fireplace', 'Games room'];
+const ROOM_SYN = {
+  'Living room': ['living room', 'lounge', 'sitting room', 'family room', 'snug'],
+  'Bedroom': ['bedroom', 'above bed', 'over bed'],
+  'Nursery': ['nursery', 'baby room', 'playroom', 'kids', 'childrens'],
+  'Teens': ['teen', 'teens', 'teenage'],
+  'Bathroom': ['bathroom', 'shower room', 'ensuite', 'en-suite', 'powder room', 'washroom', 'toilet'],
+  'Kitchen': ['kitchen'],
+  'Dining room': ['dining room', 'dining', 'breakfast room'],
+  'Hallway': ['hallway', 'entryway', 'entrance', 'foyer', 'corridor', 'staircase'],
+  'Office': ['office', 'study', 'workspace'],
+  'Laundry room': ['laundry', 'utility room'],
+  'Above fireplace': ['above fireplace', 'over fireplace', 'mantel', 'mantelpiece', 'fireplace'],
+  'Games room': ['games room', 'game room', 'man cave']
+};
+const ROOM_TO_ETSY_ROOM = {
+  'Living room': ['Entryway', 'Living room'], 'Bedroom': ['Bedroom'], 'Nursery': ['Kids', 'Nursery'], 'Teens': ['Kids'],
+  'Bathroom': ['Bathroom', 'Laundry'], 'Kitchen': ['Kitchen & dining'], 'Dining room': ['Entryway', 'Kitchen & dining', 'Living room'],
+  'Hallway': ['Entryway', 'Kitchen & dining', 'Living room'], 'Office': ['Office'], 'Laundry room': ['Bathroom', 'Laundry'],
+  'Above fireplace': ['Entryway', 'Kitchen & dining', 'Living room'], 'Games room': ['Bar', 'Game room', 'Man cave']
+};
+const ROOM_TO_SECTION = {
+  'Living room': 'Living room Wall Decor', 'Bedroom': 'Above bed Decor', 'Nursery': 'Baby Nursery Wall Decor', 'Teens': 'College Dorm Decor',
+  'Bathroom': 'Bathroom Wall Decor', 'Kitchen': 'Kitchen Wall Decor', 'Office': 'Office Decor', 'Laundry room': 'Laundry room Wall Art'
+  // Dining room / Hallway / Above fireplace / Games room: no section yet (Tab 4 creates them)
+};
+// style-owned shop sections (candidates only — Mae chooses). 🔴 style→section pairs are my mapping, not confirmed.
+const STYLE_TO_SECTION = { 'Zen': 'Zen Decor', 'Islamic': 'Islamic Wall Art Decor', 'Farmhouse': 'Farmhouse Wall Decor', 'Coastal': 'Beach Themed Wall Decor', 'Christian': 'Modern Christian Art' };
+const STYLE_SYN = {
+  'Biophilic': ['biophilic', 'botanical', 'floral', 'plants', 'greenery', 'leaves', 'foliage', 'nature'],
+  'Farmhouse': ['farmhouse', 'botanical', 'floral', 'rustic', 'country', 'barn'],
+  'Shabby chic': ['shabby chic', 'floral', 'romantic'],
+  'Vintage': ['vintage'],
+  'Japandi': ['japandi', 'relax', 'relaxing', 'calm', 'calming', 'zen', 'japan', 'japanese', 'asian', 'oriental', 'chinese', 'wabi-sabi'],
+  'Zen': ['zen', 'buddha', 'buddhist', 'buddhism', 'lotus', 'meditation'],
+  'Scandinavian': ['scandinavian', 'scandi', 'nordic', 'forest', 'hygge'],
+  'Travel': ['travel', 'map', 'maps', 'world', 'adventure', 'wanderlust'],
+  'Christian': ['christian', 'faith', 'bible', 'scripture', 'cross', 'jesus', 'god'],
+  'Islamic': ['islamic', 'islam', 'muslim', 'quran', 'arabic', 'arab', 'arabesque'],
+  'Minimalism': ['minimalist', 'minimal', 'simple', 'clean'],
+  'Masculine': ['masculine', 'male', 'manly', 'bold dark'],
+  'Industrial': ['industrial', 'urban', 'loft', 'metal', 'concrete'],
+  'Moroccan': ['moroccan', 'morocco', 'marrakech', 'arabesque'],
+  'Abstract': ['abstract', 'geometric'],
+  'Bohemian': ['bohemian', 'boho', 'hippie'],
+  'Coastal': ['coastal', 'beach', 'sea', 'ocean', 'nautical', 'seaside'],
+  'Tropical': ['tropical', 'palm', 'jungle', 'exotic'],
+  'Wildlife': ['wildlife', 'animals', 'safari'],
+  'Sun & moon': ['sun and moon', 'celestial', 'moon', 'stars'],
+  'Black & white': ['black and white', 'monochrome'],
+  'Coffee': ['coffee', 'coffee house', 'cafe'],
+  'Chinoiserie': ['chinoiserie'],
+  'Mid century': ['mid century', 'midcentury', 'retro', 'lux', 'luxury'],
+  'Mediterranean': ['mediterranean', 'amalfi', 'positano', 'capri', 'cinque terre', 'riviera', 'santorini'],
+  'Contemporary': ['contemporary', 'modern'],
+  'Maximalism': ['maximalism', 'maximalist'],
+  'French country': ['french country', 'provence', 'floral', 'florals', 'bees', 'hives', 'beehive'],
+  'Old money': ['map', 'maps', 'earth', 'equestrian', 'horses', 'vintage'],
+  'Marble': ['marble'], 'Eclectic': ['eclectic'], 'Country cottage': ['country cottage', 'cottagecore'], 'Preppy': ['preppy'], 'Transitional': ['transitional']
+};
+const MATERIALS_DEFAULT = ['Perspex', 'Wrapped canvas 260gsm', 'Satin photo paper 280gsm', 'Matte museum art paper 290gsm', 'MDF frame', 'Fade-resistant pigment inks'];
+
+function stripHtml(h) { return String(h || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim(); }
+function normT(s) { return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
+function sizeLabel(v) {
+  const m = /^(A\d)\b/i.exec(v); if (m) return m[1].toUpperCase();
+  const n = /(\d+)\s*x\s*(\d+)/i.exec(v); return n ? n[1] + 'x' + n[2] : String(v).slice(0, 20);
+}
+function frameLabel(v) { return String(v).replace(/\s*frame$/i, '').trim(); }
+function parseJsonArr(v) { try { const a = JSON.parse(v); return Array.isArray(a) ? a.map(String) : [String(a)]; } catch { return v ? [String(v)] : []; } }
+
+async function shopGQL(query, variables) {
+  const SHOP = process.env.SHOPIFY_STORE_DOMAIN, STOK = process.env.SHOPIFY_ACCESS_TOKEN;
+  if (!SHOP || !STOK) throw new Error('Shopify no configurado en Vercel');
+  const r = await fetch('https://' + SHOP + '/admin/api/2025-01/graphql.json', { method: 'POST', headers: { 'X-Shopify-Access-Token': STOK, 'Content-Type': 'application/json' }, body: JSON.stringify({ query, variables }) });
+  const j = await r.json();
+  if (j.errors) throw new Error('Shopify: ' + JSON.stringify(j.errors).slice(0, 300));
+  return j.data;
+}
+// By Room / By Style / By Colour leaves from the site mega-menu (SHOP WALL ART > group > collection leaves)
+async function menuGroups() {
+  const list = await shopGQL('query{ menus(first:20){ nodes{ id handle } } }');
+  const hit = (list.menus.nodes || []).find(m => m.handle === 'new-mega-menu');
+  if (!hit) throw new Error('Menú "new-mega-menu" no encontrado');
+  const d = await shopGQL('query($id:ID!){ menu(id:$id){ items{ title items{ title resourceId items{ title resourceId } } } } }', { id: hit.id });
+  const wa = (d.menu.items || []).find(t => normT(t.title) === 'shop wall art');
+  const groups = {}; // 'by room' -> Map(gid -> leaf title)
+  ((wa && wa.items) || []).forEach(g => {
+    const m = new Map();
+    (g.items || []).forEach(l => { if (l.resourceId) m.set(l.resourceId, l.title); });
+    groups[normT(g.title)] = m;
+  });
+  return groups;
+}
+async function loadProduct(sku) {
+  const gq = 'query($q:String!){ products(first:1, query:$q){ nodes{ id title handle tags productType descriptionHtml images(first:25){nodes{url}} collections(first:60){nodes{id title}} variants(first:100){nodes{sku price selectedOptions{name value}}} room:metafield(namespace:"custom",key:"room_type"){value} col:metafield(namespace:"custom",key:"primary_colour"){value} } } }';
+  const d = await shopGQL(gq, { q: 'metafield:custom.sku_for_print_files:' + sku });
+  const n = d.products.nodes[0];
+  if (!n) return null;
+  const groups = await menuGroups();
+  const col = { room: [], style: [], colour: [], occasion: [] };
+  (n.collections.nodes || []).forEach(c => {
+    [['room', 'by room'], ['style', 'by style'], ['colour', 'by colour'], ['occasion', 'by occasion']].forEach(([k, g]) => { const m = groups[g]; if (m && m.has(c.id)) col[k].push(m.get(c.id)); });
+  });
+  const text = normT(n.title + ' ' + (n.tags || []).join(' '));
+  // ROOM: By Room collection -> room_type metafield -> words in title/tags
+  let rooms = ROOMS.filter(r => col.room.some(x => normT(x).includes(normT(r))));
+  let roomFrom = 'colección By Room';
+  if (!rooms.length) { rooms = ROOMS.filter(r => parseJsonArr(n.room && n.room.value).some(x => normT(x) === normT(r))); roomFrom = 'metafield room_type'; }
+  if (!rooms.length) { rooms = ROOMS.filter(r => ROOM_SYN[r].some(w => text.includes(w))); roomFrom = 'título/tags'; }
+  if (!rooms.length) roomFrom = 'no detectado';
+  // STYLES: By Style collections + tags/title
+  const styles = [];
+  Object.keys(STYLE_SYN).forEach(s => {
+    const inCol = col.style.some(x => normT(x) === normT(s) || normT(x).includes(normT(s)));
+    const inText = text.includes(normT(s));
+    if (inCol || inText) styles.push(s);
+  });
+  const colours = parseJsonArr(n.col && n.col.value);
+  // variants: Satin paper + Canvas only (Paper is fixed on Etsy); Frame/Size short labels
+  const variants = [];
+  (n.variants.nodes || []).forEach(v => {
+    const o = {}; v.selectedOptions.forEach(x => { o[x.name] = x.value; });
+    const isCanvas = /canvas/i.test(o.Frame || '');
+    if (!(isCanvas || /satin/i.test(o.Paper || ''))) return;
+    variants.push({ frame: frameLabel(o.Frame || ''), size: sizeLabel(o.Size || ''), price: parseFloat(v.price) });
+  });
+  return {
+    sku, id: n.id, title: n.title, handle: n.handle, tags: n.tags || [], productType: n.productType,
+    description: stripHtml(n.descriptionHtml).slice(0, 3000),
+    images: (n.images.nodes || []).map(i => i.url).slice(0, 20),
+    collections: col, rooms, roomFrom, styles, colours, variants,
+    styleSynonyms: STYLE_SYN, wallArtTerms: WALL_ART_TERMS, allRooms: ROOMS,
+    roomToEtsyRoom: ROOM_TO_ETSY_ROOM, roomToSection: ROOM_TO_SECTION, styleToSection: STYLE_TO_SECTION, materialsDefault: MATERIALS_DEFAULT
+  };
+}
+async function runApify(seeds) {
+  const APIFY = process.env.APIFY_TOKEN;
+  if (!APIFY) throw new Error('APIFY_TOKEN no está configurado en Vercel');
+  const t0 = Date.now();
+  const rr = await fetch('https://api.apify.com/v2/acts/' + APIFY_ACTOR + '/run-sync-get-dataset-items?token=' + APIFY + '&format=json', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ seedKeywords: seeds, maxKeywordsPerSeed: 25, includeCompetition: true, includeSeedRow: true, country: 'GB', currency: 'GBP' })
+  });
+  const items = await rr.json();
+  if (!Array.isArray(items)) throw new Error('Apify respondió: ' + JSON.stringify(items).slice(0, 300));
+  return { items, took_s: Math.round((Date.now() - t0) / 1000), status: rr.status };
+}
+async function claudeJSON(content, maxTokens) {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) throw new Error('ANTHROPIC_API_KEY no está configurado en Vercel');
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST', headers: { 'x-api-key': key, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: maxTokens || 4000, messages: [{ role: 'user', content }] })
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error('Claude API: ' + JSON.stringify(d).slice(0, 400));
+  const txt = (d.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').replace(/```json\n?/g, '').replace(/```/g, '');
+  const m = txt.match(/\{[\s\S]*\}/);
+  if (!m) throw new Error('Claude no devolvió JSON');
+  return JSON.parse(m[0]);
+}
 
 function b64url(buf) { return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
 function parseCookies(req) {
@@ -110,117 +257,62 @@ module.exports = async (req, res) => {
 
   if (q.action === 'status') { res.status(200).json({ ok: true, connected: !!at || !!rt }); return; }
 
-  // ----- APIFY ACTOR COMPARISON (no Etsy auth; uses Shopify + Apify env) -----
-  if (q.action === 'apify-compare') {
-    const APIFY = process.env.APIFY_TOKEN;
-    const SHOP = process.env.SHOPIFY_STORE_DOMAIN, STOK = process.env.SHOPIFY_ACCESS_TOKEN;
-    if (!APIFY) { res.status(500).json({ ok: false, error: 'APIFY_TOKEN no está configurado en Vercel' }); return; }
-    const out = { ok: true };
-    const sku = q.sku || 'LIVJPN28';
+  // ================= TAB 1 — PUBLIC ACTIONS (Shopify / Apify / Claude; no Etsy auth) =================
+  if (q.action === 'tab1-load') {
     try {
-      if (SHOP && STOK) {
-        const gq = 'query($q:String!){ products(first:1, query:$q){ edges{ node{ title handle productType tags featuredImage{url} room:metafield(namespace:"custom",key:"room_type"){value} skumf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } } }';
-        const r = await fetch('https://' + SHOP + '/admin/api/2025-01/graphql.json', { method: 'POST', headers: { 'X-Shopify-Access-Token': STOK, 'Content-Type': 'application/json' }, body: JSON.stringify({ query: gq, variables: { q: 'metafield:custom.sku_for_print_files:' + sku } }) });
-        const j = await r.json();
-        const node = j && j.data && j.data.products && j.data.products.edges[0] && j.data.products.edges[0].node;
-        let rooms = [];
-        if (node && node.room && node.room.value) {
-          try { const a = JSON.parse(node.room.value); rooms = Array.isArray(a) ? a.map(String) : [String(a)]; }
-          catch { rooms = [String(node.room.value)]; }
-        }
-        out._rooms = rooms;
-        out.product = node ? { sku: sku, title: node.title, handle: node.handle, productType: node.productType, room: rooms.join(', '), tags: (node.tags || []).slice(0, 15), image: node.featuredImage && node.featuredImage.url } : { note: 'no se encontró producto para ' + sku };
-      } else { out.product = { note: 'Shopify no configurado' }; }
-
-      const seed = q.seed || ((out._rooms && out._rooms.length) ? (out._rooms[0] + ' wall art').toLowerCase() : 'japanese wall art');
-      out.seed = seed;
-
-      async function runActor(id, input) {
-        const t0 = Date.now();
-        let items = [], status = 0;
-        try {
-          const rr = await fetch('https://api.apify.com/v2/acts/' + id + '/run-sync-get-dataset-items?token=' + APIFY + '&format=json', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
-          status = rr.status;
-          items = await rr.json();
-        } catch (e) { return { error: String(e && e.message || e) }; }
-        let cost = null, cu = null, runStatus = null;
-        try {
-          const lr = await fetch('https://api.apify.com/v2/acts/' + id + '/runs?token=' + APIFY + '&limit=1&desc=true');
-          const lj = await lr.json();
-          const run = lj.data && lj.data.items && lj.data.items[0];
-          if (run) { cost = run.usageTotalUsd; cu = run.stats && run.stats.computeUnits; runStatus = run.status; }
-        } catch (e) {}
-        return { status: status, run_status: runStatus, count: Array.isArray(items) ? items.length : 0, cost_usd: cost, compute_units: cu, took_s: Math.round((Date.now() - t0) / 1000), sample: Array.isArray(items) ? items.slice(0, 12) : items };
-      }
-
-      out.axlymxp = await runActor('A5KKVgfRFWo268Ggi', { seedKeywords: [seed], maxKeywordsPerSeed: 25, includeCompetition: true, includeSeedRow: true, country: 'GB', currency: 'GBP' });
-      out.astravalabs = await runActor('IC91ej8ZL7pBKaA5n', { keywords: [seed], expandPrefixes: true, maxTotalResults: 200 });
-      res.status(200).json(out);
-    } catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e), partial: out }); }
+      const sku = String(q.sku || '').trim();
+      if (!sku) { res.status(400).json({ ok: false, error: 'Falta el SKU' }); return; }
+      const p = await loadProduct(sku);
+      if (!p) { res.status(404).json({ ok: false, error: 'No se encontró un producto con SKU print files = ' + sku }); return; }
+      res.status(200).json({ ok: true, product: p });
+    } catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
     return;
   }
 
-  // ----- APIFY SEED TEST (billing model + weak-synonym check; no Etsy auth) -----
-  // Runs axlymxp with ALL seeds in ONE run (per-seed demand + batched cost),
-  // then runs the first 2 seeds individually to compare per-seed cost.
-  if (q.action === 'apify-seedtest') {
-    const APIFY = process.env.APIFY_TOKEN;
-    if (!APIFY) { res.status(500).json({ ok: false, error: 'APIFY_TOKEN no está configurado en Vercel' }); return; }
-    const DEFAULT_BASE = ['wall art', 'art prints', 'wall decor', 'wall hangings', 'wall prints', 'canvas prints', 'wall pictures', 'wall posters', 'canvas art', 'art decor'];
-    const seeds = q.seeds ? String(q.seeds).split(',').map(s => s.trim()).filter(Boolean) : DEFAULT_BASE;
-    const ACT = 'A5KKVgfRFWo268Ggi'; // axlymxp (competition + price)
-    const out = { ok: true, seeds: seeds };
-
-    async function runOne(seedArr) {
-      const t0 = Date.now();
-      let items = [], status = 0;
-      try {
-        const rr = await fetch('https://api.apify.com/v2/acts/' + ACT + '/run-sync-get-dataset-items?token=' + APIFY + '&format=json', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ seedKeywords: seedArr, maxKeywordsPerSeed: 25, includeCompetition: true, includeSeedRow: true, country: 'GB', currency: 'GBP' }) });
-        status = rr.status; items = await rr.json();
-      } catch (e) { return { error: String(e && e.message || e), items: [] }; }
-      let cost = null, cu = null, runStatus = null;
-      try {
-        const lr = await fetch('https://api.apify.com/v2/acts/' + ACT + '/runs?token=' + APIFY + '&limit=1&desc=true');
-        const lj = await lr.json();
-        const run = lj.data && lj.data.items && lj.data.items[0];
-        if (run) { cost = run.usageTotalUsd; cu = run.stats && run.stats.computeUnits; runStatus = run.status; }
-      } catch (e) {}
-      return { status: status, run_status: runStatus, cost_usd: cost, compute_units: cu, took_s: Math.round((Date.now() - t0) / 1000), items: Array.isArray(items) ? items : [] };
-    }
-
+  if (q.action === 'tab1-keywords') {
     try {
-      // 1) all seeds in ONE run → per-seed demand + batched cost
-      const batched = await runOne(seeds);
-      const perSeed = seeds.map(s => {
-        const rows = (batched.items || []).filter(r => String(r.seed_keyword || '').toLowerCase() === s.toLowerCase());
-        const seedRow = rows.find(r => r.is_seed) || null;
-        return {
-          seed: s,
-          suggestions: rows.filter(r => !r.is_seed).length,
-          total_rows: rows.length,
-          seed_competing_listings: seedRow ? seedRow.competing_listings_count : null,
-          seed_competition_level: seedRow ? seedRow.competition_level : null
-        };
-      });
-      out.batched = { cost_usd: batched.cost_usd, run_status: batched.run_status, took_s: batched.took_s, total_rows: (batched.items || []).length, per_seed: perSeed };
+      const seeds = String(q.seeds || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 15);
+      if (!seeds.length) { res.status(400).json({ ok: false, error: 'Faltan seeds' }); return; }
+      const r = await runApify(seeds);
+      const rows = r.items.filter(x => !x.is_seed).map(x => ({
+        keyword: x.keyword, seed: x.seed_keyword, competing: x.competing_listings_count, level: x.competition_level,
+        min: x.min_price, max: x.max_price, avg: x.avg_price, median: x.median_price
+      })).filter(x => x.keyword);
+      // unique keywords, ranked: lowest competition first (all come from Etsy autosuggest = real searches)
+      const seen = new Set(); const uniq = [];
+      rows.sort((a, b) => (a.competing == null ? 1e12 : a.competing) - (b.competing == null ? 1e12 : b.competing)).forEach(x => { const k = normT(x.keyword); if (!seen.has(k)) { seen.add(k); uniq.push(x); } });
+      res.status(200).json({ ok: true, seeds, took_s: r.took_s, count: uniq.length, keywords: uniq });
+    } catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
+    return;
+  }
 
-      // 2) first 2 seeds individually → to compare per-seed cost
-      const singles = [];
-      for (const s of seeds.slice(0, 2)) {
-        const r = await runOne([s]);
-        singles.push({ seed: s, cost_usd: r.cost_usd, rows: (r.items || []).length });
-      }
-      out.singles = singles;
-
-      // 3) verdict
-      const singleAvg = singles.length ? singles.reduce((a, b) => a + (b.cost_usd || 0), 0) / singles.length : null;
-      out.verdict = {
-        batched_cost_all_seeds: batched.cost_usd,
-        single_cost_avg: singleAvg,
-        note: 'Si batched ≈ single_avg → cobra por CORRIDA (mandar todo junto). Si batched ≈ single_avg × ' + seeds.length + ' → cobra por SEED.'
-      };
-      res.status(200).json(out);
-    } catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e), partial: out }); }
+  if (q.action === 'tab1-generate' && req.method === 'POST') {
+    try {
+      const b = req.body || {}; const p = b.product || {};
+      const kws = (b.keywords || []).slice(0, 60).map(k => k.keyword + ' (' + (k.level || '?') + ', ' + (k.competing == null ? '?' : k.competing) + ' listings)').join('\n');
+      const optLines = Object.keys(b.options || {}).map(n => '- "' + n + '": ' + (b.options[n] || []).slice(0, 80).join(' | ')).join('\n');
+      const prompt = [
+        'You write Etsy listings for About Wall Art (UK brand). The product is a SET OF 3 wall art pieces, made to order, printed in the UK, available unframed / framed (black, white, oak) / wrapped canvas, sizes A4-A2 and 20x30 in. Look at the product images to understand the real subject, colours, style and orientation.',
+        '',
+        'PRODUCT (from our store):',
+        'Title: ' + p.title, 'Tags: ' + (p.tags || []).join(', '), 'Room: ' + (b.rooms || []).join(', '), 'Style(s): ' + (b.styles || []).join(', '), 'Colours: ' + (p.colours || []).join(', '),
+        'Store description (for facts only, do not copy): ' + (p.description || '').slice(0, 1200),
+        '', 'ETSY KEYWORD DATA (real Etsy searches with competition; prefer relevant, lower-competition ones):', kws,
+        '', 'RULES — follow exactly:',
+        '1) TITLE: max 140 chars, Title Case (NOT all caps), long but readable, keyword-rich WITHOUT stuffing/repeating. Lead with the keyword that best says WHAT it is. Include the room and the main colour. Position of keywords does not affect ranking.',
+        '2) TAGS: EXACTLY 13, each <=20 characters, all UNIQUE, lowercase, never the same combination twice, no spelling mistakes. Each tag = a descriptor (use the keyword data) + a wall-art synonym as the noun. Spread these 10 synonyms across DIFFERENT tags (each used about once): wall art, art prints, wall decor, wall hangings, wall prints, canvas prints, wall pictures, wall posters, canvas art, art decor. Cover the 7 tag types across the 13: 1 descriptive (what it is) 2 materials/technique 3 for whom (gifts) 4 occasion 5 solution (empty wall...) 6 style (era/palette + what it is) 7 size. If a phrase is >20 chars split it into searchable chunks. Do not repeat exact category/attribute names as a tag (a multi-word tag that contains them is fine).',
+        '3) DESCRIPTION: plain text. Relevant keywords in the FIRST sentences, natural, warm first-person brand voice (UK spelling), do NOT copy the title and do NOT list keywords. Mention: set of 3, printed in the UK on satin photo paper 280gsm, framed options in black/white/oak with perspex, or wrapped canvas, fade-resistant pigment inks, made to order, sizes. 120-220 words.',
+        '4) WORDING: "art prints" is OK in title/description/tags. The word "poster"/"posters" ONLY in tags (never title/description). NEVER write "digital print" or "digital download". Say "perspex", never "acrylic". Never say "hand-painted".',
+        '5) ATTRIBUTES: choose from the EXACT option lists below (copy the option text exactly). Only include a property if it clearly applies. Several values allowed only where the property is multi-valued (Occasion, Holiday, Room, Subject may take more than one if truly relevant, else one).',
+        optLines,
+        '', 'Return ONLY JSON: {"title":"...","tags":["13 tags"],"description":"...","attributes":{"<property name>":["<option>", ...]},"notes":"one short line about anything uncertain"}'
+      ].join('\n');
+      const content = [];
+      (p.images || []).slice(0, 3).forEach(u => content.push({ type: 'image', source: { type: 'url', url: u } }));
+      content.push({ type: 'text', text: prompt });
+      const out = await claudeJSON(content, 4000);
+      res.status(200).json({ ok: true, listing: out });
+    } catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
     return;
   }
 
@@ -234,8 +326,10 @@ module.exports = async (req, res) => {
       headers: Object.assign({ 'x-api-key': APIKEY, 'Authorization': 'Bearer ' + tok }, (opts && opts.headers) || {}),
       body: opts && opts.body
     });
-    let r = await doFetch(at);
-    if (r.status === 401 && rt) {
+    let r = null;
+    if (!at && rt) r = { status: 401 };
+    else r = await doFetch(at);
+    if ((r.status === 401 || r.status === 403) && rt) {
       const ref = await tokenExchange({ grant_type: 'refresh_token', client_id: KEY, refresh_token: rt });
       if (ref.ok && ref.json.access_token) {
         at = ref.json.access_token;
@@ -243,6 +337,7 @@ module.exports = async (req, res) => {
         r = await doFetch(at);
       }
     }
+    if (typeof r.json !== 'function') return { status: r.status, json: { error: 'Sesión de Etsy vencida. Tocá Reconectar.' } };
     const j = await r.json().catch(() => ({}));
     return { status: r.status, json: j };
   }
@@ -320,68 +415,88 @@ module.exports = async (req, res) => {
       return;
     }
 
-    // ----- WRITE TEST: create inactive draft + 3 variations (safe; draft only) -----
-    if (q.action === 'test-draft') {
-      const steps = [];
-      const me = await call('/users/me');
-      const shopId = me.json && me.json.shop_id;
-      steps.push({ step: 'me', status: me.status, shop_id: shopId });
-      if (!shopId) { finish(200, { ok: false, steps }); return; }
-
-      const sp = await call('/shops/' + shopId + '/shipping-profiles');
-      const shipId = sp.json && sp.json.results && sp.json.results[0] && sp.json.results[0].shipping_profile_id;
-      steps.push({ step: 'shipping-profiles', status: sp.status, picked: shipId, count: sp.json && sp.json.count });
-
-      const rp = await call('/shops/' + shopId + '/policies/return');
-      const retId = rp.json && rp.json.results && rp.json.results[0] && rp.json.results[0].return_policy_id;
-      steps.push({ step: 'return-policies', status: rp.status, picked: retId, count: rp.json && rp.json.count });
-
-      // readiness_state_id (processing profile) — Etsy requires it for physical listings. Grab it from an existing listing.
-      let readiness = null;
-      const lst0 = await call('/shops/' + shopId + '/listings/active?limit=1');
-      const sampleId = lst0.json && lst0.json.results && lst0.json.results[0] && lst0.json.results[0].listing_id;
-      if (sampleId) {
-        const sinv = await call('/listings/' + sampleId + '/inventory');
-        try { readiness = sinv.json.products[0].offerings[0].readiness_state_id; } catch (e) {}
-      }
-      steps.push({ step: 'readiness', from_listing: sampleId, readiness_state_id: readiness });
-
-      const form = new URLSearchParams({
-        quantity: '25',
-        title: 'zzz test draft api check - safe to delete',
-        description: 'Temporary draft created to test 3 variations via API. Inactive. Safe to delete.',
-        price: '30.00',
-        who_made: 'i_did',
-        when_made: 'made_to_order',
-        taxonomy_id: '1029',
-        type: 'physical'
+    // ================= TAB 1 — ETSY ACTIONS =================
+    // sections + taxonomy 1029 properties (ids + option lists) for the UI dropdowns
+    if (q.action === 'tab1-meta') {
+      const sec = await call('/shops/' + SHOP_ID + '/sections');
+      const props = await call('/seller-taxonomy/nodes/' + TAXONOMY + '/properties');
+      const list = (props.json && props.json.results) || [];
+      finish(200, {
+        ok: sec.status < 300 && props.status < 300,
+        sections: ((sec.json && sec.json.results) || []).map(s => ({ id: s.shop_section_id, title: s.title })),
+        properties: list.map(p => ({
+          id: p.property_id, name: p.name, display: p.display_name, multi: !!p.is_multivalued, required: !!p.is_required,
+          values: (p.possible_values || []).map(v => ({ id: v.value_id, name: v.name }))
+        })),
+        status: { sections: sec.status, props: props.status }
       });
-      if (shipId) form.set('shipping_profile_id', String(shipId));
-      if (retId) form.set('return_policy_id', String(retId));
-      if (readiness) form.set('readiness_state_id', String(readiness));
-      const cr = await call('/shops/' + shopId + '/listings', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form.toString() });
-      const listingId = cr.json && cr.json.listing_id;
-      steps.push({ step: 'create-draft', status: cr.status, listing_id: listingId, error: cr.status >= 300 ? cr.json : undefined });
-      if (!listingId) { finish(200, { ok: false, note: 'No se pudo crear el draft (mirá create-draft)', steps }); return; }
+      return;
+    }
+
+    // create DRAFT + inventory (Frame 513 / Size 514, price per combo) + attributes. Images go one-by-one via tab1-image.
+    if (q.action === 'tab1-publish' && req.method === 'POST') {
+      const b = req.body || {}; const steps = [];
+      const title = String(b.title || '').trim();
+      const tags = (b.tags || []).map(t => String(t).trim()).filter(Boolean).slice(0, 13);
+      const variants = (b.variants || []).filter(v => v.frame && v.size && v.price > 0);
+      if (!title || title.length > 140) { finish(400, { ok: false, error: 'Título vacío o de más de 140 caracteres' }); return; }
+      if (!variants.length) { finish(400, { ok: false, error: 'No hay variantes con precio' }); return; }
+      if (tags.some(t => t.length > 20)) { finish(400, { ok: false, error: 'Hay tags de más de 20 caracteres' }); return; }
+      const minPrice = Math.min.apply(null, variants.map(v => Number(v.price)));
+      const form = new URLSearchParams({
+        quantity: '25', title, description: String(b.description || ''), price: minPrice.toFixed(2),
+        who_made: 'i_did', when_made: 'made_to_order', taxonomy_id: TAXONOMY, type: 'physical',
+        shipping_profile_id: SHIPPING, return_policy_id: RETURNS, readiness_state_id: READINESS,
+        should_auto_renew: 'false', is_supply: 'false', is_personalizable: 'false'
+      });
+      if (tags.length) form.set('tags', tags.join(','));
+      const mats = (b.materials || []).map(String).filter(Boolean);
+      if (mats.length) form.set('materials', mats.join(','));
+      if (b.section_id) form.set('shop_section_id', String(b.section_id));
+      const cr = await call('/shops/' + SHOP_ID + '/listings', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form.toString() });
+      const lid = cr.json && cr.json.listing_id;
+      steps.push({ step: 'crear draft', status: cr.status, listing_id: lid, error: cr.status >= 300 ? cr.json : undefined });
+      if (!lid) { finish(200, { ok: false, steps, error: 'No se pudo crear el draft' }); return; }
 
       const invBody = {
-        products: [
-          { sku: '', offerings: [{ price: 30.0, quantity: 25, is_enabled: true, readiness_state_id: readiness || undefined }], property_values: [
-            { property_id: 513, property_name: 'Frame', value_ids: [], values: ['Unframed'], scale_id: null },
-            { property_id: 514, property_name: 'Size', value_ids: [], values: ['A4'], scale_id: null },
-            { property_id: 515, property_name: 'Paper', value_ids: [], values: ['Satin photo paper'], scale_id: null }
-          ] },
-          { sku: '', offerings: [{ price: 41.0, quantity: 25, is_enabled: true, readiness_state_id: readiness || undefined }], property_values: [
-            { property_id: 513, property_name: 'Frame', value_ids: [], values: ['Framed'], scale_id: null },
-            { property_id: 514, property_name: 'Size', value_ids: [], values: ['A3'], scale_id: null },
-            { property_id: 515, property_name: 'Paper', value_ids: [], values: ['Matte museum art paper'], scale_id: null }
-          ] }
-        ],
-        price_on_property: [], quantity_on_property: [], sku_on_property: []
+        products: variants.map(v => ({
+          sku: String(b.sku || ''),
+          property_values: [
+            { property_id: 513, property_name: 'Frame', value_ids: [], values: [String(v.frame)], scale_id: null },
+            { property_id: 514, property_name: 'Size', value_ids: [], values: [String(v.size)], scale_id: null }
+          ],
+          offerings: [{ price: Number(v.price), quantity: 25, is_enabled: true, readiness_state_id: Number(READINESS) }]
+        })),
+        price_on_property: [513, 514], quantity_on_property: [], sku_on_property: []
       };
-      const inv = await call('/listings/' + listingId + '/inventory?max_variations_supported=3', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(invBody) });
-      steps.push({ step: 'set-inventory-3var', status: inv.status, result: inv.status < 300 ? '3 variaciones ACEPTADAS' : inv.json });
-      finish(200, { ok: inv.status < 300, three_variations_accepted: inv.status < 300, listing_id_to_delete: listingId, steps });
+      const inv = await call('/listings/' + lid + '/inventory', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(invBody) });
+      steps.push({ step: 'variaciones + precios', status: inv.status, count: variants.length, error: inv.status >= 300 ? inv.json : undefined });
+
+      const attrs = Array.isArray(b.attributes) ? b.attributes : [];
+      for (const a of attrs) {
+        if (!a.property_id || !(a.value_ids || []).length) continue;
+        const f = new URLSearchParams({ value_ids: a.value_ids.join(','), values: (a.values || []).join(',') });
+        const pr = await call('/shops/' + SHOP_ID + '/listings/' + lid + '/properties/' + a.property_id, { method: 'PUT', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: f.toString() });
+        steps.push({ step: 'atributo ' + (a.name || a.property_id), status: pr.status, error: pr.status >= 300 ? pr.json : undefined });
+      }
+      const failed = steps.filter(s => s.status >= 300);
+      finish(200, { ok: !failed.length, listing_id: lid, steps, failed: failed.length });
+      return;
+    }
+
+    // upload ONE image (from Shopify CDN) to the draft
+    if (q.action === 'tab1-image' && req.method === 'POST') {
+      const b = req.body || {};
+      if (!b.listing_id || !b.url) { finish(400, { ok: false, error: 'Falta listing_id o url' }); return; }
+      if (!/^https:\/\/cdn\.shopify\.com\//.test(String(b.url))) { finish(400, { ok: false, error: 'La imagen debe venir de cdn.shopify.com' }); return; }
+      const ir = await fetch(b.url);
+      if (!ir.ok) { finish(200, { ok: false, error: 'No pude bajar la imagen de Shopify (' + ir.status + ')' }); return; }
+      const buf = Buffer.from(await ir.arrayBuffer());
+      const fd = new FormData();
+      fd.append('image', new Blob([buf], { type: ir.headers.get('content-type') || 'image/jpeg' }), 'image-' + (b.rank || 1) + '.jpg');
+      fd.append('rank', String(b.rank || 1));
+      const up = await call('/shops/' + SHOP_ID + '/listings/' + b.listing_id + '/images', { method: 'POST', body: fd });
+      finish(200, { ok: up.status < 300, status: up.status, error: up.status >= 300 ? up.json : undefined });
       return;
     }
 
