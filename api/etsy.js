@@ -1,4 +1,7 @@
-// api/etsy.js — AWA ETSY backend (OAuth + API test harness)  ·  v0.10
+// api/etsy.js — AWA ETSY backend (OAuth + API test harness)  ·  v0.11
+// v0.11 (2026-10-13): action=apify-seedtest — runs axlymxp with ALL wall-art-synonym seeds in ONE run
+//   (per-seed demand so weak synonyms show) + the first 2 seeds individually, to learn the Apify
+//   billing model (per-run vs per-seed). Default seeds = the 10 base wall-art terms. No Etsy auth.
 // v0.10 (2026-10-13): FIX apify-compare seed — custom.room_type is a JSON-array string (e.g. ["Living room"]);
 //   now parsed → first room lowercased → clean seed "living room wall art" (was broken "[\"Living room\"] wall art").
 // v0.9 (2026-10-12): action=apify-compare — fetches a Shopify product by custom.sku_for_print_files and
@@ -152,6 +155,70 @@ module.exports = async (req, res) => {
 
       out.axlymxp = await runActor('A5KKVgfRFWo268Ggi', { seedKeywords: [seed], maxKeywordsPerSeed: 25, includeCompetition: true, includeSeedRow: true, country: 'GB', currency: 'GBP' });
       out.astravalabs = await runActor('IC91ej8ZL7pBKaA5n', { keywords: [seed], expandPrefixes: true, maxTotalResults: 200 });
+      res.status(200).json(out);
+    } catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e), partial: out }); }
+    return;
+  }
+
+  // ----- APIFY SEED TEST (billing model + weak-synonym check; no Etsy auth) -----
+  // Runs axlymxp with ALL seeds in ONE run (per-seed demand + batched cost),
+  // then runs the first 2 seeds individually to compare per-seed cost.
+  if (q.action === 'apify-seedtest') {
+    const APIFY = process.env.APIFY_TOKEN;
+    if (!APIFY) { res.status(500).json({ ok: false, error: 'APIFY_TOKEN no está configurado en Vercel' }); return; }
+    const DEFAULT_BASE = ['wall art', 'art prints', 'wall decor', 'wall hangings', 'wall prints', 'canvas prints', 'wall pictures', 'wall posters', 'canvas art', 'art decor'];
+    const seeds = q.seeds ? String(q.seeds).split(',').map(s => s.trim()).filter(Boolean) : DEFAULT_BASE;
+    const ACT = 'A5KKVgfRFWo268Ggi'; // axlymxp (competition + price)
+    const out = { ok: true, seeds: seeds };
+
+    async function runOne(seedArr) {
+      const t0 = Date.now();
+      let items = [], status = 0;
+      try {
+        const rr = await fetch('https://api.apify.com/v2/acts/' + ACT + '/run-sync-get-dataset-items?token=' + APIFY + '&format=json', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ seedKeywords: seedArr, maxKeywordsPerSeed: 25, includeCompetition: true, includeSeedRow: true, country: 'GB', currency: 'GBP' }) });
+        status = rr.status; items = await rr.json();
+      } catch (e) { return { error: String(e && e.message || e), items: [] }; }
+      let cost = null, cu = null, runStatus = null;
+      try {
+        const lr = await fetch('https://api.apify.com/v2/acts/' + ACT + '/runs?token=' + APIFY + '&limit=1&desc=true');
+        const lj = await lr.json();
+        const run = lj.data && lj.data.items && lj.data.items[0];
+        if (run) { cost = run.usageTotalUsd; cu = run.stats && run.stats.computeUnits; runStatus = run.status; }
+      } catch (e) {}
+      return { status: status, run_status: runStatus, cost_usd: cost, compute_units: cu, took_s: Math.round((Date.now() - t0) / 1000), items: Array.isArray(items) ? items : [] };
+    }
+
+    try {
+      // 1) all seeds in ONE run → per-seed demand + batched cost
+      const batched = await runOne(seeds);
+      const perSeed = seeds.map(s => {
+        const rows = (batched.items || []).filter(r => String(r.seed_keyword || '').toLowerCase() === s.toLowerCase());
+        const seedRow = rows.find(r => r.is_seed) || null;
+        return {
+          seed: s,
+          suggestions: rows.filter(r => !r.is_seed).length,
+          total_rows: rows.length,
+          seed_competing_listings: seedRow ? seedRow.competing_listings_count : null,
+          seed_competition_level: seedRow ? seedRow.competition_level : null
+        };
+      });
+      out.batched = { cost_usd: batched.cost_usd, run_status: batched.run_status, took_s: batched.took_s, total_rows: (batched.items || []).length, per_seed: perSeed };
+
+      // 2) first 2 seeds individually → to compare per-seed cost
+      const singles = [];
+      for (const s of seeds.slice(0, 2)) {
+        const r = await runOne([s]);
+        singles.push({ seed: s, cost_usd: r.cost_usd, rows: (r.items || []).length });
+      }
+      out.singles = singles;
+
+      // 3) verdict
+      const singleAvg = singles.length ? singles.reduce((a, b) => a + (b.cost_usd || 0), 0) / singles.length : null;
+      out.verdict = {
+        batched_cost_all_seeds: batched.cost_usd,
+        single_cost_avg: singleAvg,
+        note: 'Si batched ≈ single_avg → cobra por CORRIDA (mandar todo junto). Si batched ≈ single_avg × ' + seeds.length + ' → cobra por SEED.'
+      };
       res.status(200).json(out);
     } catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e), partial: out }); }
     return;
