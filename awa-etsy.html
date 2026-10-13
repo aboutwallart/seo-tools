@@ -27,7 +27,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">Banco de pruebas de la API · v0.10</p>
+  <p class="ver">Banco de pruebas de la API · v0.11</p>
 
   <div class="card">
     <h2>1 · Conexión</h2>
@@ -70,6 +70,19 @@
       <button class="ghost" onclick="copyOut3()">Copiar resultado</button>
     </div>
     <pre id="out3" style="margin-top:14px; display:none"></pre>
+  </div>
+
+  <div class="card">
+    <h2>5 · Test de seeds (sinónimos de wall art)</h2>
+    <p class="sub">Corre los 10 términos base de wall art <b>todos juntos en una corrida</b> (para ver la demanda de cada uno → los flojos se vuelan) + 2 sueltos aparte (para ver si Apify cobra por corrida o por seed). Gasta unos centavos. Podés cambiar la lista (separada por comas) o dejar la de por defecto.</p>
+    <div class="row" style="margin-bottom:10px">
+      <input id="stSeeds" type="text" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:inherit;flex:1;min-width:220px" placeholder="dejá vacío para los 10 por defecto">
+    </div>
+    <div class="row">
+      <button id="stBtn" onclick="runSeedTest()">Correr test de seeds</button>
+      <button class="ghost" onclick="copyOut4()">Copiar resultado</button>
+    </div>
+    <pre id="out4" style="margin-top:14px; display:none"></pre>
   </div>
 </div>
 
@@ -128,6 +141,21 @@
   }
   function copyOut3(){
     var t = document.getElementById('out3').textContent || '';
+    navigator.clipboard.writeText(t).then(function(){ alert('Copiado. Pegámelo en el chat.'); });
+  }
+  async function runSeedTest(){
+    var out = document.getElementById('out4');
+    out.style.display = 'block';
+    out.textContent = 'Corriendo todos los seeds juntos + 2 sueltos… (puede tardar 1-2 min)';
+    var seeds = encodeURIComponent(document.getElementById('stSeeds').value || '');
+    try{
+      var r = await fetch('/api/etsy?action=apify-seedtest&seeds=' + seeds + '&t=' + Date.now());
+      var j = await r.json();
+      out.textContent = JSON.stringify(j, null, 2);
+    }catch(e){ out.textContent = 'Error: ' + (e && e.message || e); }
+  }
+  function copyOut4(){
+    var t = document.getElementById('out4').textContent || '';
     navigator.clipboard.writeText(t).then(function(){ alert('Copiado. Pegámelo en el chat.'); });
   }
   if (location.search.indexOf('connected=1') >= 0) { setConnected(true); }
