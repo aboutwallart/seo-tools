@@ -5,32 +5,53 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AWA ETSY</title>
 <style>
-  :root{ --ink:#222; --muted:#666; --line:#e4e2da; --bg:#faf9f5; --card:#fff; --accent:#1d6e56; }
+  :root{ --ink:#222; --muted:#666; --line:#e4e2da; --bg:#faf9f5; --card:#fff; --accent:#1d6e56; --warn:#b3261e; --ok:#0f6e56; }
   *{ box-sizing:border-box; }
   body{ font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; color:var(--ink); background:var(--bg); margin:0; padding:24px 16px; line-height:1.5; }
-  .wrap{ max-width:820px; margin:0 auto; }
+  .wrap{ max-width:900px; margin:0 auto; }
   h1{ font-size:22px; font-weight:600; margin:0 0 2px; }
   .ver{ color:var(--muted); font-size:12px; margin:0 0 20px; }
   .card{ background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px 20px; margin:0 0 16px; }
   .card h2{ font-size:16px; font-weight:600; margin:0 0 10px; }
-  .sub{ color:var(--muted); font-size:14px; margin:0 0 14px; }
+  .card h3{ font-size:14px; font-weight:600; margin:16px 0 6px; }
+  .sub{ color:var(--muted); font-size:14px; margin:0 0 12px; }
   button{ font:inherit; font-weight:600; cursor:pointer; border:1px solid var(--accent); background:var(--accent); color:#fff; padding:10px 18px; border-radius:8px; }
   button.ghost{ background:#fff; color:var(--accent); }
   button:disabled{ opacity:.5; cursor:default; }
+  input[type=text], input[type=number], textarea, select{ font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:8px; width:100%; background:#fff; }
+  textarea{ min-height:170px; }
   .pill{ display:inline-block; font-size:13px; font-weight:600; padding:3px 10px; border-radius:20px; }
   .pill.on{ background:#e1f5ee; color:#0f6e56; }
   .pill.off{ background:#f1efe8; color:#666; }
-  pre{ background:#f6f5f0; border:1px solid var(--line); border-radius:8px; padding:12px; font-size:12px; overflow:auto; max-height:460px; white-space:pre-wrap; word-break:break-word; }
   .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .chips{ display:flex; flex-wrap:wrap; gap:6px; margin:6px 0 10px; }
+  .chip{ display:inline-flex; align-items:center; gap:6px; background:#f1efe8; border-radius:20px; padding:4px 10px; font-size:13px; }
+  .chip input{ margin:0; }
+  .msg{ font-size:13px; margin:8px 0 0; }
+  .bad{ color:var(--warn); } .good{ color:var(--ok); }
+  .cnt{ font-size:12px; color:var(--muted); text-align:right; }
+  .cnt.bad{ color:var(--warn); font-weight:600; }
+  table{ border-collapse:collapse; width:100%; font-size:13px; }
+  th, td{ border-bottom:1px solid var(--line); padding:5px 8px; text-align:left; }
+  .imgs{ display:flex; flex-wrap:wrap; gap:6px; }
+  .imgs img{ width:64px; height:64px; object-fit:cover; border-radius:6px; border:1px solid var(--line); }
+  .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:10px 16px; }
+  @media(max-width:700px){ .grid2{ grid-template-columns:1fr; } }
+  .field label{ display:block; font-size:13px; font-weight:600; margin:0 0 3px; }
+  .tagrow{ display:grid; grid-template-columns:1fr 46px; gap:8px; align-items:center; margin-bottom:6px; }
+  .reminder{ background:#fff6e0; border:1px solid #f0d58a; border-radius:8px; padding:10px 12px; font-size:14px; margin-top:12px; }
+  .scroll{ max-height:340px; overflow:auto; border:1px solid var(--line); border-radius:8px; }
+  .hide{ display:none; }
+  .fixed{ font-size:13px; color:var(--muted); }
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">Banco de pruebas de la API · v0.11</p>
+  <p class="ver">Tab 1 · NEW PRODUCT · v0.12</p>
 
   <div class="card">
-    <h2>1 · Conexión</h2>
+    <h2>Conexión con Etsy</h2>
     <p class="sub">Conectá tu Etsy una vez. El permiso se guarda en una cookie segura de este navegador.</p>
     <div class="row">
       <span id="statusPill" class="pill off">Sin conectar</span>
@@ -39,125 +60,325 @@
   </div>
 
   <div class="card">
-    <h2>2 · Diagnóstico de la API</h2>
-    <p class="sub">Trae: tu shop, un listing de ejemplo (precio + variaciones) y las opciones de Style / Occasion que da Etsy para Wall Hangings. No toca nada — solo lee.</p>
+    <h2>1 · Cargar producto</h2>
+    <p class="sub">Escribí el SKU (el de "sku for print files"). La tool trae todo de Shopify.</p>
     <div class="row">
-      <button id="diagBtn" class="ghost" onclick="runDiag()" disabled>Correr diagnóstico</button>
-      <button class="ghost" onclick="copyOut()">Copiar resultado</button>
+      <input id="sku" type="text" placeholder="ej. LIVJPN28" style="max-width:220px">
+      <button id="loadBtn" onclick="loadProduct()">Cargar</button>
     </div>
-    <pre id="out" style="margin-top:14px; display:none"></pre>
+    <div id="loadMsg" class="msg"></div>
+    <div id="prod" class="hide">
+      <h3>Producto</h3>
+      <div id="prodTitle" style="font-size:14px"></div>
+      <div class="imgs" id="prodImgs" style="margin:8px 0"></div>
+      <div class="grid2">
+        <div class="field"><label>Room (de la colección By Room)</label><div class="chips" id="roomChips"></div><div class="fixed" id="roomFrom"></div></div>
+        <div class="field"><label>Estilo(s)</label><div class="chips" id="styleChips"></div>
+          <select id="addStyle" onchange="addStyle(this.value); this.value=''"><option value="">+ agregar otro estilo…</option></select></div>
+      </div>
+      <div class="field" style="margin-top:8px"><label>Color(es)</label><input id="colours" type="text"></div>
+    </div>
   </div>
 
-  <div class="card">
-    <h2>3 · Prueba de escritura (3 variaciones)</h2>
-    <p class="sub">Crea un <b>draft inactivo</b> de prueba y le mete 3 variaciones (Frame + Size + Paper) para confirmar si Etsy las acepta. No toca tus listings vivos. El draft queda inactivo — después lo borrás en Etsy (te doy el id).</p>
-    <div class="row">
-      <button id="writeBtn" class="ghost" onclick="runWrite()" disabled>Correr prueba de escritura</button>
-      <button class="ghost" onclick="copyOut2()">Copiar resultado</button>
+  <div class="card hide" id="kwCard">
+    <h2>2 · Keywords (Apify)</h2>
+    <p class="sub">Cada sinónimo del estilo + "wall art". Destildá los que no sirvan (máx. 15 por corrida). El room y el color NO se buscan acá: van al SEO.</p>
+    <div class="chips" id="seedChips"></div>
+    <div class="row" style="margin-bottom:8px"><input id="seedExtra" type="text" placeholder="agregar seed a mano, ej. calming wall art (separá con comas)" style="flex:1"><button class="ghost" onclick="addSeeds()">Agregar</button></div>
+    <div class="row"><button id="kwBtn" onclick="runKeywords()">Buscar keywords</button><span id="seedCount" class="fixed"></span></div>
+    <div id="kwMsg" class="msg"></div>
+    <div id="kwBox" class="hide">
+      <h3>Resultado (de menor a mayor competencia) — tildá las que se usan</h3>
+      <div class="scroll"><table id="kwTable"></table></div>
     </div>
-    <pre id="out2" style="margin-top:14px; display:none"></pre>
   </div>
 
-  <div class="card">
-    <h2>4 · Comparar actores de Apify</h2>
-    <p class="sub">Trae el producto de Shopify (por SKU print files) + corre los 2 actores de keywords de Etsy y te muestra, lado a lado, cuántas keywords, una muestra y el <b>costo real</b> de cada uno. Tarda ~1-2 min (los actores corren de verdad, gastan unos centavos de Apify).</p>
-    <div class="row" style="margin-bottom:10px">
-      <input id="apSku" type="text" value="LIVJPN28" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:inherit;width:150px" placeholder="SKU">
-      <input id="apSeed" type="text" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:inherit;flex:1;min-width:180px" placeholder="seed (opcional, ej. japanese wall art)">
-    </div>
-    <div class="row">
-      <button id="apBtn" onclick="runApify()">Comparar actores</button>
-      <button class="ghost" onclick="copyOut3()">Copiar resultado</button>
-    </div>
-    <pre id="out3" style="margin-top:14px; display:none"></pre>
+  <div class="card hide" id="genCard">
+    <h2>3 · Generar el listing</h2>
+    <p class="sub">Claude mira las imágenes y las keywords y arma título, 13 tags, descripción y atributos. Después lo editás todo.</p>
+    <button id="genBtn" onclick="generate()">Generar listing</button>
+    <div id="genMsg" class="msg"></div>
   </div>
 
-  <div class="card">
-    <h2>5 · Test de seeds (sinónimos de wall art)</h2>
-    <p class="sub">Corre los 10 términos base de wall art <b>todos juntos en una corrida</b> (para ver la demanda de cada uno → los flojos se vuelan) + 2 sueltos aparte (para ver si Apify cobra por corrida o por seed). Gasta unos centavos. Podés cambiar la lista (separada por comas) o dejar la de por defecto.</p>
-    <div class="row" style="margin-bottom:10px">
-      <input id="stSeeds" type="text" style="padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:inherit;flex:1;min-width:220px" placeholder="dejá vacío para los 10 por defecto">
-    </div>
-    <div class="row">
-      <button id="stBtn" onclick="runSeedTest()">Correr test de seeds</button>
-      <button class="ghost" onclick="copyOut4()">Copiar resultado</button>
-    </div>
-    <pre id="out4" style="margin-top:14px; display:none"></pre>
+  <div class="card hide" id="editCard">
+    <h2>4 · Revisar y editar</h2>
+    <div class="field"><label>Título</label><input id="fTitle" type="text" oninput="countTitle()"><div id="cTitle" class="cnt"></div></div>
+    <h3>13 tags</h3>
+    <div id="tagBox"></div>
+    <div id="tagMsg" class="msg"></div>
+    <h3>Descripción</h3>
+    <textarea id="fDesc"></textarea>
+    <h3>Materiales (cada uno funciona como tag)</h3>
+    <div class="chips" id="matChips"></div>
+    <h3>Rooms de Etsy (hasta 3)</h3>
+    <div class="fixed" id="etsyRooms"></div>
+    <h3>Atributos</h3>
+    <div class="grid2" id="attrBox"></div>
+    <div id="attrNote" class="msg"></div>
+    <h3>Shop section (elegí UNA)</h3>
+    <div class="chips" id="secChips"></div>
+    <select id="secOther" onchange="pickOtherSection()"><option value="">otra sección…</option></select>
+    <div class="fixed" id="secNote" style="margin-top:4px"></div>
+    <h3>Precios UK por variante (£) · cantidad 25</h3>
+    <div class="scroll"><table id="varTable"></table></div>
+    <h3>Valores fijos</h3>
+    <div class="fixed">Who made: I did · Finished product · Made to order · Computerised tools · Processing made to order 1-3 días · Envío "A2 posters UK + EU + USA" · Devoluciones 14 días · Renovación MANUAL · Feature: no · Hecho desde cero · GPSR y tariff: vacíos (los completás en Etsy) · Fotos: las de Shopify (hasta 20).</div>
+  </div>
+
+  <div class="card hide" id="pubCard">
+    <h2>5 · Publicar DRAFT en Etsy</h2>
+    <p class="sub">Crea el draft (inactivo), las variaciones con precios, los atributos y sube las fotos de Shopify.</p>
+    <button id="pubBtn" onclick="publish()">Publicar draft</button>
+    <div id="pubMsg" class="msg"></div>
+    <div class="reminder">⚠️ Acordate de aplicar el +16% de international pricing a mano (seleccioná los listings nuevos → +16%).</div>
   </div>
 </div>
 
 <script>
+  var P = null, META = null, KW = [], SEEDS = [], STYLES = [], ROOMS_SEL = [], LISTING = null, SECTION_ID = null;
+  function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function $(id){ return document.getElementById(id); }
+  function norm(s){ return String(s||'').toLowerCase().replace(/\s+/g,' ').trim(); }
+  function show(id, on){ $(id).classList[on === false ? 'add' : 'remove']('hide'); }
+
+  /* ---------- conexión ---------- */
   function setConnected(on){
-    var pill = document.getElementById('statusPill');
-    pill.className = 'pill ' + (on ? 'on' : 'off');
-    pill.textContent = on ? 'Conectado' : 'Sin conectar';
-    document.getElementById('connectBtn').textContent = on ? 'Reconectar' : 'Conectar con Etsy';
-    document.getElementById('diagBtn').disabled = !on;
-    document.getElementById('writeBtn').disabled = !on;
+    $('statusPill').className = 'pill ' + (on ? 'on' : 'off');
+    $('statusPill').textContent = on ? 'Conectado' : 'Sin conectar';
+    $('connectBtn').textContent = on ? 'Reconectar' : 'Conectar con Etsy';
+    if (on && !META) loadMeta();
   }
   async function checkStatus(){
     try{ var r = await fetch('/api/etsy?action=status'); var j = await r.json(); setConnected(!!j.connected); }
     catch(e){ setConnected(false); }
   }
-  async function runDiag(){
-    var out = document.getElementById('out');
-    out.style.display = 'block';
-    out.textContent = 'Consultando Etsy…';
+  async function loadMeta(){
     try{
-      var r = await fetch('/api/etsy?action=diagnose');
-      var j = await r.json();
-      out.textContent = JSON.stringify(j, null, 2);
-    }catch(e){ out.textContent = 'Error: ' + (e && e.message || e); }
+      var r = await fetch('/api/etsy?action=tab1-meta'); var j = await r.json();
+      if (j.ok) META = j;
+    }catch(e){}
   }
-  function copyOut(){
-    var t = document.getElementById('out').textContent || '';
-    navigator.clipboard.writeText(t).then(function(){ alert('Copiado. Pegámelo en el chat.'); });
-  }
-  async function runWrite(){
-    var out = document.getElementById('out2');
-    out.style.display = 'block';
-    out.textContent = 'Creando draft de prueba en Etsy…';
+
+  /* ---------- paso 1: producto ---------- */
+  async function loadProduct(){
+    var sku = $('sku').value.trim(); if (!sku) return;
+    $('loadBtn').disabled = true; $('loadMsg').className = 'msg'; $('loadMsg').textContent = 'Buscando en Shopify…';
     try{
-      var r = await fetch('/api/etsy?action=test-draft&t=' + Date.now());
+      var r = await fetch('/api/etsy?action=tab1-load&sku=' + encodeURIComponent(sku));
       var j = await r.json();
-      out.textContent = JSON.stringify(j, null, 2);
-    }catch(e){ out.textContent = 'Error: ' + (e && e.message || e); }
+      if (!j.ok) throw new Error(j.error || 'Error');
+      P = j.product; LISTING = null; KW = [];
+      $('loadMsg').className = 'msg good'; $('loadMsg').textContent = 'Producto cargado.';
+      renderProduct();
+    }catch(e){ $('loadMsg').className = 'msg bad'; $('loadMsg').textContent = 'No se pudo cargar: ' + e.message; }
+    $('loadBtn').disabled = false;
   }
-  function copyOut2(){
-    var t = document.getElementById('out2').textContent || '';
-    navigator.clipboard.writeText(t).then(function(){ alert('Copiado. Pegámelo en el chat.'); });
+  function renderProduct(){
+    show('prod'); show('kwCard'); show('genCard'); show('editCard', false); show('pubCard', false);
+    $('prodTitle').textContent = P.title;
+    $('prodImgs').innerHTML = P.images.map(function(u){ return '<img src="' + esc(u) + '">'; }).join('');
+    ROOMS_SEL = P.rooms.slice(); STYLES = P.styles.slice();
+    $('roomChips').innerHTML = P.allRooms.map(function(r){ return '<label class="chip"><input type="checkbox" value="' + esc(r) + '" ' + (ROOMS_SEL.indexOf(r) >= 0 ? 'checked' : '') + ' onchange="roomChange()">' + esc(r) + '</label>'; }).join('');
+    $('roomFrom').textContent = 'Detectado desde: ' + P.roomFrom;
+    $('colours').value = P.colours.join(', ');
+    var sel = $('addStyle'); sel.innerHTML = '<option value="">+ agregar otro estilo…</option>' + Object.keys(P.styleSynonyms).map(function(s){ return '<option>' + esc(s) + '</option>'; }).join('');
+    renderStyles(); buildSeeds();
   }
-  async function runApify(){
-    var out = document.getElementById('out3');
-    out.style.display = 'block';
-    out.textContent = 'Trayendo producto + corriendo los 2 actores… (puede tardar 1-2 min)';
-    var sku = encodeURIComponent(document.getElementById('apSku').value || 'LIVJPN28');
-    var seed = encodeURIComponent(document.getElementById('apSeed').value || '');
+  function roomChange(){ ROOMS_SEL = Array.prototype.slice.call(document.querySelectorAll('#roomChips input:checked')).map(function(i){ return i.value; }); }
+  function renderStyles(){
+    $('styleChips').innerHTML = STYLES.length ? STYLES.map(function(s){ return '<label class="chip"><input type="checkbox" value="' + esc(s) + '" checked onchange="styleChange()">' + esc(s) + '</label>'; }).join('') : '<span class="fixed">Ninguno detectado — agregá uno abajo.</span>';
+  }
+  function styleChange(){ STYLES = Array.prototype.slice.call(document.querySelectorAll('#styleChips input:checked')).map(function(i){ return i.value; }); buildSeeds(); }
+  function addStyle(s){ if (s && STYLES.indexOf(s) < 0){ STYLES.push(s); renderStyles(); buildSeeds(); } }
+
+  /* ---------- paso 2: keywords ---------- */
+  function buildSeeds(){
+    var set = [];
+    STYLES.forEach(function(s){ (P.styleSynonyms[s] || []).forEach(function(w){ var seed = w + ' wall art'; if (set.indexOf(seed) < 0) set.push(seed); }); });
+    if (set.indexOf('wall art') < 0 && !set.length) set.push('wall art');
+    SEEDS = set.map(function(s, i){ return { t: s, on: i < 15 }; });
+    renderSeeds();
+  }
+  function renderSeeds(){
+    $('seedChips').innerHTML = SEEDS.map(function(s, i){ return '<label class="chip"><input type="checkbox" ' + (s.on ? 'checked' : '') + ' onchange="seedTick(' + i + ', this.checked)">' + esc(s.t) + '</label>'; }).join('');
+    var n = SEEDS.filter(function(s){ return s.on; }).length;
+    $('seedCount').textContent = n + ' seeds tildados' + (n > 15 ? ' — máximo 15, destildá ' + (n - 15) : '');
+    $('seedCount').className = n > 15 ? 'fixed bad' : 'fixed';
+    $('kwBtn').disabled = n < 1 || n > 15;
+  }
+  function seedTick(i, on){ SEEDS[i].on = on; renderSeeds(); }
+  function addSeeds(){
+    $('seedExtra').value.split(',').map(function(s){ return s.trim().toLowerCase(); }).filter(Boolean).forEach(function(t){ if (!SEEDS.some(function(s){ return s.t === t; })) SEEDS.push({ t: t, on: true }); });
+    $('seedExtra').value = ''; renderSeeds();
+  }
+  async function runKeywords(){
+    var seeds = SEEDS.filter(function(s){ return s.on; }).map(function(s){ return s.t; });
+    $('kwBtn').disabled = true; $('kwMsg').className = 'msg'; $('kwMsg').textContent = 'Buscando en Etsy vía Apify… puede tardar 1-3 minutos.';
     try{
-      var r = await fetch('/api/etsy?action=apify-compare&sku=' + sku + '&seed=' + seed + '&t=' + Date.now());
+      var r = await fetch('/api/etsy?action=tab1-keywords&seeds=' + encodeURIComponent(seeds.join(',')) + '&t=' + Date.now());
       var j = await r.json();
-      out.textContent = JSON.stringify(j, null, 2);
-    }catch(e){ out.textContent = 'Error: ' + (e && e.message || e); }
+      if (!j.ok) throw new Error(j.error || 'Error');
+      KW = j.keywords;
+      $('kwMsg').className = 'msg good'; $('kwMsg').textContent = KW.length + ' keywords (' + j.took_s + 's).';
+      renderKw();
+    }catch(e){ $('kwMsg').className = 'msg bad'; $('kwMsg').textContent = 'Falló: ' + e.message; }
+    $('kwBtn').disabled = false;
   }
-  function copyOut3(){
-    var t = document.getElementById('out3').textContent || '';
-    navigator.clipboard.writeText(t).then(function(){ alert('Copiado. Pegámelo en el chat.'); });
+  function renderKw(){
+    show('kwBox');
+    $('kwTable').innerHTML = '<tr><th></th><th>keyword</th><th>competencia</th><th>listings</th><th>precio med.</th></tr>' + KW.map(function(k, i){
+      return '<tr><td><input type="checkbox" class="kwTick" data-i="' + i + '" ' + (i < 40 ? 'checked' : '') + '></td><td>' + esc(k.keyword) + '</td><td>' + esc(k.level || '') + '</td><td>' + esc(k.competing == null ? '' : k.competing) + '</td><td>' + esc(k.median == null ? '' : '£' + k.median) + '</td></tr>';
+    }).join('');
   }
-  async function runSeedTest(){
-    var out = document.getElementById('out4');
-    out.style.display = 'block';
-    out.textContent = 'Corriendo todos los seeds juntos + 2 sueltos… (puede tardar 1-2 min)';
-    var seeds = encodeURIComponent(document.getElementById('stSeeds').value || '');
+
+  /* ---------- paso 3: generar ---------- */
+  var OPT_RX = [/style/i, /subject/i, /occasion/i, /holiday/i, /orientation/i, /primary.*colo/i, /secondary.*colo/i, /frame.*colo/i, /mat.*included/i];
+  function relevantProps(){
+    return (META ? META.properties : []).filter(function(p){ return p.values.length && OPT_RX.some(function(rx){ return rx.test(p.name) || rx.test(p.display || ''); }); });
+  }
+  async function generate(){
+    if (!META){ $('genMsg').className = 'msg bad'; $('genMsg').textContent = 'Primero conectá Etsy (arriba) para traer los atributos.'; return; }
+    var ticked = Array.prototype.slice.call(document.querySelectorAll('.kwTick:checked')).map(function(c){ return KW[+c.dataset.i]; });
+    var options = {}; relevantProps().forEach(function(p){ options[p.name] = p.values.map(function(v){ return v.name; }); });
+    P.colours = $('colours').value.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+    $('genBtn').disabled = true; $('genMsg').className = 'msg'; $('genMsg').textContent = 'Claude está mirando las imágenes y escribiendo… (~30-60 s)';
     try{
-      var r = await fetch('/api/etsy?action=apify-seedtest&seeds=' + seeds + '&t=' + Date.now());
+      var r = await fetch('/api/etsy?action=tab1-generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ product: P, rooms: ROOMS_SEL, styles: STYLES, keywords: ticked, options: options }) });
       var j = await r.json();
-      out.textContent = JSON.stringify(j, null, 2);
-    }catch(e){ out.textContent = 'Error: ' + (e && e.message || e); }
+      if (!j.ok) throw new Error(j.error || 'Error');
+      LISTING = j.listing;
+      $('genMsg').className = 'msg good'; $('genMsg').textContent = 'Listo.' + (LISTING.notes ? ' Nota de Claude: ' + LISTING.notes : '');
+      renderEdit();
+    }catch(e){ $('genMsg').className = 'msg bad'; $('genMsg').textContent = 'Falló: ' + e.message; }
+    $('genBtn').disabled = false;
   }
-  function copyOut4(){
-    var t = document.getElementById('out4').textContent || '';
-    navigator.clipboard.writeText(t).then(function(){ alert('Copiado. Pegámelo en el chat.'); });
+
+  /* ---------- paso 4: editar ---------- */
+  function countTitle(){
+    var n = $('fTitle').value.length; $('cTitle').textContent = n + ' / 140'; $('cTitle').className = 'cnt' + (n > 140 ? ' bad' : '');
   }
+  function renderEdit(){
+    show('editCard'); show('pubCard');
+    $('fTitle').value = LISTING.title || ''; countTitle();
+    var tags = (LISTING.tags || []).slice(0, 13); while (tags.length < 13) tags.push('');
+    $('tagBox').innerHTML = tags.map(function(t, i){ return '<div class="tagrow"><input type="text" class="tagIn" value="' + esc(t) + '" oninput="checkTags()"><span class="cnt" id="tc' + i + '"></span></div>'; }).join('');
+    checkTags();
+    $('fDesc').value = LISTING.description || '';
+    $('matChips').innerHTML = P.materialsDefault.map(function(m){ return '<label class="chip"><input type="checkbox" class="matIn" value="' + esc(m) + '" checked>' + esc(m) + '</label>'; }).join('');
+    renderEtsyRooms(); renderAttrs(); renderSections(); renderVariants();
+  }
+  function checkTags(){
+    var ins = document.querySelectorAll('.tagIn'), seen = {}, dup = 0, long = 0;
+    ins.forEach(function(inp, i){
+      var v = inp.value.trim(), k = norm(v), c = $('tc' + i);
+      c.textContent = v.length; c.className = 'cnt' + (v.length > 20 ? ' bad' : '');
+      if (v.length > 20) long++;
+      if (k){ if (seen[k]) dup++; seen[k] = 1; }
+    });
+    var filled = Array.prototype.filter.call(ins, function(i){ return i.value.trim(); }).length;
+    $('tagMsg').className = 'msg ' + ((dup || long || filled < 13) ? 'bad' : 'good');
+    $('tagMsg').textContent = filled + ' / 13 tags' + (dup ? ' · hay tags repetidos' : '') + (long ? ' · hay tags de más de 20 caracteres' : '');
+  }
+  function findProp(rx){ return META && META.properties.filter(function(p){ return rx.test(p.name) || rx.test(p.display || ''); })[0]; }
+  function etsyRoomNames(){
+    var out = []; ROOMS_SEL.forEach(function(r){ (P.roomToEtsyRoom[r] || []).forEach(function(n){ if (out.indexOf(n) < 0) out.push(n); }); });
+    return out.slice(0, 3);
+  }
+  function renderEtsyRooms(){
+    var names = etsyRoomNames();
+    $('etsyRooms').textContent = names.length ? names.join(' · ') + ' (según el room; se mandan como atributo Room)' : 'Sin room elegido';
+  }
+  function matchVal(prop, name){
+    var n = norm(name);
+    return prop.values.filter(function(v){ return norm(v.name) === n; })[0] || prop.values.filter(function(v){ return norm(v.name).indexOf(n) >= 0 || n.indexOf(norm(v.name)) >= 0; })[0];
+  }
+  function renderAttrs(){
+    var attrs = LISTING.attributes || {}, notes = [];
+    var chosen = {}; // property id -> [value names]
+    // Claude's picks
+    Object.keys(attrs).forEach(function(name){
+      var prop = findProp(new RegExp('^' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i'));
+      if (!prop){ notes.push('"' + name + '" no existe en Etsy'); return; }
+      (attrs[name] || []).forEach(function(v){ var m = matchVal(prop, v); if (m) (chosen[prop.id] = chosen[prop.id] || []).push(m.name); else notes.push('"' + v + '" no está en las opciones de ' + name); });
+    });
+    // fixed + room rules
+    var framing = findProp(/^framing$/i); if (framing){ var m = matchVal(framing, 'Framed'); if (m) chosen[framing.id] = [m.name]; }
+    var pieces = findProp(/pieces/i); if (pieces){ var m2 = matchVal(pieces, '3'); if (m2) chosen[pieces.id] = [m2.name]; else notes.push('Number of pieces: no encontré la opción 3'); }
+    var roomP = findProp(/^room$/i);
+    if (roomP){ chosen[roomP.id] = []; etsyRoomNames().forEach(function(n){ var m3 = matchVal(roomP, n); if (m3) chosen[roomP.id].push(m3.name); else notes.push('Room "' + n + '" no está en las opciones de Etsy'); }); }
+    var html = '';
+    (META ? META.properties : []).forEach(function(p){
+      if (!p.values.length || /material/i.test(p.name)) return;
+      var cur = chosen[p.id] || [];
+      html += '<div class="field"><label>' + esc(p.display || p.name) + (p.multi ? ' (varios)' : '') + '</label><select class="attrSel" data-pid="' + p.id + '" data-name="' + esc(p.name) + '" ' + (p.multi ? 'multiple size="4"' : '') + '>' + (p.multi ? '' : '<option value=""></option>') +
+        p.values.map(function(v){ return '<option value="' + v.id + '" ' + (cur.indexOf(v.name) >= 0 ? 'selected' : '') + '>' + esc(v.name) + '</option>'; }).join('') + '</select></div>';
+    });
+    $('attrBox').innerHTML = html;
+    $('attrNote').className = 'msg ' + (notes.length ? 'bad' : '');
+    $('attrNote').textContent = notes.length ? 'Revisar: ' + notes.join(' · ') : '';
+  }
+  function renderSections(){
+    var cands = [], secs = META ? META.sections : [];
+    function add(name){ var s = secs.filter(function(x){ return norm(x.title) === norm(name); })[0]; if (s && !cands.some(function(c){ return c.id === s.id; })) cands.push(s); }
+    ROOMS_SEL.forEach(function(r){ if (P.roomToSection[r]) add(P.roomToSection[r]); });
+    STYLES.forEach(function(s){ if (P.styleToSection[s]) add(P.styleToSection[s]); });
+    SECTION_ID = cands.length === 1 ? cands[0].id : null;
+    $('secChips').innerHTML = cands.map(function(s){ return '<label class="chip"><input type="checkbox" class="secIn" value="' + s.id + '" ' + (cands.length === 1 ? 'checked' : '') + ' onchange="pickSection(this)">' + esc(s.title) + '</label>'; }).join('');
+    $('secOther').innerHTML = '<option value="">otra sección…</option>' + secs.map(function(s){ return '<option value="' + s.id + '">' + esc(s.title) + '</option>'; }).join('');
+    var noSec = ROOMS_SEL.length && ROOMS_SEL.every(function(r){ return !P.roomToSection[r]; });
+    $('secNote').textContent = cands.length > 1 ? 'Hay más de una candidata: elegí una.' : (!cands.length ? (noSec ? 'Este room no tiene sección todavía (se crea en la Tab 4). Elegí otra o dejá sin sección.' : 'Sin candidata: elegí una abajo.') : '');
+  }
+  function pickSection(el){
+    document.querySelectorAll('.secIn').forEach(function(c){ if (c !== el) c.checked = false; });
+    SECTION_ID = el.checked ? el.value : null; if (el.checked) $('secOther').value = '';
+  }
+  function pickOtherSection(){
+    var v = $('secOther').value; document.querySelectorAll('.secIn').forEach(function(c){ c.checked = false; });
+    SECTION_ID = v || null;
+  }
+  function renderVariants(){
+    $('varTable').innerHTML = '<tr><th>Frame</th><th>Size</th><th>Precio UK £</th></tr>' + P.variants.map(function(v, i){
+      return '<tr><td>' + esc(v.frame) + '</td><td>' + esc(v.size) + '</td><td><input type="number" step="0.01" class="varPrice" data-i="' + i + '" value="' + v.price + '" style="width:110px"></td></tr>';
+    }).join('');
+  }
+
+  /* ---------- paso 5: publicar ---------- */
+  async function publish(){
+    var title = $('fTitle').value.trim();
+    var tags = Array.prototype.map.call(document.querySelectorAll('.tagIn'), function(i){ return i.value.trim(); }).filter(Boolean);
+    if (!title || title.length > 140){ alert('El título está vacío o pasa de 140 caracteres.'); return; }
+    if (tags.some(function(t){ return t.length > 20; })){ alert('Hay tags de más de 20 caracteres.'); return; }
+    var uniq = {}; for (var t = 0; t < tags.length; t++){ if (uniq[norm(tags[t])]){ alert('Hay tags repetidos.'); return; } uniq[norm(tags[t])] = 1; }
+    if (tags.length < 13 && !confirm('Solo hay ' + tags.length + ' tags (se pueden 13). ¿Publicar igual?')) return;
+    var variants = P.variants.map(function(v, i){ var inp = document.querySelector('.varPrice[data-i="' + i + '"]'); return { frame: v.frame, size: v.size, price: parseFloat(inp.value) }; });
+    var attributes = [];
+    document.querySelectorAll('.attrSel').forEach(function(sel){
+      var opts = Array.prototype.filter.call(sel.options, function(o){ return o.selected && o.value; });
+      if (opts.length) attributes.push({ property_id: +sel.dataset.pid, name: sel.dataset.name, value_ids: opts.map(function(o){ return +o.value; }), values: opts.map(function(o){ return o.textContent; }) });
+    });
+    var materials = Array.prototype.map.call(document.querySelectorAll('.matIn:checked'), function(i){ return i.value; });
+    if (!confirm('¿Crear el DRAFT en Etsy con ' + variants.length + ' variantes y ' + P.images.length + ' fotos?')) return;
+    $('pubBtn').disabled = true; $('pubMsg').className = 'msg'; $('pubMsg').textContent = 'Creando draft, variaciones y atributos…';
+    try{
+      var r = await fetch('/api/etsy?action=tab1-publish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: title, tags: tags, description: $('fDesc').value, materials: materials, section_id: SECTION_ID, sku: P.sku, variants: variants, attributes: attributes }) });
+      var j = await r.json();
+      if (!j.listing_id){ throw new Error((j.error || 'No se creó el draft') + ' ' + JSON.stringify(j.steps || '')); }
+      var fails = (j.steps || []).filter(function(s){ return s.status >= 300; });
+      var msg = 'Draft creado (id ' + j.listing_id + '). ' + (fails.length ? 'Con errores en: ' + fails.map(function(f){ return f.step + ' [' + f.status + '] ' + JSON.stringify(f.error || ''); }).join(' · ') : 'Variaciones y atributos OK.');
+      var imgFails = 0;
+      for (var i = 0; i < P.images.length; i++){
+        $('pubMsg').textContent = msg + ' Subiendo foto ' + (i + 1) + ' de ' + P.images.length + '…';
+        try{
+          var ir = await fetch('/api/etsy?action=tab1-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listing_id: j.listing_id, url: P.images[i], rank: i + 1 }) });
+          var ij = await ir.json(); if (!ij.ok) imgFails++;
+        }catch(e){ imgFails++; }
+      }
+      $('pubMsg').className = 'msg ' + ((fails.length || imgFails) ? 'bad' : 'good');
+      $('pubMsg').innerHTML = esc(msg) + ' Fotos: ' + (P.images.length - imgFails) + ' de ' + P.images.length + ' subidas. <a href="https://www.etsy.com/your/shops/me/tools/listings/' + j.listing_id + '" target="_blank">Abrir el draft en Etsy</a>';
+    }catch(e){ $('pubMsg').className = 'msg bad'; $('pubMsg').textContent = 'Falló: ' + e.message; }
+    $('pubBtn').disabled = false;
+  }
+
   if (location.search.indexOf('connected=1') >= 0) { setConnected(true); }
   checkStatus();
 </script>
