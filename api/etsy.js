@@ -1,4 +1,6 @@
-// api/etsy.js — AWA ETSY backend (OAuth + API test harness)  ·  v0.9
+// api/etsy.js — AWA ETSY backend (OAuth + API test harness)  ·  v0.10
+// v0.10 (2026-10-13): FIX apify-compare seed — custom.room_type is a JSON-array string (e.g. ["Living room"]);
+//   now parsed → first room lowercased → clean seed "living room wall art" (was broken "[\"Living room\"] wall art").
 // v0.9 (2026-10-12): action=apify-compare — fetches a Shopify product by custom.sku_for_print_files and
 //   runs BOTH Etsy-keyword actors (axlymxp A5KKVgfRFWo268Ggi + astravalabs IC91ej8ZL7pBKaA5n) with a seed,
 //   returning each one's keyword count, sample and real cost (usageTotalUsd) side by side. No Etsy auth.
@@ -118,10 +120,16 @@ module.exports = async (req, res) => {
         const r = await fetch('https://' + SHOP + '/admin/api/2025-01/graphql.json', { method: 'POST', headers: { 'X-Shopify-Access-Token': STOK, 'Content-Type': 'application/json' }, body: JSON.stringify({ query: gq, variables: { q: 'metafield:custom.sku_for_print_files:' + sku } }) });
         const j = await r.json();
         const node = j && j.data && j.data.products && j.data.products.edges[0] && j.data.products.edges[0].node;
-        out.product = node ? { sku: sku, title: node.title, handle: node.handle, productType: node.productType, room: node.room && node.room.value, tags: (node.tags || []).slice(0, 15), image: node.featuredImage && node.featuredImage.url } : { note: 'no se encontró producto para ' + sku };
+        let rooms = [];
+        if (node && node.room && node.room.value) {
+          try { const a = JSON.parse(node.room.value); rooms = Array.isArray(a) ? a.map(String) : [String(a)]; }
+          catch { rooms = [String(node.room.value)]; }
+        }
+        out._rooms = rooms;
+        out.product = node ? { sku: sku, title: node.title, handle: node.handle, productType: node.productType, room: rooms.join(', '), tags: (node.tags || []).slice(0, 15), image: node.featuredImage && node.featuredImage.url } : { note: 'no se encontró producto para ' + sku };
       } else { out.product = { note: 'Shopify no configurado' }; }
 
-      const seed = q.seed || (out.product && out.product.room ? out.product.room + ' wall art' : 'japanese wall art');
+      const seed = q.seed || ((out._rooms && out._rooms.length) ? (out._rooms[0] + ' wall art').toLowerCase() : 'japanese wall art');
       out.seed = seed;
 
       async function runActor(id, input) {
