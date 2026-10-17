@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -35,6 +35,10 @@
   th, td{ border-bottom:1px solid var(--line); padding:5px 8px; text-align:left; }
   .imgs{ display:flex; flex-wrap:wrap; gap:6px; }
   .imgs img{ width:64px; height:64px; object-fit:cover; border-radius:6px; border:1px solid var(--line); }
+  .photo{ position:relative; display:inline-block; }
+  .photo input{ position:absolute; top:4px; left:4px; width:18px; height:18px; }
+  .photo img{ width:76px; height:76px; }
+  .photo.off img{ opacity:.35; }
   .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:10px 16px; }
   @media(max-width:700px){ .grid2{ grid-template-columns:1fr; } }
   .field label{ display:block; font-size:13px; font-weight:600; margin:0 0 3px; }
@@ -48,14 +52,14 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">Tab 1 · NEW PRODUCT · v0.17</p>
+  <p class="ver">Tab 1 · NEW PRODUCT · v0.19</p>
 
   <div class="card">
-    <h2>Conexión con Etsy</h2>
-    <p class="sub">Conectá tu Etsy una vez. El permiso se guarda en una cookie segura de este navegador.</p>
+    <h2>Etsy connection</h2>
+    <p class="sub">Connect your Etsy once. The permission is saved in a secure cookie in this browser.</p>
     <div class="row">
-      <span id="statusPill" class="pill off">Sin conectar</span>
-      <button id="connectBtn" onclick="location.href='/api/etsy?action=auth'">Conectar con Etsy</button>
+      <span id="statusPill" class="pill off">Not connected</span>
+      <button id="connectBtn" onclick="location.href='/api/etsy?action=auth'">Connect Etsy</button>
     </div>
   </div>
 
@@ -66,91 +70,94 @@
 
   <div id="newProductTab">
   <div class="card">
-    <h2>1 · Cargar producto</h2>
-    <p class="sub">Escribí el SKU (el de "sku for print files"). La tool trae todo de Shopify.</p>
+    <h2>1 · Load product</h2>
+    <p class="sub">Enter the SKU (the "sku for print files"). The tool pulls everything from Shopify.</p>
     <div class="row">
-      <input id="sku" type="text" placeholder="ej. LIVJPN28" style="max-width:220px">
-      <button id="loadBtn" onclick="loadProduct()">Cargar</button>
+      <input id="sku" type="text" placeholder="e.g. LIVJPN28" style="max-width:220px">
+      <button id="loadBtn" onclick="loadProduct()">Load</button>
     </div>
     <div id="loadMsg" class="msg"></div>
     <div id="prod" class="hide">
-      <h3>Producto</h3>
+      <h3>Product</h3>
       <div id="prodTitle" style="font-size:14px"></div>
       <div class="imgs" id="prodImgs" style="margin:8px 0"></div>
       <div class="grid2">
-        <div class="field"><label>Room (de la colección By Room)</label>
+        <div class="field"><label>Room (from the By Room collection)</label>
           <div id="roomSummary" style="font-size:14px"></div>
           <button type="button" class="ghost" id="roomChangeBtn" style="padding:4px 12px;font-size:13px;margin-top:4px" onclick="toggleRoomGrid()">change room</button>
           <div class="chips hide" id="roomChips" style="margin-top:6px"></div>
           <div class="fixed" id="roomFrom"></div></div>
-        <div class="field"><label>Estilo(s)</label><div class="chips" id="styleChips"></div>
-          <select id="addStyle" onchange="addStyle(this.value); this.value=''"><option value="">+ agregar otro estilo…</option></select></div>
+        <div class="field"><label>Style(s)</label><div class="chips" id="styleChips"></div>
+          <select id="addStyle" onchange="addStyle(this.value); this.value=''"><option value="">+ add another style…</option></select></div>
       </div>
-      <div class="field" style="margin-top:8px"><label>Color(es)</label><input id="colours" type="text"></div>
+      <div class="field" style="margin-top:8px"><label>Colour(s)</label><input id="colours" type="text"></div>
     </div>
   </div>
 
   <div class="card hide" id="kwCard">
     <h2>2 · Keywords (Apify)</h2>
-    <p class="sub">Cada sinónimo del estilo + "wall art". Destildá los que no sirvan (máx. 15 por corrida). El room y el color NO se buscan acá: van al SEO.</p>
+    <p class="sub">Each style synonym + "wall art". Untick the ones you don't want (max 15 per run). Room and colour aren't searched here — they go to SEO.</p>
     <div class="chips" id="seedChips"></div>
-    <div class="row" style="margin-bottom:8px"><input id="seedExtra" type="text" placeholder="agregar seed a mano, ej. calming wall art (separá con comas)" style="flex:1"><button class="ghost" onclick="addSeeds()">Agregar</button></div>
-    <div class="row"><button id="kwBtn" onclick="runKeywords()">Buscar keywords</button><span id="seedCount" class="fixed"></span></div>
+    <div class="row" style="margin-bottom:8px"><input id="seedExtra" type="text" placeholder="add a seed by hand, e.g. calming wall art (comma-separated)" style="flex:1"><button class="ghost" onclick="addSeeds()">Add</button></div>
+    <div class="row"><button id="kwBtn" onclick="runKeywords()">Search keywords</button><span id="seedCount" class="fixed"></span></div>
     <div id="kwMsg" class="msg"></div>
     <div id="kwBox" class="hide">
-      <h3>Resultado (mejores primero: equilibrio demanda/competencia) — tildá ~13-20 relevantes</h3>
+      <h3>Results (best first: demand/competition balance) — tick ~13-20 relevant ones</h3>
       <div class="scroll"><table id="kwTable"></table></div>
     </div>
   </div>
 
   <div class="card hide" id="genCard">
-    <h2>3 · Generar el listing</h2>
-    <p class="sub">Claude mira las imágenes y las keywords y arma título, 13 tags, descripción y atributos. Después lo editás todo.</p>
-    <button id="genBtn" onclick="generate()">Generar listing</button>
+    <h2>3 · Generate the listing</h2>
+    <p class="sub">Claude looks at the images and keywords and builds the title, 13 tags, description and attributes. Then you edit it all.</p>
+    <button id="genBtn" onclick="generate()">Generate listing</button>
     <div id="genMsg" class="msg"></div>
   </div>
 
   <div class="card hide" id="editCard">
-    <h2>4 · Revisar y editar</h2>
-    <div class="field"><label>Título</label><input id="fTitle" type="text" oninput="countTitle()"><div id="cTitle" class="cnt"></div></div>
+    <h2>4 · Review and edit</h2>
+    <div class="field"><label>Title</label><input id="fTitle" type="text" oninput="countTitle()"><div id="cTitle" class="cnt"></div></div>
     <h3>13 tags</h3>
     <div id="tagBox"></div>
     <div id="tagMsg" class="msg"></div>
-    <h3>Descripción</h3>
+    <h3>Description</h3>
     <textarea id="fDesc"></textarea>
-    <div class="fixed">La AI escribe solo la parte de arriba. Al publicar se agrega automático el texto fijo (detalles, marcos, envío, cuidado, personalización, links de colección y relacionados).</div>
-    <h3>Materiales (cada uno funciona como tag)</h3>
+    <div class="fixed">The AI writes only the top part. On publish the fixed text is added automatically (details, frames, shipping, care, personalisation, collection and related links).</div>
+    <h3>Material tags (each works as a tag)</h3>
     <div class="chips" id="matChips"></div>
-    <h3>Rooms de Etsy (hasta 3)</h3>
+    <h3>Photos (max 20)</h3>
+    <div id="photoNote" class="msg"></div>
+    <div class="imgs" id="photoBox"></div>
+    <h3>Etsy rooms (up to 3)</h3>
     <div class="fixed" id="etsyRooms"></div>
-    <h3>Atributos</h3>
+    <h3>Attributes</h3>
     <div class="grid2" id="attrBox"></div>
     <div id="attrNote" class="msg"></div>
     <div class="fixed" id="fixedAttrs" style="margin-top:6px"></div>
-    <h3>Shop section (elegí UNA)</h3>
+    <h3>Shop section (pick ONE)</h3>
     <div class="chips" id="secChips"></div>
-    <select id="secOther" onchange="pickOtherSection()"><option value="">otra sección…</option></select>
+    <select id="secOther" onchange="pickOtherSection()"><option value="">other section…</option></select>
     <div class="fixed" id="secNote" style="margin-top:4px"></div>
-    <h3>Precios UK por variante (£) · cantidad 25</h3>
+    <h3>UK prices per variant (£) · quantity 25</h3>
     <div class="scroll"><table id="varTable"></table></div>
-    <h3>Valores fijos</h3>
-    <div class="fixed">Automático: Who made I did · Made to order · Processing 1-3 días · Envío "A2 posters UK + EU + USA" · Devoluciones 14 días · Renovación MANUAL · Feature no · Personalización (Personalise your item, +£5, opcional) · Craft y Aspect ratio 5:7 · Fotos de Shopify (hasta 20).</div>
+    <h3>Fixed values</h3>
+    <div class="fixed">Auto: Who made I did · Made to order · Processing 1-3 days · Shipping "A2 posters UK + EU + USA" · Returns 14 days · MANUAL renewal · Feature no · Personalisation (Personalise your item, +£5, optional) · Craft and Aspect ratio 5:7 · Shopify photos (up to 20).</div>
   </div>
 
   <div class="card hide" id="pubCard">
-    <h2>5 · Publicar DRAFT en Etsy</h2>
-    <p class="sub">Crea el draft (inactivo), las variaciones con precios, los atributos y sube las fotos de Shopify.</p>
-    <button id="pubBtn" onclick="publish()">Publicar draft</button>
+    <h2>5 · Publish DRAFT to Etsy</h2>
+    <p class="sub">Creates the draft (inactive), the priced variations, the attributes, and uploads the Shopify photos.</p>
+    <button id="pubBtn" onclick="publish()">Publish draft</button>
     <div id="pubMsg" class="msg"></div>
-    <div class="reminder">⚠️ Acordate de aplicar el +16% de international pricing a mano (seleccioná los listings nuevos → +16%).</div>
-    <div class="reminder">⚠️ A mano en Etsy (la API no los deja): How it's made → <b>Made from scratch</b> · Tools → <b>Computerised tools</b> · Tariff → <b>4911.91</b> (unframed) / <b>4414.90</b> (framed) · GPSR.</div>
+    <div class="reminder">⚠️ Remember to apply the +16% international pricing by hand (select the new listings → +16%).</div>
+    <div class="reminder">⚠️ By hand on Etsy (the API doesn't allow these): How it's made → <b>Made from scratch</b> · Tools → <b>Computerised tools</b> · Tariff → <b>4911.91</b> (unframed) / <b>4414.90</b> (framed) · GPSR.</div>
   </div>
   </div><!-- /newProductTab -->
 
   <div id="sentTab" class="hide">
     <div class="card">
       <h2>Sent items</h2>
-      <p class="sub">Los drafts enviados. Se guardan en GitHub (aparecen en cualquier compu). Previsualizá o borrá si lo descartás.</p>
+      <p class="sub">Drafts you've sent. Saved in GitHub (they show on any computer). Preview or delete if you discard one.</p>
       <div id="sentList"></div>
     </div>
   </div>
@@ -163,11 +170,11 @@
   function norm(s){ return String(s||'').toLowerCase().replace(/\s+/g,' ').trim(); }
   function show(id, on){ $(id).classList[on === false ? 'add' : 'remove']('hide'); }
 
-  /* ---------- conexión ---------- */
+  /* ---------- connection ---------- */
   function setConnected(on){
     $('statusPill').className = 'pill ' + (on ? 'on' : 'off');
-    $('statusPill').textContent = on ? 'Conectado' : 'Sin conectar';
-    $('connectBtn').textContent = on ? 'Reconectar' : 'Conectar con Etsy';
+    $('statusPill').textContent = on ? 'Connected' : 'Not connected';
+    $('connectBtn').textContent = on ? 'Reconnect' : 'Connect Etsy';
     if (on && !META) loadMeta();
   }
   async function checkStatus(){
@@ -181,18 +188,18 @@
     }catch(e){}
   }
 
-  /* ---------- paso 1: producto ---------- */
+  /* ---------- step 1: product ---------- */
   async function loadProduct(){
     var sku = $('sku').value.trim(); if (!sku) return;
-    $('loadBtn').disabled = true; $('loadMsg').className = 'msg'; $('loadMsg').textContent = 'Buscando en Shopify…';
+    $('loadBtn').disabled = true; $('loadMsg').className = 'msg'; $('loadMsg').textContent = 'Searching Shopify…';
     try{
       var r = await fetch('/api/etsy?action=tab1-load&sku=' + encodeURIComponent(sku));
       var j = await r.json();
       if (!j.ok) throw new Error(j.error || 'Error');
       P = j.product; LISTING = null; KW = [];
-      $('loadMsg').className = 'msg good'; $('loadMsg').textContent = 'Producto cargado.';
+      $('loadMsg').className = 'msg good'; $('loadMsg').textContent = 'Product loaded.';
       renderProduct();
-    }catch(e){ $('loadMsg').className = 'msg bad'; $('loadMsg').textContent = 'No se pudo cargar: ' + e.message; }
+    }catch(e){ $('loadMsg').className = 'msg bad'; $('loadMsg').textContent = 'Couldn\'t load: ' + e.message; }
     $('loadBtn').disabled = false;
   }
   function renderProduct(){
@@ -201,26 +208,26 @@
     $('prodImgs').innerHTML = P.images.map(function(u){ return '<img src="' + esc(u) + '">'; }).join('');
     ROOMS_SEL = P.rooms.slice(); STYLES = P.styles.slice();
     $('roomChips').innerHTML = P.allRooms.map(function(r){ return '<label class="chip"><input type="checkbox" value="' + esc(r) + '" ' + (ROOMS_SEL.indexOf(r) >= 0 ? 'checked' : '') + ' onchange="roomChange()">' + esc(r) + '</label>'; }).join('');
-    $('roomFrom').textContent = 'Detectado desde: ' + P.roomFrom;
+    $('roomFrom').textContent = 'Detected from: ' + P.roomFrom;
     renderRoomSummary();
     $('colours').value = P.colours.join(', ');
-    var sel = $('addStyle'); sel.innerHTML = '<option value="">+ agregar otro estilo…</option>' + Object.keys(P.styleSynonyms).sort(function(a,b){ return a.localeCompare(b); }).map(function(s){ return '<option>' + esc(s) + '</option>'; }).join('');
+    var sel = $('addStyle'); sel.innerHTML = '<option value="">+ add another style…</option>' + Object.keys(P.styleSynonyms).sort(function(a,b){ return a.localeCompare(b); }).map(function(s){ return '<option>' + esc(s) + '</option>'; }).join('');
     renderStyles(); buildSeeds();
   }
   function roomChange(){ ROOMS_SEL = Array.prototype.slice.call(document.querySelectorAll('#roomChips input:checked')).map(function(i){ return i.value; }); renderRoomSummary(); }
   function renderRoomSummary(){
-    $('roomSummary').textContent = ROOMS_SEL.length ? ROOMS_SEL.join(' · ') : 'Sin room detectado — elegí uno abajo';
+    $('roomSummary').textContent = ROOMS_SEL.length ? ROOMS_SEL.join(' · ') : 'No room detected — pick one below';
     if (!ROOMS_SEL.length) $('roomChips').classList.remove('hide');          // no room -> open the grid automatically
-    $('roomChangeBtn').textContent = $('roomChips').classList.contains('hide') ? 'change room' : 'ocultar';
+    $('roomChangeBtn').textContent = $('roomChips').classList.contains('hide') ? 'change room' : 'hide';
   }
-  function toggleRoomGrid(){ $('roomChips').classList.toggle('hide'); $('roomChangeBtn').textContent = $('roomChips').classList.contains('hide') ? 'change room' : 'ocultar'; }
+  function toggleRoomGrid(){ $('roomChips').classList.toggle('hide'); $('roomChangeBtn').textContent = $('roomChips').classList.contains('hide') ? 'change room' : 'hide'; }
   function renderStyles(){
-    $('styleChips').innerHTML = STYLES.length ? STYLES.map(function(s){ return '<label class="chip"><input type="checkbox" value="' + esc(s) + '" checked onchange="styleChange()">' + esc(s) + '</label>'; }).join('') : '<span class="fixed">Ninguno detectado — agregá uno abajo.</span>';
+    $('styleChips').innerHTML = STYLES.length ? STYLES.map(function(s){ return '<label class="chip"><input type="checkbox" value="' + esc(s) + '" checked onchange="styleChange()">' + esc(s) + '</label>'; }).join('') : '<span class="fixed">None detected — add one below.</span>';
   }
   function styleChange(){ STYLES = Array.prototype.slice.call(document.querySelectorAll('#styleChips input:checked')).map(function(i){ return i.value; }); buildSeeds(); }
   function addStyle(s){ if (s && STYLES.indexOf(s) < 0){ STYLES.push(s); renderStyles(); buildSeeds(); } }
 
-  /* ---------- paso 2: keywords ---------- */
+  /* ---------- step 2: keywords ---------- */
   function buildSeeds(){
     var set = [];
     STYLES.forEach(function(s){ (P.styleSynonyms[s] || []).forEach(function(w){ var seed = w + ' wall art'; if (set.indexOf(seed) < 0) set.push(seed); }); });
@@ -231,7 +238,7 @@
   function renderSeeds(){
     $('seedChips').innerHTML = SEEDS.map(function(s, i){ return '<label class="chip"><input type="checkbox" ' + (s.on ? 'checked' : '') + ' onchange="seedTick(' + i + ', this.checked)">' + esc(s.t) + '</label>'; }).join('');
     var n = SEEDS.filter(function(s){ return s.on; }).length;
-    $('seedCount').textContent = n + ' seeds tildados' + (n > 15 ? ' — máximo 15, destildá ' + (n - 15) : '');
+    $('seedCount').textContent = n + ' seeds ticked' + (n > 15 ? ' — max 15, untick ' + (n - 15) : '');
     $('seedCount').className = n > 15 ? 'fixed bad' : 'fixed';
     $('kwBtn').disabled = n < 1 || n > 15;
   }
@@ -242,7 +249,7 @@
   }
   async function runKeywords(){
     var seeds = SEEDS.filter(function(s){ return s.on; }).map(function(s){ return s.t; });
-    $('kwBtn').disabled = true; $('kwMsg').className = 'msg'; $('kwMsg').textContent = 'Buscando en Etsy vía Apify… puede tardar 1-3 minutos.';
+    $('kwBtn').disabled = true; $('kwMsg').className = 'msg'; $('kwMsg').textContent = 'Searching Etsy via Apify… this can take 1-3 minutes.';
     try{
       var r = await fetch('/api/etsy?action=tab1-keywords&seeds=' + encodeURIComponent(seeds.join(',')) + '&t=' + Date.now());
       var j = await r.json();
@@ -250,39 +257,39 @@
       KW = j.keywords;
       $('kwMsg').className = 'msg good'; $('kwMsg').textContent = KW.length + ' keywords (' + j.took_s + 's).';
       renderKw();
-    }catch(e){ $('kwMsg').className = 'msg bad'; $('kwMsg').textContent = 'Falló: ' + e.message; }
+    }catch(e){ $('kwMsg').className = 'msg bad'; $('kwMsg').textContent = 'Failed: ' + e.message; }
     $('kwBtn').disabled = false;
   }
   function renderKw(){
     show('kwBox');
-    $('kwTable').innerHTML = '<tr><th></th><th>keyword</th><th>competencia</th><th>listings</th><th>precio med.</th></tr>' + KW.map(function(k, i){
+    $('kwTable').innerHTML = '<tr><th></th><th>keyword</th><th>competition</th><th>listings</th><th>avg price</th></tr>' + KW.map(function(k, i){
       return '<tr><td><input type="checkbox" class="kwTick" data-i="' + i + '" ' + (i < 40 ? 'checked' : '') + '></td><td>' + esc(k.keyword) + '</td><td>' + esc(k.level || '') + '</td><td>' + esc(k.competing == null ? '' : k.competing) + '</td><td>' + esc(k.median == null ? '' : '£' + k.median) + '</td></tr>';
     }).join('');
   }
 
-  /* ---------- paso 3: generar ---------- */
+  /* ---------- step 3: generate ---------- */
   var OPT_RX = [/style/i, /subject/i, /occasion/i, /holiday/i, /orientation/i, /primary.*colo/i, /secondary.*colo/i, /frame.*colo/i, /mat.*included/i];
   function relevantProps(){
     return (META ? META.properties : []).filter(function(p){ return p.values.length && OPT_RX.some(function(rx){ return rx.test(p.name) || rx.test(p.display || ''); }); });
   }
   async function generate(){
-    if (!META){ $('genMsg').className = 'msg bad'; $('genMsg').textContent = 'Primero conectá Etsy (arriba) para traer los atributos.'; return; }
+    if (!META){ $('genMsg').className = 'msg bad'; $('genMsg').textContent = 'Connect Etsy first (above) to load the attributes.'; return; }
     var ticked = Array.prototype.slice.call(document.querySelectorAll('.kwTick:checked')).map(function(c){ return KW[+c.dataset.i]; });
     var options = {}; relevantProps().forEach(function(p){ options[p.name] = p.values.map(function(v){ return v.name; }); });
     P.colours = $('colours').value.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
-    $('genBtn').disabled = true; $('genMsg').className = 'msg'; $('genMsg').textContent = 'Claude está mirando las imágenes y escribiendo… (~30-60 s)';
+    $('genBtn').disabled = true; $('genMsg').className = 'msg'; $('genMsg').textContent = 'Claude is looking at the images and writing… (~30-60s)';
     try{
       var r = await fetch('/api/etsy?action=tab1-generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ product: P, rooms: ROOMS_SEL, styles: STYLES, keywords: ticked, options: options }) });
       var j = await r.json();
       if (!j.ok) throw new Error(j.error || 'Error');
       LISTING = j.listing;
-      $('genMsg').className = 'msg good'; $('genMsg').textContent = 'Listo.' + (LISTING.notes ? ' Nota de Claude: ' + LISTING.notes : '');
+      $('genMsg').className = 'msg good'; $('genMsg').textContent = 'Done.' + (LISTING.notes ? ' Claude\'s note: ' + LISTING.notes : '');
       renderEdit();
-    }catch(e){ $('genMsg').className = 'msg bad'; $('genMsg').textContent = 'Falló: ' + e.message; }
+    }catch(e){ $('genMsg').className = 'msg bad'; $('genMsg').textContent = 'Failed: ' + e.message; }
     $('genBtn').disabled = false;
   }
 
-  /* ---------- paso 4: editar ---------- */
+  /* ---------- step 4: edit ---------- */
   function countTitle(){
     var n = $('fTitle').value.length; $('cTitle').textContent = n + ' / 140'; $('cTitle').className = 'cnt' + (n > 140 ? ' bad' : '');
   }
@@ -294,7 +301,7 @@
     checkTags();
     $('fDesc').value = LISTING.description || '';
     $('matChips').innerHTML = P.materialsDefault.map(function(m){ return '<label class="chip"><input type="checkbox" class="matIn" value="' + esc(m) + '" checked>' + esc(m) + '</label>'; }).join('');
-    renderEtsyRooms(); renderAttrs(); renderSections(); renderVariants();
+    renderPhotos(); renderEtsyRooms(); renderAttrs(); renderSections(); renderVariants();
   }
   function checkTags(){
     var ins = document.querySelectorAll('.tagIn'), seen = {}, dup = 0, long = 0;
@@ -306,8 +313,33 @@
     });
     var filled = Array.prototype.filter.call(ins, function(i){ return i.value.trim(); }).length;
     $('tagMsg').className = 'msg ' + ((dup || long || filled < 13) ? 'bad' : 'good');
-    $('tagMsg').textContent = filled + ' / 13 tags' + (dup ? ' · hay tags repetidos' : '') + (long ? ' · hay tags de más de 20 caracteres' : '');
+    $('tagMsg').textContent = filled + ' / 13 tags' + (dup ? ' · duplicate tags' : '') + (long ? ' · tags over 20 characters' : '');
   }
+  /* ---------- photos: pick which ones to send, max 20 ---------- */
+  function renderPhotos(){
+    var imgs = P.images || [];
+    $('photoBox').innerHTML = imgs.map(function(u, i){
+      return '<label class="photo" id="ph' + i + '"><input type="checkbox" class="photoChk" data-i="' + i + '" ' + (i < 20 ? 'checked' : '') + ' onchange="checkPhotos()"><img src="' + esc(u) + '"></label>';
+    }).join('');
+    checkPhotos();
+  }
+  function checkPhotos(){
+    var chks = document.querySelectorAll('.photoChk');
+    var selected = Array.prototype.filter.call(chks, function(c){ return c.checked; }).length;
+    var total = chks.length;
+    Array.prototype.forEach.call(chks, function(c){
+      c.disabled = (!c.checked && selected >= 20);                 // block picking more than 20
+      var lbl = $('ph' + c.dataset.i); if (lbl) lbl.className = 'photo' + (c.checked ? '' : ' off');
+    });
+    var note = $('photoNote');
+    if (total > 20){
+      note.className = 'msg ' + (selected === 20 ? 'good' : 'bad');
+      note.textContent = total + ' photos — Etsy allows max 20. ' + selected + ' selected' + (selected > 20 ? ' · untick ' + (selected - 20) : (selected < 20 ? ' · you can pick ' + (20 - selected) + ' more' : ' · ready')) + '. Only the ticked photos are sent.';
+    } else {
+      note.className = 'msg'; note.textContent = total + ' photos — all will be sent.';
+    }
+  }
+  function selectedImages(){ return Array.prototype.filter.call(document.querySelectorAll('.photoChk'), function(c){ return c.checked; }).map(function(c){ return P.images[+c.dataset.i]; }); }
   function findProp(rx){ return META && META.properties.filter(function(p){ return rx.test(p.name) || rx.test(p.display || ''); })[0]; }
   function etsyRoomNames(){
     var out = []; ROOMS_SEL.forEach(function(r){ (P.roomToEtsyRoom[r] || []).forEach(function(n){ if (out.indexOf(n) < 0) out.push(n); }); });
@@ -315,7 +347,7 @@
   }
   function renderEtsyRooms(){
     var names = etsyRoomNames();
-    $('etsyRooms').textContent = names.length ? names.join(' · ') + ' (según el room; se mandan como atributo Room)' : 'Sin room elegido';
+    $('etsyRooms').textContent = names.length ? names.join(' · ') + ' (from the room; sent as the Room attribute)' : 'No room selected';
   }
   function matchVal(prop, name){
     var n = norm(name);
@@ -328,13 +360,13 @@
     var chosen = {}; // property id -> [value names]
     Object.keys(attrs).forEach(function(name){
       var prop = findProp(new RegExp('^' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i'));
-      if (!prop){ ATTR_NOTES.push('"' + name + '" no existe en Etsy'); return; }
-      (attrs[name] || []).forEach(function(v){ var m = matchVal(prop, v); if (m) (chosen[prop.id] = chosen[prop.id] || []).push(m.name); else ATTR_NOTES.push('"' + v + '" no está en las opciones de ' + name); });
+      if (!prop){ ATTR_NOTES.push('"' + name + '" doesn\'t exist on Etsy'); return; }
+      (attrs[name] || []).forEach(function(v){ var m = matchVal(prop, v); if (m) (chosen[prop.id] = chosen[prop.id] || []).push(m.name); else ATTR_NOTES.push('"' + v + '" isn\'t in the options for ' + name); });
     });
     var framing = findProp(/^framing$/i); if (framing){ var m = matchVal(framing, 'Framed'); if (m) chosen[framing.id] = [m.name]; }
-    var pieces = findProp(/pieces/i); if (pieces){ var m2 = matchVal(pieces, '3'); if (m2) chosen[pieces.id] = [m2.name]; else ATTR_NOTES.push('Number of pieces: no encontré la opción 3'); }
+    var pieces = findProp(/pieces/i); if (pieces){ var m2 = matchVal(pieces, '3'); if (m2) chosen[pieces.id] = [m2.name]; else ATTR_NOTES.push('Number of pieces: couldn\'t find option 3'); }
     var roomP = findProp(/^room$/i);
-    if (roomP){ chosen[roomP.id] = []; etsyRoomNames().forEach(function(n){ var m3 = matchVal(roomP, n); if (m3) chosen[roomP.id].push(m3.name); else ATTR_NOTES.push('Room "' + n + '" no está en las opciones de Etsy'); }); }
+    if (roomP){ chosen[roomP.id] = []; etsyRoomNames().forEach(function(n){ var m3 = matchVal(roomP, n); if (m3) chosen[roomP.id].push(m3.name); else ATTR_NOTES.push('Room "' + n + '" isn\'t in Etsy\'s options'); }); }
     // #16 Can be personalized -> default Yes
     var persoP = findProp(/can be personali/i) || findProp(/personali/i);
     if (persoP && !(chosen[persoP.id] && chosen[persoP.id].length)){ var my = matchVal(persoP, 'Yes'); if (my) chosen[persoP.id] = [my.name]; }
@@ -344,6 +376,9 @@
     if (craftP){ var cids = [], cnames = []; ['Drawing & drafting','Framing','Printing & printmaking'].forEach(function(cv){ var mc = matchVal(craftP, cv); if (mc){ cids.push(mc.id); cnames.push(mc.name); } }); if (cids.length) FIXED_ATTRS.push({ property_id: craftP.id, name: 'Craft', value_ids: cids, values: cnames }); }
     var aspectP = findProp(/aspect ratio/i);
     if (aspectP){ var m57 = matchVal(aspectP, '5:7'); if (m57) FIXED_ATTRS.push({ property_id: aspectP.id, name: 'Aspect ratio', value_ids: [m57.id], values: [m57.name] }); }
+    // structured "Materials" attribute (field 2, separate from the free-text Material tags): Acrylic (perspex), Paper, Wood (MDF).
+    var matP = findProp(/^materials?$/i);
+    if (matP){ var mids = [], mnames = []; ['Acrylic','Paper','Wood'].forEach(function(mv){ var mm = matchVal(matP, mv); if (mm){ mids.push(mm.id); mnames.push(mm.name); } }); if (mids.length) FIXED_ATTRS.push({ property_id: matP.id, name: 'Materials', value_ids: mids, values: mnames }); }
     // seed the pill state from the chosen names
     ATTR_SEL = {};
     (META ? META.properties : []).forEach(function(p){
@@ -361,15 +396,15 @@
       var sel = ATTR_SEL[p.id] || [], selIds = sel.map(function(s){ return String(s.id); });
       var pills = sel.map(function(s){ return '<span class="chip">' + esc(s.name) + ' <span style="cursor:pointer;font-weight:700" onclick="removeAttr(\'' + p.id + '\',\'' + s.id + '\')">×</span></span>'; }).join('');
       var canAdd = p.multi || sel.length === 0;
-      var opts = '<option value="">+ agregar…</option>' + p.values.filter(function(v){ return selIds.indexOf(String(v.id)) < 0; }).map(function(v){ return '<option value="' + v.id + '">' + esc(v.name) + '</option>'; }).join('');
-      html += '<div class="field"><label>' + esc(p.display || p.name) + (p.multi ? ' (varios)' : '') + '</label>' +
+      var opts = '<option value="">+ add…</option>' + p.values.filter(function(v){ return selIds.indexOf(String(v.id)) < 0; }).map(function(v){ return '<option value="' + v.id + '">' + esc(v.name) + '</option>'; }).join('');
+      html += '<div class="field"><label>' + esc(p.display || p.name) + (p.multi ? ' (multiple)' : '') + '</label>' +
         '<div class="chips">' + (pills || '<span class="fixed">—</span>') + '</div>' +
-        (canAdd ? '<select onchange="addAttr(\'' + p.id + '\', this.value); this.value=\'\'">' + opts + '</select>' : '<span class="fixed">sacá el actual para elegir otro</span>') + '</div>';
+        (canAdd ? '<select onchange="addAttr(\'' + p.id + '\', this.value); this.value=\'\'">' + opts + '</select>' : '<span class="fixed">remove the current one to pick another</span>') + '</div>';
     });
     $('attrBox').innerHTML = html;
     $('attrNote').className = 'msg ' + (ATTR_NOTES.length ? 'bad' : '');
-    $('attrNote').textContent = ATTR_NOTES.length ? 'Revisar: ' + ATTR_NOTES.join(' · ') : '';
-    $('fixedAttrs').textContent = 'Automáticos: ' + (FIXED_ATTRS.length ? FIXED_ATTRS.map(function(a){ return a.name + ' = ' + a.values.join(', '); }).join(' · ') : '(Craft / Aspect ratio no encontrados)');
+    $('attrNote').textContent = ATTR_NOTES.length ? 'Check: ' + ATTR_NOTES.join(' · ') : '';
+    $('fixedAttrs').textContent = 'Auto-sent: ' + (FIXED_ATTRS.length ? FIXED_ATTRS.map(function(a){ return a.name + ' = ' + a.values.join(', '); }).join(' · ') : '(Craft / Aspect ratio not found)');
   }
   function addAttr(pid, vid){ if (!vid) return; var p = propById(pid); if (!p) return; var v = p.values.filter(function(x){ return String(x.id) === String(vid); })[0]; if (!v) return; var sel = ATTR_SEL[pid] || (ATTR_SEL[pid] = []); if (!p.multi) ATTR_SEL[pid] = [{ id: v.id, name: v.name }]; else if (!sel.some(function(s){ return String(s.id) === String(v.id); })) sel.push({ id: v.id, name: v.name }); renderAttrBody(); }
   function removeAttr(pid, vid){ ATTR_SEL[pid] = (ATTR_SEL[pid] || []).filter(function(s){ return String(s.id) !== String(vid); }); renderAttrBody(); }
@@ -380,9 +415,9 @@
     STYLES.forEach(function(s){ if (P.styleToSection[s]) add(P.styleToSection[s]); });
     SECTION_ID = cands.length === 1 ? cands[0].id : null;
     $('secChips').innerHTML = cands.map(function(s){ return '<label class="chip"><input type="checkbox" class="secIn" value="' + s.id + '" ' + (cands.length === 1 ? 'checked' : '') + ' onchange="pickSection(this)">' + esc(s.title) + '</label>'; }).join('');
-    $('secOther').innerHTML = '<option value="">otra sección…</option>' + secs.map(function(s){ return '<option value="' + s.id + '">' + esc(s.title) + '</option>'; }).join('');
+    $('secOther').innerHTML = '<option value="">other section…</option>' + secs.map(function(s){ return '<option value="' + s.id + '">' + esc(s.title) + '</option>'; }).join('');
     var noSec = ROOMS_SEL.length && ROOMS_SEL.every(function(r){ return !P.roomToSection[r]; });
-    $('secNote').textContent = cands.length > 1 ? 'Hay más de una candidata: elegí una.' : (!cands.length ? (noSec ? 'Este room no tiene sección todavía (se crea en la Tab 4). Elegí otra o dejá sin sección.' : 'Sin candidata: elegí una abajo.') : '');
+    $('secNote').textContent = cands.length > 1 ? 'More than one candidate: pick one.' : (!cands.length ? (noSec ? 'This room has no section yet (created in Tab 4). Pick another or leave it with no section.' : 'No candidate: pick one below.') : '');
   }
   function pickSection(el){
     document.querySelectorAll('.secIn').forEach(function(c){ if (c !== el) c.checked = false; });
@@ -393,19 +428,21 @@
     SECTION_ID = v || null;
   }
   function renderVariants(){
-    $('varTable').innerHTML = '<tr><th>Frame</th><th>Size</th><th>Precio UK £</th></tr>' + P.variants.map(function(v, i){
+    $('varTable').innerHTML = '<tr><th>Frame</th><th>Size</th><th>UK price £</th></tr>' + P.variants.map(function(v, i){
       return '<tr><td>' + esc(v.frame) + '</td><td>' + esc(v.size) + '</td><td><input type="number" step="0.01" class="varPrice" data-i="' + i + '" value="' + v.price + '" style="width:110px"></td></tr>';
     }).join('');
   }
 
-  /* ---------- paso 5: publicar ---------- */
+  /* ---------- step 5: publish ---------- */
   async function publish(){
     var title = $('fTitle').value.trim();
     // Force each tag to <=20 chars (cut at a word boundary) + drop empties/duplicates — never block the publish.
     function clampTag(s){ var t = String(s||'').replace(/\s+/g,' ').trim(); if (t.length <= 20) return t; var cut = t.slice(0,20); var sp = cut.lastIndexOf(' '); return (sp >= 10 ? cut.slice(0,sp) : cut).trim(); }
     var tags = [];
     Array.prototype.forEach.call(document.querySelectorAll('.tagIn'), function(i){ var c = clampTag(i.value); if (c && !tags.some(function(x){ return norm(x) === norm(c); })) tags.push(c); });
-    if (!title || title.length > 140){ alert('El título está vacío o pasa de 140 caracteres.'); return; }
+    if (!title || title.length > 140){ alert('The title is empty or over 140 characters.'); return; }
+    var images = selectedImages();
+    if (images.length > 20){ alert('More than 20 photos selected — untick down to 20.'); return; }
     var variants = P.variants.map(function(v, i){ var inp = document.querySelector('.varPrice[data-i="' + i + '"]'); return { frame: v.frame, size: v.size, price: parseFloat(inp.value) }; });
     var attributes = [];
     Object.keys(ATTR_SEL).forEach(function(pid){
@@ -413,30 +450,30 @@
       var p = propById(pid);
       attributes.push({ property_id: +pid, name: p ? p.name : pid, value_ids: sel.map(function(s){ return +s.id; }), values: sel.map(function(s){ return s.name; }) });
     });
-    attributes = attributes.concat(FIXED_ATTRS); // #6 Craft + #7 Aspect ratio 5:7 (automáticos)
+    attributes = attributes.concat(FIXED_ATTRS); // #6 Craft + #7 Aspect ratio 5:7 (auto)
     var materials = Array.prototype.map.call(document.querySelectorAll('.matIn:checked'), function(i){ return i.value; });
     var secTitle = ''; if (SECTION_ID && META){ var sfound = (META.sections || []).filter(function(x){ return String(x.id) === String(SECTION_ID); })[0]; if (sfound) secTitle = sfound.title; }
-    $('pubBtn').disabled = true; $('pubMsg').className = 'msg'; $('pubMsg').textContent = 'Creando draft, variaciones y atributos…';
+    $('pubBtn').disabled = true; $('pubMsg').className = 'msg'; $('pubMsg').textContent = 'Creating draft, variations and attributes…';
     try{
       var r = await fetch('/api/etsy?action=tab1-publish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: title, tags: tags, description: $('fDesc').value, materials: materials, section_id: SECTION_ID, section_title: secTitle, sku: P.sku, variants: variants, attributes: attributes }) });
       var j = await r.json();
-      if (!j.listing_id){ throw new Error((j.error || 'No se creó el draft') + ' ' + JSON.stringify(j.steps || '')); }
+      if (!j.listing_id){ throw new Error((j.error || 'Draft wasn\'t created') + ' ' + JSON.stringify(j.steps || '')); }
       var fails = (j.steps || []).filter(function(s){ return s.status >= 300; });
-      var msg = 'Draft creado (id ' + j.listing_id + '). ' + (fails.length ? 'Con errores en: ' + fails.map(function(f){ return f.step + ' [' + f.status + '] ' + JSON.stringify(f.error || ''); }).join(' · ') : 'Variaciones y atributos OK.');
+      var msg = 'Draft created (id ' + j.listing_id + '). ' + (fails.length ? 'With errors in: ' + fails.map(function(f){ return f.step + ' [' + f.status + '] ' + JSON.stringify(f.error || ''); }).join(' · ') : 'Variations and attributes OK.');
       var imgFails = 0;
-      for (var i = 0; i < P.images.length; i++){
-        $('pubMsg').textContent = msg + ' Subiendo foto ' + (i + 1) + ' de ' + P.images.length + '…';
+      for (var i = 0; i < images.length; i++){
+        $('pubMsg').textContent = msg + ' Uploading photo ' + (i + 1) + ' of ' + images.length + '…';
         try{
-          var ir = await fetch('/api/etsy?action=tab1-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listing_id: j.listing_id, url: P.images[i], rank: i + 1 }) });
+          var ir = await fetch('/api/etsy?action=tab1-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listing_id: j.listing_id, url: images[i], rank: i + 1 }) });
           var ij = await ir.json(); if (!ij.ok) imgFails++;
         }catch(e){ imgFails++; }
       }
       $('pubMsg').className = 'msg ' + ((fails.length || imgFails) ? 'bad' : 'good');
-      $('pubMsg').innerHTML = esc(msg) + ' Fotos: ' + (P.images.length - imgFails) + ' de ' + P.images.length + ' subidas. <a href="https://www.etsy.com/your/shops/me/tools/listings/' + j.listing_id + '" target="_blank">Abrir el draft en Etsy</a>';
+      $('pubMsg').innerHTML = esc(msg) + ' Photos: ' + (images.length - imgFails) + ' of ' + images.length + ' uploaded. <a href="https://www.etsy.com/your/shops/me/tools/listings/' + j.listing_id + '" target="_blank">Open the draft in Etsy</a>';
       // #14: record in Sent items (GitHub); if the send was clean, reset the window for the next product.
-      try{ await fetch('/api/etsy?action=tab1-sent-add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listing_id: j.listing_id, sku: P.sku, title: $('fTitle').value, section: secTitle, image: (P.images && P.images[0]) || '' }) }); }catch(e){}
-      if (!fails.length && !imgFails){ resetForNext(); $('loadMsg').className = 'msg good'; $('loadMsg').textContent = '✓ Enviado a Etsy y guardado en Sent items. Listo para el próximo producto.'; }
-    }catch(e){ $('pubMsg').className = 'msg bad'; $('pubMsg').textContent = 'Falló: ' + e.message; }
+      try{ await fetch('/api/etsy?action=tab1-sent-add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listing_id: j.listing_id, sku: P.sku, title: $('fTitle').value, section: secTitle, image: images[0] || '' }) }); }catch(e){}
+      if (!fails.length && !imgFails){ resetForNext(); $('loadMsg').className = 'msg good'; $('loadMsg').textContent = '✓ Sent to Etsy and saved in Sent items. Ready for the next product.'; }
+    }catch(e){ $('pubMsg').className = 'msg bad'; $('pubMsg').textContent = 'Failed: ' + e.message; }
     $('pubBtn').disabled = false;
   }
 
@@ -455,7 +492,7 @@
   }
   function renderSent(){
     $('sentCount').textContent = SENT.length ? '(' + SENT.length + ')' : '';
-    if (!SENT.length){ $('sentList').innerHTML = '<p class="fixed">Todavía no enviaste ninguno.</p>'; return; }
+    if (!SENT.length){ $('sentList').innerHTML = '<p class="fixed">You haven\'t sent any yet.</p>'; return; }
     $('sentList').innerHTML = SENT.map(function(it){
       var d = it.ts ? new Date(it.ts).toLocaleDateString() : '';
       var open = !!SENT_OPEN[it.listing_id];
@@ -464,21 +501,21 @@
         '<span style="font-weight:700">' + (open ? '▾' : '▸') + '</span> <b>' + esc(it.sku || '') + '</b> <span class="fixed">' + esc(it.section || '') + (d ? ' · ' + d : '') + '</span></div>';
       // expanded: featured image preview + full title + actions
       var body = !open ? '' : ('<div style="margin-top:8px"><div class="fixed" style="margin-bottom:6px">' + esc(it.title || '') + '</div>' +
-        (it.image ? '<img src="' + esc(it.image) + '" style="width:120px;height:120px;object-fit:cover;border-radius:8px;border:1px solid var(--line)">' : '<span class="fixed">(sin preview — enviado antes de esta versión)</span>') +
-        '<div class="row" style="margin-top:8px"><a href="https://www.etsy.com/your/shops/me/tools/listings/' + esc(it.listing_id) + '" target="_blank"><button class="ghost" type="button">Abrir en Etsy</button></a>' +
-        '<button type="button" onclick="deleteSent(\'' + esc(it.listing_id) + '\', this)">Borrar</button></div></div>');
+        (it.image ? '<img src="' + esc(it.image) + '" style="width:120px;height:120px;object-fit:cover;border-radius:8px;border:1px solid var(--line)">' : '<span class="fixed">(no preview — sent before this version)</span>') +
+        '<div class="row" style="margin-top:8px"><a href="https://www.etsy.com/your/shops/me/tools/listings/' + esc(it.listing_id) + '" target="_blank"><button class="ghost" type="button">Open in Etsy</button></a>' +
+        '<button type="button" onclick="deleteSent(\'' + esc(it.listing_id) + '\', this)">Delete</button></div></div>');
       return '<div class="card" style="padding:10px 12px;margin:0 0 8px">' + head + body + '</div>';
     }).join('');
   }
   async function deleteSent(id, btn){
-    if (!confirm('¿Borrar este draft de Etsy? No se puede deshacer.')) return;   // destructive: one confirm is intentional
-    btn.disabled = true; btn.textContent = 'Borrando…';
+    if (!confirm('Delete this draft from Etsy? This can\'t be undone.')) return;   // destructive: one confirm is intentional
+    btn.disabled = true; btn.textContent = 'Deleting…';
     try{
       var r = await fetch('/api/etsy?action=tab1-sent-delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listing_id: id }) });
       var j = await r.json();
       if (j.ok){ SENT = j.items || SENT.filter(function(x){ return String(x.listing_id) !== String(id); }); renderSent(); }
-      else { btn.disabled = false; btn.textContent = 'Borrar'; alert('No se pudo borrar: ' + (j.error ? JSON.stringify(j.error) : j.status)); }
-    }catch(e){ btn.disabled = false; btn.textContent = 'Borrar'; alert('Falló: ' + e.message); }
+      else { btn.disabled = false; btn.textContent = 'Delete'; alert('Couldn\'t delete: ' + (j.error ? JSON.stringify(j.error) : j.status)); }
+    }catch(e){ btn.disabled = false; btn.textContent = 'Delete'; alert('Failed: ' + e.message); }
   }
   function resetForNext(){
     P = null; LISTING = null; KW = []; SEEDS = []; STYLES = []; ROOMS_SEL = []; SECTION_ID = null; FIXED_ATTRS = []; ATTR_SEL = {};
