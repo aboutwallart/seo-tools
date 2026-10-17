@@ -48,7 +48,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">Tab 1 · NEW PRODUCT · v0.13</p>
+  <p class="ver">Tab 1 · NEW PRODUCT · v0.14</p>
 
   <div class="card">
     <h2>Conexión con Etsy</h2>
@@ -72,7 +72,11 @@
       <div id="prodTitle" style="font-size:14px"></div>
       <div class="imgs" id="prodImgs" style="margin:8px 0"></div>
       <div class="grid2">
-        <div class="field"><label>Room (de la colección By Room)</label><div class="chips" id="roomChips"></div><div class="fixed" id="roomFrom"></div></div>
+        <div class="field"><label>Room (de la colección By Room)</label>
+          <div id="roomSummary" style="font-size:14px"></div>
+          <button type="button" class="ghost" id="roomChangeBtn" style="padding:4px 12px;font-size:13px;margin-top:4px" onclick="toggleRoomGrid()">change room</button>
+          <div class="chips hide" id="roomChips" style="margin-top:6px"></div>
+          <div class="fixed" id="roomFrom"></div></div>
         <div class="field"><label>Estilo(s)</label><div class="chips" id="styleChips"></div>
           <select id="addStyle" onchange="addStyle(this.value); this.value=''"><option value="">+ agregar otro estilo…</option></select></div>
       </div>
@@ -88,7 +92,7 @@
     <div class="row"><button id="kwBtn" onclick="runKeywords()">Buscar keywords</button><span id="seedCount" class="fixed"></span></div>
     <div id="kwMsg" class="msg"></div>
     <div id="kwBox" class="hide">
-      <h3>Resultado (de menor a mayor competencia) — tildá las que se usan</h3>
+      <h3>Resultado (mejores primero: equilibrio demanda/competencia) — tildá ~13-20 relevantes</h3>
       <div class="scroll"><table id="kwTable"></table></div>
     </div>
   </div>
@@ -108,6 +112,7 @@
     <div id="tagMsg" class="msg"></div>
     <h3>Descripción</h3>
     <textarea id="fDesc"></textarea>
+    <div class="fixed">La AI escribe solo la parte de arriba. Al publicar se agrega automático el texto fijo (detalles, marcos, envío, cuidado, personalización, links de colección y relacionados).</div>
     <h3>Materiales (cada uno funciona como tag)</h3>
     <div class="chips" id="matChips"></div>
     <h3>Rooms de Etsy (hasta 3)</h3>
@@ -115,6 +120,7 @@
     <h3>Atributos</h3>
     <div class="grid2" id="attrBox"></div>
     <div id="attrNote" class="msg"></div>
+    <div class="fixed" id="fixedAttrs" style="margin-top:6px"></div>
     <h3>Shop section (elegí UNA)</h3>
     <div class="chips" id="secChips"></div>
     <select id="secOther" onchange="pickOtherSection()"><option value="">otra sección…</option></select>
@@ -122,7 +128,7 @@
     <h3>Precios UK por variante (£) · cantidad 25</h3>
     <div class="scroll"><table id="varTable"></table></div>
     <h3>Valores fijos</h3>
-    <div class="fixed">Who made: I did · Finished product · Made to order · Computerised tools · Processing made to order 1-3 días · Envío "A2 posters UK + EU + USA" · Devoluciones 14 días · Renovación MANUAL · Feature: no · Hecho desde cero · GPSR y tariff: vacíos (los completás en Etsy) · Fotos: las de Shopify (hasta 20).</div>
+    <div class="fixed">Automático: Who made I did · Made to order · Processing 1-3 días · Envío "A2 posters UK + EU + USA" · Devoluciones 14 días · Renovación MANUAL · Feature no · Personalización (Personalise your item, +£5, opcional) · Craft y Aspect ratio 5:7 · Fotos de Shopify (hasta 20).</div>
   </div>
 
   <div class="card hide" id="pubCard">
@@ -131,11 +137,12 @@
     <button id="pubBtn" onclick="publish()">Publicar draft</button>
     <div id="pubMsg" class="msg"></div>
     <div class="reminder">⚠️ Acordate de aplicar el +16% de international pricing a mano (seleccioná los listings nuevos → +16%).</div>
+    <div class="reminder">⚠️ A mano en Etsy (la API no los deja): How it's made → <b>Made from scratch</b> · Tools → <b>Computerised tools</b> · Tariff → <b>4911.91</b> (unframed) / <b>4414.90</b> (framed) · GPSR.</div>
   </div>
 </div>
 
 <script>
-  var P = null, META = null, KW = [], SEEDS = [], STYLES = [], ROOMS_SEL = [], LISTING = null, SECTION_ID = null;
+  var P = null, META = null, KW = [], SEEDS = [], STYLES = [], ROOMS_SEL = [], LISTING = null, SECTION_ID = null, FIXED_ATTRS = [];
   function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
   function $(id){ return document.getElementById(id); }
   function norm(s){ return String(s||'').toLowerCase().replace(/\s+/g,' ').trim(); }
@@ -180,11 +187,18 @@
     ROOMS_SEL = P.rooms.slice(); STYLES = P.styles.slice();
     $('roomChips').innerHTML = P.allRooms.map(function(r){ return '<label class="chip"><input type="checkbox" value="' + esc(r) + '" ' + (ROOMS_SEL.indexOf(r) >= 0 ? 'checked' : '') + ' onchange="roomChange()">' + esc(r) + '</label>'; }).join('');
     $('roomFrom').textContent = 'Detectado desde: ' + P.roomFrom;
+    renderRoomSummary();
     $('colours').value = P.colours.join(', ');
-    var sel = $('addStyle'); sel.innerHTML = '<option value="">+ agregar otro estilo…</option>' + Object.keys(P.styleSynonyms).map(function(s){ return '<option>' + esc(s) + '</option>'; }).join('');
+    var sel = $('addStyle'); sel.innerHTML = '<option value="">+ agregar otro estilo…</option>' + Object.keys(P.styleSynonyms).sort(function(a,b){ return a.localeCompare(b); }).map(function(s){ return '<option>' + esc(s) + '</option>'; }).join('');
     renderStyles(); buildSeeds();
   }
-  function roomChange(){ ROOMS_SEL = Array.prototype.slice.call(document.querySelectorAll('#roomChips input:checked')).map(function(i){ return i.value; }); }
+  function roomChange(){ ROOMS_SEL = Array.prototype.slice.call(document.querySelectorAll('#roomChips input:checked')).map(function(i){ return i.value; }); renderRoomSummary(); }
+  function renderRoomSummary(){
+    $('roomSummary').textContent = ROOMS_SEL.length ? ROOMS_SEL.join(' · ') : 'Sin room detectado — elegí uno abajo';
+    if (!ROOMS_SEL.length) $('roomChips').classList.remove('hide');          // no room -> open the grid automatically
+    $('roomChangeBtn').textContent = $('roomChips').classList.contains('hide') ? 'change room' : 'ocultar';
+  }
+  function toggleRoomGrid(){ $('roomChips').classList.toggle('hide'); $('roomChangeBtn').textContent = $('roomChips').classList.contains('hide') ? 'change room' : 'ocultar'; }
   function renderStyles(){
     $('styleChips').innerHTML = STYLES.length ? STYLES.map(function(s){ return '<label class="chip"><input type="checkbox" value="' + esc(s) + '" checked onchange="styleChange()">' + esc(s) + '</label>'; }).join('') : '<span class="fixed">Ninguno detectado — agregá uno abajo.</span>';
   }
@@ -306,9 +320,20 @@
     var pieces = findProp(/pieces/i); if (pieces){ var m2 = matchVal(pieces, '3'); if (m2) chosen[pieces.id] = [m2.name]; else notes.push('Number of pieces: no encontré la opción 3'); }
     var roomP = findProp(/^room$/i);
     if (roomP){ chosen[roomP.id] = []; etsyRoomNames().forEach(function(n){ var m3 = matchVal(roomP, n); if (m3) chosen[roomP.id].push(m3.name); else notes.push('Room "' + n + '" no está en las opciones de Etsy'); }); }
+    // #6 Craft + #7 Aspect ratio: FIXED (sent automatically, no manual selector).
+    FIXED_ATTRS = [];
+    var craftP = findProp(/^craft$/i);
+    if (craftP){
+      var cids = [], cnames = [];
+      ['Drawing & drafting','Framing','Printing & printmaking'].forEach(function(cv){ var m = matchVal(craftP, cv); if (m){ cids.push(m.id); cnames.push(m.name); } });
+      if (cids.length) FIXED_ATTRS.push({ property_id: craftP.id, name: 'Craft', value_ids: cids, values: cnames });
+    }
+    var aspectP = findProp(/aspect ratio/i);
+    if (aspectP){ var m57 = matchVal(aspectP, '5:7'); if (m57) FIXED_ATTRS.push({ property_id: aspectP.id, name: 'Aspect ratio', value_ids: [m57.id], values: [m57.name] }); }
     var html = '';
     (META ? META.properties : []).forEach(function(p){
-      if (!p.values.length || /material/i.test(p.name)) return;
+      var isFixed = /^craft$/i.test(p.name) || /aspect ratio/i.test(p.name) || /aspect ratio/i.test(p.display || '');
+      if (!p.values.length || /material/i.test(p.name) || isFixed) return;
       var cur = chosen[p.id] || [];
       html += '<div class="field"><label>' + esc(p.display || p.name) + (p.multi ? ' (varios)' : '') + '</label><select class="attrSel" data-pid="' + p.id + '" data-name="' + esc(p.name) + '" ' + (p.multi ? 'multiple size="4"' : '') + '>' + (p.multi ? '' : '<option value=""></option>') +
         p.values.map(function(v){ return '<option value="' + v.id + '" ' + (cur.indexOf(v.name) >= 0 ? 'selected' : '') + '>' + esc(v.name) + '</option>'; }).join('') + '</select></div>';
@@ -316,6 +341,7 @@
     $('attrBox').innerHTML = html;
     $('attrNote').className = 'msg ' + (notes.length ? 'bad' : '');
     $('attrNote').textContent = notes.length ? 'Revisar: ' + notes.join(' · ') : '';
+    $('fixedAttrs').textContent = 'Automáticos: ' + (FIXED_ATTRS.length ? FIXED_ATTRS.map(function(a){ return a.name + ' = ' + a.values.join(', '); }).join(' · ') : '(Craft / Aspect ratio no encontrados en la taxonomía)');
   }
   function renderSections(){
     var cands = [], secs = META ? META.sections : [];
@@ -350,18 +376,18 @@
     var tags = [];
     Array.prototype.forEach.call(document.querySelectorAll('.tagIn'), function(i){ var c = clampTag(i.value); if (c && !tags.some(function(x){ return norm(x) === norm(c); })) tags.push(c); });
     if (!title || title.length > 140){ alert('El título está vacío o pasa de 140 caracteres.'); return; }
-    if (tags.length < 13 && !confirm('Solo hay ' + tags.length + ' tags (se pueden 13). ¿Publicar igual?')) return;
     var variants = P.variants.map(function(v, i){ var inp = document.querySelector('.varPrice[data-i="' + i + '"]'); return { frame: v.frame, size: v.size, price: parseFloat(inp.value) }; });
     var attributes = [];
     document.querySelectorAll('.attrSel').forEach(function(sel){
       var opts = Array.prototype.filter.call(sel.options, function(o){ return o.selected && o.value; });
       if (opts.length) attributes.push({ property_id: +sel.dataset.pid, name: sel.dataset.name, value_ids: opts.map(function(o){ return +o.value; }), values: opts.map(function(o){ return o.textContent; }) });
     });
+    attributes = attributes.concat(FIXED_ATTRS); // #6 Craft + #7 Aspect ratio 5:7 (automáticos)
     var materials = Array.prototype.map.call(document.querySelectorAll('.matIn:checked'), function(i){ return i.value; });
-    if (!confirm('¿Crear el DRAFT en Etsy con ' + variants.length + ' variantes y ' + P.images.length + ' fotos?')) return;
+    var secTitle = ''; if (SECTION_ID && META){ var sfound = (META.sections || []).filter(function(x){ return String(x.id) === String(SECTION_ID); })[0]; if (sfound) secTitle = sfound.title; }
     $('pubBtn').disabled = true; $('pubMsg').className = 'msg'; $('pubMsg').textContent = 'Creando draft, variaciones y atributos…';
     try{
-      var r = await fetch('/api/etsy?action=tab1-publish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: title, tags: tags, description: $('fDesc').value, materials: materials, section_id: SECTION_ID, sku: P.sku, variants: variants, attributes: attributes }) });
+      var r = await fetch('/api/etsy?action=tab1-publish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: title, tags: tags, description: $('fDesc').value, materials: materials, section_id: SECTION_ID, section_title: secTitle, sku: P.sku, variants: variants, attributes: attributes }) });
       var j = await r.json();
       if (!j.listing_id){ throw new Error((j.error || 'No se creó el draft') + ' ' + JSON.stringify(j.steps || '')); }
       var fails = (j.steps || []).filter(function(s){ return s.status >= 300; });
