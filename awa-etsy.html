@@ -48,7 +48,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">Tab 1 · NEW PRODUCT · v0.14</p>
+  <p class="ver">Tab 1 · NEW PRODUCT · v0.15</p>
 
   <div class="card">
     <h2>Conexión con Etsy</h2>
@@ -59,6 +59,12 @@
     </div>
   </div>
 
+  <div class="row" style="margin:0 0 16px">
+    <button id="tabNew" onclick="switchTab('new')">New product</button>
+    <button id="tabSent" class="ghost" onclick="switchTab('sent')">Sent items <span id="sentCount"></span></button>
+  </div>
+
+  <div id="newProductTab">
   <div class="card">
     <h2>1 · Cargar producto</h2>
     <p class="sub">Escribí el SKU (el de "sku for print files"). La tool trae todo de Shopify.</p>
@@ -139,10 +145,19 @@
     <div class="reminder">⚠️ Acordate de aplicar el +16% de international pricing a mano (seleccioná los listings nuevos → +16%).</div>
     <div class="reminder">⚠️ A mano en Etsy (la API no los deja): How it's made → <b>Made from scratch</b> · Tools → <b>Computerised tools</b> · Tariff → <b>4911.91</b> (unframed) / <b>4414.90</b> (framed) · GPSR.</div>
   </div>
+  </div><!-- /newProductTab -->
+
+  <div id="sentTab" class="hide">
+    <div class="card">
+      <h2>Sent items</h2>
+      <p class="sub">Los drafts enviados. Se guardan en GitHub (aparecen en cualquier compu). Previsualizá o borrá si lo descartás.</p>
+      <div id="sentList"></div>
+    </div>
+  </div>
 </div>
 
 <script>
-  var P = null, META = null, KW = [], SEEDS = [], STYLES = [], ROOMS_SEL = [], LISTING = null, SECTION_ID = null, FIXED_ATTRS = [];
+  var P = null, META = null, KW = [], SEEDS = [], STYLES = [], ROOMS_SEL = [], LISTING = null, SECTION_ID = null, FIXED_ATTRS = [], ATTR_SEL = {}, ATTR_NOTES = [];
   function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
   function $(id){ return document.getElementById(id); }
   function norm(s){ return String(s||'').toLowerCase().replace(/\s+/g,' ').trim(); }
@@ -306,43 +321,58 @@
     var n = norm(name);
     return prop.values.filter(function(v){ return norm(v.name) === n; })[0] || prop.values.filter(function(v){ return norm(v.name).indexOf(n) >= 0 || n.indexOf(norm(v.name)) >= 0; })[0];
   }
+  function attrIsFixed(p){ return /^craft$/i.test(p.name) || /^craft$/i.test(p.display || '') || /aspect ratio/i.test(p.name) || /aspect ratio/i.test(p.display || ''); }
+  function propById(pid){ return (META ? META.properties : []).filter(function(p){ return String(p.id) === String(pid); })[0]; }
   function renderAttrs(){
-    var attrs = LISTING.attributes || {}, notes = [];
+    var attrs = LISTING.attributes || {}; ATTR_NOTES = [];
     var chosen = {}; // property id -> [value names]
-    // Claude's picks
     Object.keys(attrs).forEach(function(name){
       var prop = findProp(new RegExp('^' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i'));
-      if (!prop){ notes.push('"' + name + '" no existe en Etsy'); return; }
-      (attrs[name] || []).forEach(function(v){ var m = matchVal(prop, v); if (m) (chosen[prop.id] = chosen[prop.id] || []).push(m.name); else notes.push('"' + v + '" no está en las opciones de ' + name); });
+      if (!prop){ ATTR_NOTES.push('"' + name + '" no existe en Etsy'); return; }
+      (attrs[name] || []).forEach(function(v){ var m = matchVal(prop, v); if (m) (chosen[prop.id] = chosen[prop.id] || []).push(m.name); else ATTR_NOTES.push('"' + v + '" no está en las opciones de ' + name); });
     });
-    // fixed + room rules
     var framing = findProp(/^framing$/i); if (framing){ var m = matchVal(framing, 'Framed'); if (m) chosen[framing.id] = [m.name]; }
-    var pieces = findProp(/pieces/i); if (pieces){ var m2 = matchVal(pieces, '3'); if (m2) chosen[pieces.id] = [m2.name]; else notes.push('Number of pieces: no encontré la opción 3'); }
+    var pieces = findProp(/pieces/i); if (pieces){ var m2 = matchVal(pieces, '3'); if (m2) chosen[pieces.id] = [m2.name]; else ATTR_NOTES.push('Number of pieces: no encontré la opción 3'); }
     var roomP = findProp(/^room$/i);
-    if (roomP){ chosen[roomP.id] = []; etsyRoomNames().forEach(function(n){ var m3 = matchVal(roomP, n); if (m3) chosen[roomP.id].push(m3.name); else notes.push('Room "' + n + '" no está en las opciones de Etsy'); }); }
-    // #6 Craft + #7 Aspect ratio: FIXED (sent automatically, no manual selector).
+    if (roomP){ chosen[roomP.id] = []; etsyRoomNames().forEach(function(n){ var m3 = matchVal(roomP, n); if (m3) chosen[roomP.id].push(m3.name); else ATTR_NOTES.push('Room "' + n + '" no está en las opciones de Etsy'); }); }
+    // #16 Can be personalized -> default Yes
+    var persoP = findProp(/can be personali/i) || findProp(/personali/i);
+    if (persoP && !(chosen[persoP.id] && chosen[persoP.id].length)){ var my = matchVal(persoP, 'Yes'); if (my) chosen[persoP.id] = [my.name]; }
+    // #6 Craft + #7 Aspect ratio: FIXED (sent automatically, no selector).
     FIXED_ATTRS = [];
     var craftP = findProp(/^craft$/i);
-    if (craftP){
-      var cids = [], cnames = [];
-      ['Drawing & drafting','Framing','Printing & printmaking'].forEach(function(cv){ var m = matchVal(craftP, cv); if (m){ cids.push(m.id); cnames.push(m.name); } });
-      if (cids.length) FIXED_ATTRS.push({ property_id: craftP.id, name: 'Craft', value_ids: cids, values: cnames });
-    }
+    if (craftP){ var cids = [], cnames = []; ['Drawing & drafting','Framing','Printing & printmaking'].forEach(function(cv){ var mc = matchVal(craftP, cv); if (mc){ cids.push(mc.id); cnames.push(mc.name); } }); if (cids.length) FIXED_ATTRS.push({ property_id: craftP.id, name: 'Craft', value_ids: cids, values: cnames }); }
     var aspectP = findProp(/aspect ratio/i);
     if (aspectP){ var m57 = matchVal(aspectP, '5:7'); if (m57) FIXED_ATTRS.push({ property_id: aspectP.id, name: 'Aspect ratio', value_ids: [m57.id], values: [m57.name] }); }
+    // seed the pill state from the chosen names
+    ATTR_SEL = {};
+    (META ? META.properties : []).forEach(function(p){
+      if (!p.values.length || /material/i.test(p.name) || attrIsFixed(p)) return;
+      var sel = []; (chosen[p.id] || []).forEach(function(nm){ var mv = p.values.filter(function(v){ return v.name === nm; })[0]; if (mv) sel.push({ id: mv.id, name: mv.name }); });
+      ATTR_SEL[p.id] = sel;
+    });
+    renderAttrBody();
+  }
+  // #15: each attribute = removable pills for what's selected + an "add" menu for the rest.
+  function renderAttrBody(){
     var html = '';
     (META ? META.properties : []).forEach(function(p){
-      var isFixed = /^craft$/i.test(p.name) || /aspect ratio/i.test(p.name) || /aspect ratio/i.test(p.display || '');
-      if (!p.values.length || /material/i.test(p.name) || isFixed) return;
-      var cur = chosen[p.id] || [];
-      html += '<div class="field"><label>' + esc(p.display || p.name) + (p.multi ? ' (varios)' : '') + '</label><select class="attrSel" data-pid="' + p.id + '" data-name="' + esc(p.name) + '" ' + (p.multi ? 'multiple size="4"' : '') + '>' + (p.multi ? '' : '<option value=""></option>') +
-        p.values.map(function(v){ return '<option value="' + v.id + '" ' + (cur.indexOf(v.name) >= 0 ? 'selected' : '') + '>' + esc(v.name) + '</option>'; }).join('') + '</select></div>';
+      if (!p.values.length || /material/i.test(p.name) || attrIsFixed(p)) return;
+      var sel = ATTR_SEL[p.id] || [], selIds = sel.map(function(s){ return String(s.id); });
+      var pills = sel.map(function(s){ return '<span class="chip">' + esc(s.name) + ' <span style="cursor:pointer;font-weight:700" onclick="removeAttr(\'' + p.id + '\',\'' + s.id + '\')">×</span></span>'; }).join('');
+      var canAdd = p.multi || sel.length === 0;
+      var opts = '<option value="">+ agregar…</option>' + p.values.filter(function(v){ return selIds.indexOf(String(v.id)) < 0; }).map(function(v){ return '<option value="' + v.id + '">' + esc(v.name) + '</option>'; }).join('');
+      html += '<div class="field"><label>' + esc(p.display || p.name) + (p.multi ? ' (varios)' : '') + '</label>' +
+        '<div class="chips">' + (pills || '<span class="fixed">—</span>') + '</div>' +
+        (canAdd ? '<select onchange="addAttr(\'' + p.id + '\', this.value); this.value=\'\'">' + opts + '</select>' : '<span class="fixed">sacá el actual para elegir otro</span>') + '</div>';
     });
     $('attrBox').innerHTML = html;
-    $('attrNote').className = 'msg ' + (notes.length ? 'bad' : '');
-    $('attrNote').textContent = notes.length ? 'Revisar: ' + notes.join(' · ') : '';
-    $('fixedAttrs').textContent = 'Automáticos: ' + (FIXED_ATTRS.length ? FIXED_ATTRS.map(function(a){ return a.name + ' = ' + a.values.join(', '); }).join(' · ') : '(Craft / Aspect ratio no encontrados en la taxonomía)');
+    $('attrNote').className = 'msg ' + (ATTR_NOTES.length ? 'bad' : '');
+    $('attrNote').textContent = ATTR_NOTES.length ? 'Revisar: ' + ATTR_NOTES.join(' · ') : '';
+    $('fixedAttrs').textContent = 'Automáticos: ' + (FIXED_ATTRS.length ? FIXED_ATTRS.map(function(a){ return a.name + ' = ' + a.values.join(', '); }).join(' · ') : '(Craft / Aspect ratio no encontrados)');
   }
+  function addAttr(pid, vid){ if (!vid) return; var p = propById(pid); if (!p) return; var v = p.values.filter(function(x){ return String(x.id) === String(vid); })[0]; if (!v) return; var sel = ATTR_SEL[pid] || (ATTR_SEL[pid] = []); if (!p.multi) ATTR_SEL[pid] = [{ id: v.id, name: v.name }]; else if (!sel.some(function(s){ return String(s.id) === String(v.id); })) sel.push({ id: v.id, name: v.name }); renderAttrBody(); }
+  function removeAttr(pid, vid){ ATTR_SEL[pid] = (ATTR_SEL[pid] || []).filter(function(s){ return String(s.id) !== String(vid); }); renderAttrBody(); }
   function renderSections(){
     var cands = [], secs = META ? META.sections : [];
     function add(name){ var s = secs.filter(function(x){ return norm(x.title) === norm(name); })[0]; if (s && !cands.some(function(c){ return c.id === s.id; })) cands.push(s); }
@@ -378,9 +408,10 @@
     if (!title || title.length > 140){ alert('El título está vacío o pasa de 140 caracteres.'); return; }
     var variants = P.variants.map(function(v, i){ var inp = document.querySelector('.varPrice[data-i="' + i + '"]'); return { frame: v.frame, size: v.size, price: parseFloat(inp.value) }; });
     var attributes = [];
-    document.querySelectorAll('.attrSel').forEach(function(sel){
-      var opts = Array.prototype.filter.call(sel.options, function(o){ return o.selected && o.value; });
-      if (opts.length) attributes.push({ property_id: +sel.dataset.pid, name: sel.dataset.name, value_ids: opts.map(function(o){ return +o.value; }), values: opts.map(function(o){ return o.textContent; }) });
+    Object.keys(ATTR_SEL).forEach(function(pid){
+      var sel = ATTR_SEL[pid] || []; if (!sel.length) return;
+      var p = propById(pid);
+      attributes.push({ property_id: +pid, name: p ? p.name : pid, value_ids: sel.map(function(s){ return +s.id; }), values: sel.map(function(s){ return s.name; }) });
     });
     attributes = attributes.concat(FIXED_ATTRS); // #6 Craft + #7 Aspect ratio 5:7 (automáticos)
     var materials = Array.prototype.map.call(document.querySelectorAll('.matIn:checked'), function(i){ return i.value; });
@@ -402,12 +433,57 @@
       }
       $('pubMsg').className = 'msg ' + ((fails.length || imgFails) ? 'bad' : 'good');
       $('pubMsg').innerHTML = esc(msg) + ' Fotos: ' + (P.images.length - imgFails) + ' de ' + P.images.length + ' subidas. <a href="https://www.etsy.com/your/shops/me/tools/listings/' + j.listing_id + '" target="_blank">Abrir el draft en Etsy</a>';
+      // #14: record in Sent items (GitHub); if the send was clean, reset the window for the next product.
+      try{ await fetch('/api/etsy?action=tab1-sent-add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listing_id: j.listing_id, sku: P.sku, title: $('fTitle').value, section: secTitle }) }); }catch(e){}
+      if (!fails.length && !imgFails){ resetForNext(); $('loadMsg').className = 'msg good'; $('loadMsg').textContent = '✓ Enviado a Etsy y guardado en Sent items. Listo para el próximo producto.'; }
     }catch(e){ $('pubMsg').className = 'msg bad'; $('pubMsg').textContent = 'Falló: ' + e.message; }
     $('pubBtn').disabled = false;
   }
 
+  /* ---------- #14: Sent items ---------- */
+  var SENT = [];
+  function switchTab(which){
+    var isNew = which === 'new';
+    show('newProductTab', isNew); show('sentTab', !isNew);
+    $('tabNew').className = isNew ? '' : 'ghost';
+    $('tabSent').className = isNew ? 'ghost' : '';
+    if (!isNew) loadSent();
+  }
+  async function loadSent(){
+    try{ var r = await fetch('/api/etsy?action=tab1-sent-list&t=' + Date.now()); var j = await r.json(); if (j.ok){ SENT = j.items || []; renderSent(); } }catch(e){}
+  }
+  function renderSent(){
+    $('sentCount').textContent = SENT.length ? '(' + SENT.length + ')' : '';
+    if (!SENT.length){ $('sentList').innerHTML = '<p class="fixed">Todavía no enviaste ninguno.</p>'; return; }
+    $('sentList').innerHTML = SENT.map(function(it){
+      var d = it.ts ? new Date(it.ts).toLocaleDateString() : '';
+      return '<div class="card" style="padding:10px 12px;margin:0 0 8px"><div class="row" style="justify-content:space-between;gap:8px">' +
+        '<div><b>' + esc(it.sku || '') + '</b> <span class="fixed">' + esc(it.section || '') + (d ? ' · ' + d : '') + '</span><div class="fixed">' + esc((it.title || '').slice(0, 70)) + '</div></div>' +
+        '<div class="row"><a href="https://www.etsy.com/your/shops/me/tools/listings/' + esc(it.listing_id) + '" target="_blank"><button class="ghost" type="button">Previsualizar</button></a>' +
+        '<button type="button" onclick="deleteSent(\'' + esc(it.listing_id) + '\', this)">Borrar</button></div>' +
+        '</div></div>';
+    }).join('');
+  }
+  async function deleteSent(id, btn){
+    if (!confirm('¿Borrar este draft de Etsy? No se puede deshacer.')) return;   // destructive: one confirm is intentional
+    btn.disabled = true; btn.textContent = 'Borrando…';
+    try{
+      var r = await fetch('/api/etsy?action=tab1-sent-delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listing_id: id }) });
+      var j = await r.json();
+      if (j.ok){ SENT = j.items || SENT.filter(function(x){ return String(x.listing_id) !== String(id); }); renderSent(); }
+      else { btn.disabled = false; btn.textContent = 'Borrar'; alert('No se pudo borrar: ' + (j.error ? JSON.stringify(j.error) : j.status)); }
+    }catch(e){ btn.disabled = false; btn.textContent = 'Borrar'; alert('Falló: ' + e.message); }
+  }
+  function resetForNext(){
+    P = null; LISTING = null; KW = []; SEEDS = []; STYLES = []; ROOMS_SEL = []; SECTION_ID = null; FIXED_ATTRS = []; ATTR_SEL = {};
+    $('sku').value = '';
+    show('prod', false); show('kwCard', false); show('genCard', false); show('editCard', false); show('pubCard', false); show('kwBox', false);
+    $('pubMsg').textContent = ''; window.scrollTo(0, 0);
+  }
+
   if (location.search.indexOf('connected=1') >= 0) { setConnected(true); }
   checkStatus();
+  loadSent();
 </script>
 </body>
 </html>
