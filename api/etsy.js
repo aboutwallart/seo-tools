@@ -1,4 +1,9 @@
-// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.17
+// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.19
+// v0.19 (2026-10-17): whole UI translated to English + user-facing backend messages in English; photo picker in the
+//   edit step (max 20, untick extras when a listing has more than 20 photos — only the ticked ones are sent).
+// v0.18 (2026-10-17): description voice = advice not art-description (NPG gold-standard: everyday-verb opening, keyword
+//   woven in, first-person adviser, never describe what's visible, banned flowery phrasing); related links show the
+//   title on its own line with the URL below; structured "Materials" attribute auto-set to Acrylic/Paper/Wood (front).
 // v0.17 (2026-10-17): Sent items — a FAILED delete no longer removes the item from the list (keeps it on refresh);
 //   store the featured image with each sent item so the Sent tab can show a collapsed row that expands to a preview.
 // v0.16 (2026-10-17): FIX regression — attributes send value_ids AND values again (Etsy requires both), with the
@@ -204,9 +209,9 @@ async function buildFixedDescription(call, sectionId, sectionTitle, excludeListi
       for (let i = inSection.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = inSection[i]; inSection[i] = inSection[j]; inSection[j] = t; }
       // #17: one per line, with the listing TITLE in front of the link so buyers read what it is (not just an id).
       related = inSection.slice(0, 4).map(l => {
-        const t = String(l.title || '').split('|')[0].trim().slice(0, 60);
-        return (t ? '• ' + t + ' — ' : '• ') + 'https://www.etsy.com/listing/' + l.listing_id;
-      }).join('\n');
+        const t = String(l.title || '').split('|')[0].trim();
+        return (t ? '• ' + t + '\n' : '') + 'https://www.etsy.com/listing/' + l.listing_id;
+      }).join('\n\n');
     } catch (e) { /* best effort: leave related empty */ }
   }
   return FIXED_DESCRIPTION
@@ -338,7 +343,7 @@ async function tokenExchange(body) {
 
 module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
-  if (!KEY) { res.status(500).json({ ok: false, error: 'ETSY_KEYSTRING no está configurado en Vercel' }); return; }
+  if (!KEY) { res.status(500).json({ ok: false, error: 'ETSY_KEYSTRING is not set in Vercel' }); return; }
 
   const q = req.query || {};
   const ck = parseCookies(req);
@@ -394,9 +399,9 @@ module.exports = async (req, res) => {
   if (q.action === 'tab1-load') {
     try {
       const sku = String(q.sku || '').trim();
-      if (!sku) { res.status(400).json({ ok: false, error: 'Falta el SKU' }); return; }
+      if (!sku) { res.status(400).json({ ok: false, error: 'Missing SKU' }); return; }
       const p = await loadProduct(sku);
-      if (!p) { res.status(404).json({ ok: false, error: 'No se encontró un producto con SKU print files = ' + sku }); return; }
+      if (!p) { res.status(404).json({ ok: false, error: 'No product found with print-files SKU = ' + sku }); return; }
       res.status(200).json({ ok: true, product: p });
     } catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
     return;
@@ -405,7 +410,7 @@ module.exports = async (req, res) => {
   if (q.action === 'tab1-keywords') {
     try {
       const seeds = String(q.seeds || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 15);
-      if (!seeds.length) { res.status(400).json({ ok: false, error: 'Faltan seeds' }); return; }
+      if (!seeds.length) { res.status(400).json({ ok: false, error: 'Missing seeds' }); return; }
       const r = await runApify(seeds);
       const rows = r.items.filter(x => !x.is_seed).map(x => ({
         keyword: x.keyword, seed: x.seed_keyword, competing: x.competing_listings_count, level: x.competition_level,
@@ -441,7 +446,7 @@ module.exports = async (req, res) => {
         '', 'RULES — follow exactly:',
         '1) TITLE: max 140 chars, Title Case (NOT all caps), long but readable, keyword-rich WITHOUT stuffing/repeating. Lead with the keyword that best says WHAT it is. Include the room. Do NOT put any colour words in the title (no "white", "black", "blue"...) — colours go ONLY in the attributes/SEO, never in the title. Position of keywords does not affect ranking.',
         '2) TAGS: EXACTLY 13, all UNIQUE, lowercase, never the same combination twice, no spelling mistakes. Each tag = a descriptor (use the keyword data) + a wall-art synonym as the noun. Spread these 10 synonyms across DIFFERENT tags (each used about once): wall art, art prints, wall decor, wall hangings, wall prints, canvas prints, wall pictures, wall posters, canvas art, art decor. Cover the 7 tag types across the 13: 1 descriptive (what it is) 2 materials/technique 3 for whom (gifts) 4 occasion 5 solution (empty wall...) 6 style (era/palette + what it is) 7 size. Do not repeat exact category/attribute names as a tag (a multi-word tag that contains them is fine). CRITICAL LENGTH RULE: every tag MUST be 20 characters or fewer INCLUDING SPACES. Count the characters of each tag before returning it. If a tag would be over 20, REWRITE it with a shorter synonym (e.g. "scandinavian wall art" = 21 -> "scandi wall art"; "nordic landscape decor" = 22 -> "nordic landscape"); NEVER return a tag over 20 and NEVER cut a word mid-way.',
-        '3) DESCRIPTION: write ONLY the TOP part (about 120-180 words); a fixed block with materials/shipping/care/personalisation is added automatically BELOW, so do NOT write any of that. VOICE: a real, friendly interior-decor adviser talking to a customer — warm, natural, down-to-earth (UK spelling, use "you"/"your"). SHORT, simple sentences and everyday words. Do NOT write like a catalogue, brochure or novel. BANNED phrasing, never use: "a sense of", "evokes", "a feeling of", "drama", "dramatic", "a cohesive story", "tells a story", "rendered in", "punctuated by", "journey", "whisper", "dance", "symphony", "statement piece", or stacks of flowery adjectives. DO: open with a relevant keyword in the first sentence (natural, do not copy the title, do not list keywords), say plainly what the art is, where it looks great in the home, and how to hang a set of 3 (height, spacing). You may say it is a set of 3 that arrives ready to hang with an optional frame. Plain text, no headings.',
+        '3) DESCRIPTION: write ONLY the TOP part (about 120-170 words, 2 short paragraphs); a fixed block with materials/shipping/care/personalisation is added automatically BELOW, so do NOT write any of that. THIS IS ADVICE, NOT A DESCRIPTION OF THE ART — the buyer can already SEE the art in the photos, so NEVER describe what is visible (the scene, subject, colours, composition, figures, textures). Instead tell them what the photos do NOT show: what it adds to a room, the mood it creates, who and which rooms it suits, and real practical advice (how to style it; how to hang a set of 3 — same height, even gap of about 5-8 cm, centre around eye level ~145-150 cm). OPENING: begin the FIRST sentence with an everyday verb people actually say (Add, Bring, Give, Picture, Imagine, Hang, Make, Turn — vary it per product, never the same verb every time) with the keyword woven in NATURALLY; NEVER a keyword fragment followed by a dash. VOICE: a very warm, friendly UK interior-decor adviser talking to ONE person, first person (I/we), conversational, human, practical; short, varied, natural sentences; UK spelling. If it reads like AI or a spec sheet, it has FAILED. BANNED, never use: "a sense of", "evokes", "a feeling of", "drama", "dramatic", "a cohesive story", "tells a story", "rendered in", "punctuated by", "journey", "whisper", "dance", "symphony", "statement piece", "gracing", "adorn", "elevate", or stacks of flowery adjectives. Plain text, no headings.',
         '4) WORDING: "art prints" is OK in title/description/tags. The word "poster"/"posters" ONLY in tags (never title/description). NEVER write "digital print" or "digital download". Say "perspex", never "acrylic". Never say "hand-painted".',
         '5) ATTRIBUTES: choose from the EXACT option lists below (copy the option text exactly). Only include a property if it clearly applies. Several values allowed only where the property is multi-valued (Occasion, Holiday, Room, Subject may take more than one if truly relevant, else one).',
         optLines,
@@ -466,7 +471,7 @@ module.exports = async (req, res) => {
   if (q.action === 'tab1-sent-add' && req.method === 'POST') {
     try {
       const b = req.body || {};
-      if (!b.listing_id) { res.status(400).json({ ok: false, error: 'Falta listing_id' }); return; }
+      if (!b.listing_id) { res.status(400).json({ ok: false, error: 'Missing listing_id' }); return; }
       const s = await readSent();
       const item = { listing_id: String(b.listing_id), sku: String(b.sku || ''), title: String(b.title || ''), section: String(b.section || ''), image: String(b.image || ''), ts: Date.now() };
       const items = [item].concat(s.items.filter(x => String(x.listing_id) !== item.listing_id)); // newest first, no dup
@@ -476,7 +481,7 @@ module.exports = async (req, res) => {
     return;
   }
 
-  if (!at && !rt) { res.status(401).json({ ok: false, error: 'No conectado. Tocá "Conectar con Etsy" primero.' }); return; }
+  if (!at && !rt) { res.status(401).json({ ok: false, error: 'Not connected. Click "Connect Etsy" first.' }); return; }
 
   // call Etsy API with one auto-refresh on 401
   let refreshedCookie = null;
@@ -497,7 +502,7 @@ module.exports = async (req, res) => {
         r = await doFetch(at);
       }
     }
-    if (typeof r.json !== 'function') return { status: r.status, json: { error: 'Sesión de Etsy vencida. Tocá Reconectar.' } };
+    if (typeof r.json !== 'function') return { status: r.status, json: { error: 'Etsy session expired. Click Reconnect.' } };
     const j = await r.json().catch(() => ({}));
     return { status: r.status, json: j };
   }
@@ -555,7 +560,7 @@ module.exports = async (req, res) => {
           }));
         }
       } else {
-        out.sampleListing = 'No se encontró un listing activo (status ' + lst.status + ')';
+        out.sampleListing = 'No active listing found (status ' + lst.status + ')';
       }
       finish(200, out);
       return;
@@ -601,8 +606,8 @@ module.exports = async (req, res) => {
       const tags = [];
       for (const raw of (b.tags || [])) { const c = clampTag(raw); if (c && !tags.some(x => x.toLowerCase() === c.toLowerCase())) tags.push(c); if (tags.length >= 13) break; }
       const variants = (b.variants || []).filter(v => v.frame && v.size && v.price > 0);
-      if (!title || title.length > 140) { finish(400, { ok: false, error: 'Título vacío o de más de 140 caracteres' }); return; }
-      if (!variants.length) { finish(400, { ok: false, error: 'No hay variantes con precio' }); return; }
+      if (!title || title.length > 140) { finish(400, { ok: false, error: 'Title empty or over 140 characters' }); return; }
+      if (!variants.length) { finish(400, { ok: false, error: 'No variants with a price' }); return; }
       const minPrice = Math.min.apply(null, variants.map(v => Number(v.price)));
       // #5: AI writes the TOP of the description; append the fixed footer (section name/link + related listings) under it.
       const fixedFooter = await buildFixedDescription(call, b.section_id, b.section_title, null);
@@ -620,8 +625,8 @@ module.exports = async (req, res) => {
       if (b.section_id) form.set('shop_section_id', String(b.section_id));
       const cr = await call('/shops/' + SHOP_ID + '/listings', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form.toString() });
       const lid = cr.json && cr.json.listing_id;
-      steps.push({ step: 'crear draft', status: cr.status, listing_id: lid, error: cr.status >= 300 ? cr.json : undefined });
-      if (!lid) { finish(200, { ok: false, steps, error: 'No se pudo crear el draft' }); return; }
+      steps.push({ step: 'create draft', status: cr.status, listing_id: lid, error: cr.status >= 300 ? cr.json : undefined });
+      if (!lid) { finish(200, { ok: false, steps, error: 'Couldn\'t create the draft' }); return; }
 
       // FIX 3: Etsy demands the COMPLETE matrix of every Frame x Size value in use.
       // Build the full cartesian: present combos enabled with their price; missing combos disabled (min price placeholder).
@@ -643,7 +648,7 @@ module.exports = async (req, res) => {
       }));
       const invBody = { products, price_on_property: [513, 514], quantity_on_property: [], sku_on_property: [] };
       const inv = await call('/listings/' + lid + '/inventory', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(invBody) });
-      steps.push({ step: 'variaciones + precios', status: inv.status, count: products.length, enabled: variants.length, error: inv.status >= 300 ? inv.json : undefined });
+      steps.push({ step: 'variations + prices', status: inv.status, count: products.length, enabled: variants.length, error: inv.status >= 300 ? inv.json : undefined });
 
       const attrs = Array.isArray(b.attributes) ? b.attributes : [];
       for (const a of attrs) {
@@ -654,7 +659,7 @@ module.exports = async (req, res) => {
         const vals = (a.values || []).map(v => String(v).replace(/\s*\([^)]*\)\s*$/, '').trim());
         const f = new URLSearchParams({ value_ids: ids.join(','), values: vals.join(',') });
         const pr = await call('/shops/' + SHOP_ID + '/listings/' + lid + '/properties/' + a.property_id, { method: 'PUT', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: f.toString() });
-        steps.push({ step: 'atributo ' + (a.name || a.property_id), status: pr.status, error: pr.status >= 300 ? pr.json : undefined });
+        steps.push({ step: 'attribute ' + (a.name || a.property_id), status: pr.status, error: pr.status >= 300 ? pr.json : undefined });
       }
       // #10: personalisation text box with a +£5 add-on (optional) — buyer asks for a custom size or a quote.
       const persoBody = { personalization_questions: [{
@@ -663,7 +668,7 @@ module.exports = async (req, res) => {
         question_type: 'text_input', required: false, add_on_price: 5.00, max_allowed_characters: 256
       }] };
       const perso = await call('/shops/' + SHOP_ID + '/listings/' + lid + '/personalization?supports_multiple_personalization_questions=true', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(persoBody) });
-      steps.push({ step: 'personalización', status: perso.status, error: perso.status >= 300 ? perso.json : undefined });
+      steps.push({ step: 'personalisation', status: perso.status, error: perso.status >= 300 ? perso.json : undefined });
       const failed = steps.filter(s => s.status >= 300);
       finish(200, { ok: !failed.length, listing_id: lid, steps, failed: failed.length });
       return;
@@ -672,8 +677,8 @@ module.exports = async (req, res) => {
     // upload ONE image (from Shopify CDN) to the draft
     if (q.action === 'tab1-image' && req.method === 'POST') {
       const b = req.body || {};
-      if (!b.listing_id || !b.url) { finish(400, { ok: false, error: 'Falta listing_id o url' }); return; }
-      if (!/^https:\/\/cdn\.shopify\.com\//.test(String(b.url))) { finish(400, { ok: false, error: 'La imagen debe venir de cdn.shopify.com' }); return; }
+      if (!b.listing_id || !b.url) { finish(400, { ok: false, error: 'Missing listing_id or url' }); return; }
+      if (!/^https:\/\/cdn\.shopify\.com\//.test(String(b.url))) { finish(400, { ok: false, error: 'The image must come from cdn.shopify.com' }); return; }
       const ir = await fetch(b.url);
       if (!ir.ok) { finish(200, { ok: false, error: 'No pude bajar la imagen de Shopify (' + ir.status + ')' }); return; }
       const buf = Buffer.from(await ir.arrayBuffer());
@@ -688,7 +693,7 @@ module.exports = async (req, res) => {
     // #14: delete a sent draft — removes it from Etsy AND from the GitHub list.
     if (q.action === 'tab1-sent-delete' && req.method === 'POST') {
       const b = req.body || {};
-      if (!b.listing_id) { finish(400, { ok: false, error: 'Falta listing_id' }); return; }
+      if (!b.listing_id) { finish(400, { ok: false, error: 'Missing listing_id' }); return; }
       const del = await call('/listings/' + b.listing_id, { method: 'DELETE' });
       const ok = del.status < 300 || del.status === 404;
       const s = await readSent();
@@ -699,7 +704,7 @@ module.exports = async (req, res) => {
       return;
     }
 
-    res.status(400).json({ ok: false, error: 'Acción desconocida: ' + q.action });
+    res.status(400).json({ ok: false, error: 'Unknown action: ' + q.action });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e && e.message || e) });
   }
