@@ -48,7 +48,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">Tab 1 · NEW PRODUCT · v0.16</p>
+  <p class="ver">Tab 1 · NEW PRODUCT · v0.17</p>
 
   <div class="card">
     <h2>Conexión con Etsy</h2>
@@ -434,14 +434,15 @@
       $('pubMsg').className = 'msg ' + ((fails.length || imgFails) ? 'bad' : 'good');
       $('pubMsg').innerHTML = esc(msg) + ' Fotos: ' + (P.images.length - imgFails) + ' de ' + P.images.length + ' subidas. <a href="https://www.etsy.com/your/shops/me/tools/listings/' + j.listing_id + '" target="_blank">Abrir el draft en Etsy</a>';
       // #14: record in Sent items (GitHub); if the send was clean, reset the window for the next product.
-      try{ await fetch('/api/etsy?action=tab1-sent-add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listing_id: j.listing_id, sku: P.sku, title: $('fTitle').value, section: secTitle }) }); }catch(e){}
+      try{ await fetch('/api/etsy?action=tab1-sent-add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listing_id: j.listing_id, sku: P.sku, title: $('fTitle').value, section: secTitle, image: (P.images && P.images[0]) || '' }) }); }catch(e){}
       if (!fails.length && !imgFails){ resetForNext(); $('loadMsg').className = 'msg good'; $('loadMsg').textContent = '✓ Enviado a Etsy y guardado en Sent items. Listo para el próximo producto.'; }
     }catch(e){ $('pubMsg').className = 'msg bad'; $('pubMsg').textContent = 'Falló: ' + e.message; }
     $('pubBtn').disabled = false;
   }
 
   /* ---------- #14: Sent items ---------- */
-  var SENT = [];
+  var SENT = [], SENT_OPEN = {};
+  function toggleSent(id){ SENT_OPEN[id] = !SENT_OPEN[id]; renderSent(); }
   function switchTab(which){
     var isNew = which === 'new';
     show('newProductTab', isNew); show('sentTab', !isNew);
@@ -457,11 +458,16 @@
     if (!SENT.length){ $('sentList').innerHTML = '<p class="fixed">Todavía no enviaste ninguno.</p>'; return; }
     $('sentList').innerHTML = SENT.map(function(it){
       var d = it.ts ? new Date(it.ts).toLocaleDateString() : '';
-      return '<div class="card" style="padding:10px 12px;margin:0 0 8px"><div class="row" style="justify-content:space-between;gap:8px">' +
-        '<div><b>' + esc(it.sku || '') + '</b> <span class="fixed">' + esc(it.section || '') + (d ? ' · ' + d : '') + '</span><div class="fixed">' + esc((it.title || '').slice(0, 70)) + '</div></div>' +
-        '<div class="row"><a href="https://www.etsy.com/your/shops/me/tools/listings/' + esc(it.listing_id) + '" target="_blank"><button class="ghost" type="button">Previsualizar</button></a>' +
-        '<button type="button" onclick="deleteSent(\'' + esc(it.listing_id) + '\', this)">Borrar</button></div>' +
-        '</div></div>';
+      var open = !!SENT_OPEN[it.listing_id];
+      // collapsed header (click to expand) — SKU + section + date
+      var head = '<div class="row" style="gap:8px;cursor:pointer" onclick="toggleSent(\'' + esc(it.listing_id) + '\')">' +
+        '<span style="font-weight:700">' + (open ? '▾' : '▸') + '</span> <b>' + esc(it.sku || '') + '</b> <span class="fixed">' + esc(it.section || '') + (d ? ' · ' + d : '') + '</span></div>';
+      // expanded: featured image preview + full title + actions
+      var body = !open ? '' : ('<div style="margin-top:8px"><div class="fixed" style="margin-bottom:6px">' + esc(it.title || '') + '</div>' +
+        (it.image ? '<img src="' + esc(it.image) + '" style="width:120px;height:120px;object-fit:cover;border-radius:8px;border:1px solid var(--line)">' : '<span class="fixed">(sin preview — enviado antes de esta versión)</span>') +
+        '<div class="row" style="margin-top:8px"><a href="https://www.etsy.com/your/shops/me/tools/listings/' + esc(it.listing_id) + '" target="_blank"><button class="ghost" type="button">Abrir en Etsy</button></a>' +
+        '<button type="button" onclick="deleteSent(\'' + esc(it.listing_id) + '\', this)">Borrar</button></div></div>');
+      return '<div class="card" style="padding:10px 12px;margin:0 0 8px">' + head + body + '</div>';
     }).join('');
   }
   async function deleteSent(id, btn){
