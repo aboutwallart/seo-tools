@@ -48,7 +48,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">Tab 1 · NEW PRODUCT · v0.12</p>
+  <p class="ver">Tab 1 · NEW PRODUCT · v0.13</p>
 
   <div class="card">
     <h2>Conexión con Etsy</h2>
@@ -345,10 +345,11 @@
   /* ---------- paso 5: publicar ---------- */
   async function publish(){
     var title = $('fTitle').value.trim();
-    var tags = Array.prototype.map.call(document.querySelectorAll('.tagIn'), function(i){ return i.value.trim(); }).filter(Boolean);
+    // Force each tag to <=20 chars (cut at a word boundary) + drop empties/duplicates — never block the publish.
+    function clampTag(s){ var t = String(s||'').replace(/\s+/g,' ').trim(); if (t.length <= 20) return t; var cut = t.slice(0,20); var sp = cut.lastIndexOf(' '); return (sp >= 10 ? cut.slice(0,sp) : cut).trim(); }
+    var tags = [];
+    Array.prototype.forEach.call(document.querySelectorAll('.tagIn'), function(i){ var c = clampTag(i.value); if (c && !tags.some(function(x){ return norm(x) === norm(c); })) tags.push(c); });
     if (!title || title.length > 140){ alert('El título está vacío o pasa de 140 caracteres.'); return; }
-    if (tags.some(function(t){ return t.length > 20; })){ alert('Hay tags de más de 20 caracteres.'); return; }
-    var uniq = {}; for (var t = 0; t < tags.length; t++){ if (uniq[norm(tags[t])]){ alert('Hay tags repetidos.'); return; } uniq[norm(tags[t])] = 1; }
     if (tags.length < 13 && !confirm('Solo hay ' + tags.length + ' tags (se pueden 13). ¿Publicar igual?')) return;
     var variants = P.variants.map(function(v, i){ var inp = document.querySelector('.varPrice[data-i="' + i + '"]'); return { frame: v.frame, size: v.size, price: parseFloat(inp.value) }; });
     var attributes = [];
