@@ -1,4 +1,9 @@
-// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.12
+// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.13
+// v0.13 (2026-10-17): 4 publish fixes (never let Etsy reject a publish):
+//   1. Materials sanitised to letters/numbers/spaces only + cleaned default list (no hyphen/gsm/museum).
+//   2. Tags FORCED to <=20 chars (truncate at a word boundary) instead of rejecting the publish.
+//   3. Variations: send the COMPLETE Frame x Size matrix — present combos enabled+priced, missing combos disabled.
+//   4. Attribute value_ids coerced to positive integers; invalid ones dropped (fixes "5:7 malformed" aspect ratio).
 // v0.12 (2026-10-13): TAB 1 built. Removed test actions (test-draft, apify-compare, apify-seedtest).
 //   Kept OAuth (auth/status/tokenExchange/call) + diagnose. New actions:
 //   tab1-load (Shopify product by custom.sku_for_print_files + By Room/Style/Colour from mega-menu + variants),
@@ -80,7 +85,12 @@ const STYLE_SYN = {
   'Old money': ['map', 'maps', 'earth', 'equestrian', 'horses', 'vintage'],
   'Marble': ['marble'], 'Eclectic': ['eclectic'], 'Country cottage': ['country cottage', 'cottagecore'], 'Preppy': ['preppy'], 'Transitional': ['transitional']
 };
-const MATERIALS_DEFAULT = ['Perspex', 'Wrapped canvas 260gsm', 'Satin photo paper 280gsm', 'Matte museum art paper 290gsm', 'MDF frame', 'Fade-resistant pigment inks'];
+const MATERIALS_DEFAULT = ['Perspex', 'Wrapped canvas', 'Satin photo paper', 'MDF frame', 'Fade resistant pigment inks'];
+// Etsy Materials accept letters, numbers and spaces only (a hyphen -> "invalid characters").
+// Sanitise each one: replace anything else with a space, collapse spaces, trim, cap at 45 chars.
+function sanitizeMaterial(s) { return String(s || '').replace(/[^A-Za-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 45); }
+// Force an Etsy tag to <=20 chars: trim, and if too long cut at the last space that still fits, else hard cut.
+function clampTag(s) { var t = String(s || '').replace(/\s+/g, ' ').trim(); if (t.length <= 20) return t; var cut = t.slice(0, 20); var sp = cut.lastIndexOf(' '); return (sp >= 10 ? cut.slice(0, sp) : cut).trim(); }
 
 function stripHtml(h) { return String(h || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim(); }
 function normT(s) { return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
@@ -437,11 +447,12 @@ module.exports = async (req, res) => {
     if (q.action === 'tab1-publish' && req.method === 'POST') {
       const b = req.body || {}; const steps = [];
       const title = String(b.title || '').trim();
-      const tags = (b.tags || []).map(t => String(t).trim()).filter(Boolean).slice(0, 13);
+      // FIX 2: force every tag to <=20 chars (never reject the publish) + drop empties/duplicates, max 13.
+      const tags = [];
+      for (const raw of (b.tags || [])) { const c = clampTag(raw); if (c && !tags.some(x => x.toLowerCase() === c.toLowerCase())) tags.push(c); if (tags.length >= 13) break; }
       const variants = (b.variants || []).filter(v => v.frame && v.size && v.price > 0);
       if (!title || title.length > 140) { finish(400, { ok: false, error: 'Título vacío o de más de 140 caracteres' }); return; }
       if (!variants.length) { finish(400, { ok: false, error: 'No hay variantes con precio' }); return; }
-      if (tags.some(t => t.length > 20)) { finish(400, { ok: false, error: 'Hay tags de más de 20 caracteres' }); return; }
       const minPrice = Math.min.apply(null, variants.map(v => Number(v.price)));
       const form = new URLSearchParams({
         quantity: '25', title, description: String(b.description || ''), price: minPrice.toFixed(2),
@@ -450,7 +461,8 @@ module.exports = async (req, res) => {
         should_auto_renew: 'false', is_supply: 'false', is_personalizable: 'false'
       });
       if (tags.length) form.set('tags', tags.join(','));
-      const mats = (b.materials || []).map(String).filter(Boolean);
+      // FIX 1: sanitise materials to letters/numbers/spaces only (a hyphen = Etsy "invalid characters"), unique, max 13.
+      const mats = [...new Set((b.materials || []).map(sanitizeMaterial).filter(Boolean))].slice(0, 13);
       if (mats.length) form.set('materials', mats.join(','));
       if (b.section_id) form.set('shop_section_id', String(b.section_id));
       const cr = await call('/shops/' + SHOP_ID + '/listings', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form.toString() });
@@ -458,24 +470,34 @@ module.exports = async (req, res) => {
       steps.push({ step: 'crear draft', status: cr.status, listing_id: lid, error: cr.status >= 300 ? cr.json : undefined });
       if (!lid) { finish(200, { ok: false, steps, error: 'No se pudo crear el draft' }); return; }
 
-      const invBody = {
-        products: variants.map(v => ({
+      // FIX 3: Etsy demands the COMPLETE matrix of every Frame x Size value in use.
+      // Build the full cartesian: present combos enabled with their price; missing combos disabled (min price placeholder).
+      const frames = [...new Set(variants.map(v => String(v.frame)))];
+      const sizes = [...new Set(variants.map(v => String(v.size)))];
+      const priceOf = {};
+      variants.forEach(v => { priceOf[String(v.frame) + '||' + String(v.size)] = Number(v.price); });
+      const products = [];
+      frames.forEach(fr => sizes.forEach(sz => {
+        const has = Object.prototype.hasOwnProperty.call(priceOf, fr + '||' + sz);
+        products.push({
           sku: String(b.sku || ''),
           property_values: [
-            { property_id: 513, property_name: 'Frame', value_ids: [], values: [String(v.frame)], scale_id: null },
-            { property_id: 514, property_name: 'Size', value_ids: [], values: [String(v.size)], scale_id: null }
+            { property_id: 513, property_name: 'Frame', value_ids: [], values: [fr], scale_id: null },
+            { property_id: 514, property_name: 'Size', value_ids: [], values: [sz], scale_id: null }
           ],
-          offerings: [{ price: Number(v.price), quantity: 25, is_enabled: true, readiness_state_id: Number(READINESS) }]
-        })),
-        price_on_property: [513, 514], quantity_on_property: [], sku_on_property: []
-      };
+          offerings: [{ price: has ? priceOf[fr + '||' + sz] : minPrice, quantity: 25, is_enabled: has, readiness_state_id: Number(READINESS) }]
+        });
+      }));
+      const invBody = { products, price_on_property: [513, 514], quantity_on_property: [], sku_on_property: [] };
       const inv = await call('/listings/' + lid + '/inventory', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(invBody) });
-      steps.push({ step: 'variaciones + precios', status: inv.status, count: variants.length, error: inv.status >= 300 ? inv.json : undefined });
+      steps.push({ step: 'variaciones + precios', status: inv.status, count: products.length, enabled: variants.length, error: inv.status >= 300 ? inv.json : undefined });
 
       const attrs = Array.isArray(b.attributes) ? b.attributes : [];
       for (const a of attrs) {
-        if (!a.property_id || !(a.value_ids || []).length) continue;
-        const f = new URLSearchParams({ value_ids: a.value_ids.join(','), values: (a.values || []).join(',') });
+        // FIX 4: only send real numeric taxonomy value_ids (drop strings like "5:7" that Etsy reports as "malformed").
+        const ids = (a.value_ids || []).map(Number).filter(n => Number.isInteger(n) && n > 0);
+        if (!a.property_id || !ids.length) continue;
+        const f = new URLSearchParams({ value_ids: ids.join(','), values: (a.values || []).join(',') });
         const pr = await call('/shops/' + SHOP_ID + '/listings/' + lid + '/properties/' + a.property_id, { method: 'PUT', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: f.toString() });
         steps.push({ step: 'atributo ' + (a.name || a.property_id), status: pr.status, error: pr.status >= 300 ? pr.json : undefined });
       }
