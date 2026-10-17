@@ -1,4 +1,7 @@
-// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.15
+// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.16
+// v0.16 (2026-10-17): FIX regression — attributes send value_ids AND values again (Etsy requires both), with the
+//   display text cleaned ("5:7 (ISO ratio)" -> "5:7") so aspect ratio isn't "malformed". Description voice = a real
+//   friendly decor adviser (short natural sentences; banned catalogue/novel phrasing like "a sense of", "drama"...).
 // v0.15 (2026-10-17): title has NO colours (colours only in attributes); attributes sent with value_ids ONLY (fixes
 //   "5:7 malformed" aspect ratio); friendlier fixed-text links (related listings show their title, one per line);
 //   Sent Items stored in GitHub (list/add/delete actions) for the Sent tab. Front: Craft/attrs as removable pills +
@@ -435,7 +438,7 @@ module.exports = async (req, res) => {
         '', 'RULES — follow exactly:',
         '1) TITLE: max 140 chars, Title Case (NOT all caps), long but readable, keyword-rich WITHOUT stuffing/repeating. Lead with the keyword that best says WHAT it is. Include the room. Do NOT put any colour words in the title (no "white", "black", "blue"...) — colours go ONLY in the attributes/SEO, never in the title. Position of keywords does not affect ranking.',
         '2) TAGS: EXACTLY 13, all UNIQUE, lowercase, never the same combination twice, no spelling mistakes. Each tag = a descriptor (use the keyword data) + a wall-art synonym as the noun. Spread these 10 synonyms across DIFFERENT tags (each used about once): wall art, art prints, wall decor, wall hangings, wall prints, canvas prints, wall pictures, wall posters, canvas art, art decor. Cover the 7 tag types across the 13: 1 descriptive (what it is) 2 materials/technique 3 for whom (gifts) 4 occasion 5 solution (empty wall...) 6 style (era/palette + what it is) 7 size. Do not repeat exact category/attribute names as a tag (a multi-word tag that contains them is fine). CRITICAL LENGTH RULE: every tag MUST be 20 characters or fewer INCLUDING SPACES. Count the characters of each tag before returning it. If a tag would be over 20, REWRITE it with a shorter synonym (e.g. "scandinavian wall art" = 21 -> "scandi wall art"; "nordic landscape decor" = 22 -> "nordic landscape"); NEVER return a tag over 20 and NEVER cut a word mid-way.',
-        '3) DESCRIPTION: write ONLY the TOP part of the listing (about 150-220 words). A fixed block with all the materials / shipping / care / personalisation details is added automatically BELOW it, so do NOT write any of that. Warm first-person brand voice (UK spelling, friendly decor advisor): a relevant keyword in the FIRST sentence (natural, do NOT copy the title, do NOT list keywords), what the art is and the feeling it brings, and practical advice on where and how to hang it (height, spacing for a set of 3). You may mention it is a set of 3 that arrives ready to hang with an optional frame, but do NOT repeat the full materials/shipping/care facts. Plain text, no headings.',
+        '3) DESCRIPTION: write ONLY the TOP part (about 120-180 words); a fixed block with materials/shipping/care/personalisation is added automatically BELOW, so do NOT write any of that. VOICE: a real, friendly interior-decor adviser talking to a customer — warm, natural, down-to-earth (UK spelling, use "you"/"your"). SHORT, simple sentences and everyday words. Do NOT write like a catalogue, brochure or novel. BANNED phrasing, never use: "a sense of", "evokes", "a feeling of", "drama", "dramatic", "a cohesive story", "tells a story", "rendered in", "punctuated by", "journey", "whisper", "dance", "symphony", "statement piece", or stacks of flowery adjectives. DO: open with a relevant keyword in the first sentence (natural, do not copy the title, do not list keywords), say plainly what the art is, where it looks great in the home, and how to hang a set of 3 (height, spacing). You may say it is a set of 3 that arrives ready to hang with an optional frame. Plain text, no headings.',
         '4) WORDING: "art prints" is OK in title/description/tags. The word "poster"/"posters" ONLY in tags (never title/description). NEVER write "digital print" or "digital download". Say "perspex", never "acrylic". Never say "hand-painted".',
         '5) ATTRIBUTES: choose from the EXACT option lists below (copy the option text exactly). Only include a property if it clearly applies. Several values allowed only where the property is multi-valued (Occasion, Holiday, Room, Subject may take more than one if truly relevant, else one).',
         optLines,
@@ -641,11 +644,12 @@ module.exports = async (req, res) => {
 
       const attrs = Array.isArray(b.attributes) ? b.attributes : [];
       for (const a of attrs) {
-        // #7 / FIX 4: send ONLY the numeric taxonomy value_ids (never the display text like "5:7 (ISO ratio)",
-        // which Etsy rejects as "malformed"). value_ids alone is the canonical, accepted form.
+        // Etsy requires BOTH value_ids AND values. Clean the display text (e.g. "5:7 (ISO ratio)" -> "5:7") so the
+        // value isn't rejected as "malformed", but keep value_ids 1:1 with values.
         const ids = (a.value_ids || []).map(Number).filter(n => Number.isInteger(n) && n > 0);
         if (!a.property_id || !ids.length) continue;
-        const f = new URLSearchParams({ value_ids: ids.join(',') });
+        const vals = (a.values || []).map(v => String(v).replace(/\s*\([^)]*\)\s*$/, '').trim());
+        const f = new URLSearchParams({ value_ids: ids.join(','), values: vals.join(',') });
         const pr = await call('/shops/' + SHOP_ID + '/listings/' + lid + '/properties/' + a.property_id, { method: 'PUT', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: f.toString() });
         steps.push({ step: 'atributo ' + (a.name || a.property_id), status: pr.status, error: pr.status >= 300 ? pr.json : undefined });
       }
