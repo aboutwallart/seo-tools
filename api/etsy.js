@@ -1,4 +1,8 @@
-// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.14
+// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.15
+// v0.15 (2026-10-17): title has NO colours (colours only in attributes); attributes sent with value_ids ONLY (fixes
+//   "5:7 malformed" aspect ratio); friendlier fixed-text links (related listings show their title, one per line);
+//   Sent Items stored in GitHub (list/add/delete actions) for the Sent tab. Front: Craft/attrs as removable pills +
+//   "add" menu, "Can be personalized" preselected Yes, Sent Items tab + reset after send.
 // v0.14 (2026-10-17): Batch A — #3 keywords balanced order (drop impossible, near-dead last); #4 tags REWRITTEN to <=20
 //   before the UI shows them; #5 AI writes only the top of the description + fixed footer (section name/link + 4 random
 //   related listings) appended at publish; #8 is_personalizable ON; #10 personalisation text box "Personalise your item"
@@ -28,6 +32,26 @@ const TOKEN_URL = 'https://api.etsy.com/v3/public/oauth/token';
 // ================= TAB 1 DATA (from handovers/AWA-ETSY-project-2026-10-12.md) =================
 const SHOP_ID = '25023670', TAXONOMY = '1029', READINESS = '1410830180137', SHIPPING = '113487783584', RETURNS = '1082803901616';
 const APIFY_ACTOR = 'A5KKVgfRFWo268Ggi'; // axlymxp
+// #14: Sent Items are stored in GitHub (shows on every computer; never localStorage).
+const REPO = 'aboutwallart/seo-tools';
+const SENT_PATH = 'data/etsy-sent-items.json';
+function ghHeaders() { return { 'Authorization': 'token ' + process.env.GITHUB_TOKEN, 'Accept': 'application/vnd.github+json', 'User-Agent': 'awa-etsy' }; }
+async function ghGet(path) {
+  const r = await fetch('https://api.github.com/repos/' + REPO + '/contents/' + path + '?ref=main&t=' + Date.now(), { headers: ghHeaders() });
+  if (r.status === 404) return { content: null, sha: null };
+  if (!r.ok) throw new Error('GitHub get failed: ' + (await r.text()));
+  const j = await r.json();
+  return { content: Buffer.from(j.content, 'base64').toString('utf8'), sha: j.sha };
+}
+async function ghPut(path, content, sha, message) {
+  const r = await fetch('https://api.github.com/repos/' + REPO + '/contents/' + path, {
+    method: 'PUT', headers: ghHeaders(),
+    body: JSON.stringify({ message, content: Buffer.from(content).toString('base64'), sha: sha || undefined, branch: 'main' })
+  });
+  if (!r.ok) { const t = await r.text(); const e = new Error('GitHub put failed: ' + t); e.status = r.status; throw e; }
+  return true;
+}
+async function readSent() { try { const f = await ghGet(SENT_PATH); if (f.content) { const j = JSON.parse(f.content); return { items: Array.isArray(j) ? j : (j.items || []), sha: f.sha }; } } catch (e) {} return { items: [], sha: null }; }
 const WALL_ART_TERMS = ['wall art', 'art prints', 'wall decor', 'wall hangings', 'wall prints', 'canvas prints', 'wall pictures', 'wall posters', 'canvas art', 'art decor'];
 const ROOMS = ['Living room', 'Bedroom', 'Nursery', 'Teens', 'Bathroom', 'Kitchen', 'Dining room', 'Hallway', 'Office', 'Laundry room', 'Above fireplace', 'Games room'];
 const ROOM_SYN = {
@@ -145,8 +169,11 @@ const FIXED_DESCRIPTION = [
   'Instagram: https://www.instagram.com/aboutwallart/',
   'Facebook: https://www.facebook.com/aboutwallart',
   '',
-  'See more in our {SECTION} collection: {SECTION_LINK}',
-  'You may also like: {RELATED}',
+  'See more in our {SECTION} collection:',
+  '{SECTION_LINK}',
+  '',
+  'You may also like:',
+  '{RELATED}',
   '',
   '★★ Want 15% off? Join the About Wall Art Club and we\'ll send you a secret code for 15% off your next order: https://bit.ly/joinaboutwallart ★★',
   '',
@@ -164,12 +191,16 @@ async function buildFixedDescription(call, sectionId, sectionTitle, excludeListi
   let related = '';
   if (sectionId) {
     try {
-      const r = await call('/shops/' + SHOP_ID + '/listings/active?limit=100&includes=');
+      const r = await call('/shops/' + SHOP_ID + '/listings/active?limit=100');
       const all = (r.json && r.json.results) || [];
       const inSection = all.filter(l => String(l.shop_section_id) === String(sectionId) && String(l.listing_id) !== String(excludeListingId));
       // shuffle, take up to 4
       for (let i = inSection.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = inSection[i]; inSection[i] = inSection[j]; inSection[j] = t; }
-      related = inSection.slice(0, 4).map(l => 'https://www.etsy.com/listing/' + l.listing_id).join('  ·  ');
+      // #17: one per line, with the listing TITLE in front of the link so buyers read what it is (not just an id).
+      related = inSection.slice(0, 4).map(l => {
+        const t = String(l.title || '').split('|')[0].trim().slice(0, 60);
+        return (t ? '• ' + t + ' — ' : '• ') + 'https://www.etsy.com/listing/' + l.listing_id;
+      }).join('\n');
     } catch (e) { /* best effort: leave related empty */ }
   }
   return FIXED_DESCRIPTION
@@ -402,7 +433,7 @@ module.exports = async (req, res) => {
         'Store description (for facts only, do not copy): ' + (p.description || '').slice(0, 1200),
         '', 'ETSY KEYWORD DATA (real Etsy searches with competition; prefer relevant, lower-competition ones):', kws,
         '', 'RULES — follow exactly:',
-        '1) TITLE: max 140 chars, Title Case (NOT all caps), long but readable, keyword-rich WITHOUT stuffing/repeating. Lead with the keyword that best says WHAT it is. Include the room and the main colour. Position of keywords does not affect ranking.',
+        '1) TITLE: max 140 chars, Title Case (NOT all caps), long but readable, keyword-rich WITHOUT stuffing/repeating. Lead with the keyword that best says WHAT it is. Include the room. Do NOT put any colour words in the title (no "white", "black", "blue"...) — colours go ONLY in the attributes/SEO, never in the title. Position of keywords does not affect ranking.',
         '2) TAGS: EXACTLY 13, all UNIQUE, lowercase, never the same combination twice, no spelling mistakes. Each tag = a descriptor (use the keyword data) + a wall-art synonym as the noun. Spread these 10 synonyms across DIFFERENT tags (each used about once): wall art, art prints, wall decor, wall hangings, wall prints, canvas prints, wall pictures, wall posters, canvas art, art decor. Cover the 7 tag types across the 13: 1 descriptive (what it is) 2 materials/technique 3 for whom (gifts) 4 occasion 5 solution (empty wall...) 6 style (era/palette + what it is) 7 size. Do not repeat exact category/attribute names as a tag (a multi-word tag that contains them is fine). CRITICAL LENGTH RULE: every tag MUST be 20 characters or fewer INCLUDING SPACES. Count the characters of each tag before returning it. If a tag would be over 20, REWRITE it with a shorter synonym (e.g. "scandinavian wall art" = 21 -> "scandi wall art"; "nordic landscape decor" = 22 -> "nordic landscape"); NEVER return a tag over 20 and NEVER cut a word mid-way.',
         '3) DESCRIPTION: write ONLY the TOP part of the listing (about 150-220 words). A fixed block with all the materials / shipping / care / personalisation details is added automatically BELOW it, so do NOT write any of that. Warm first-person brand voice (UK spelling, friendly decor advisor): a relevant keyword in the FIRST sentence (natural, do NOT copy the title, do NOT list keywords), what the art is and the feeling it brings, and practical advice on where and how to hang it (height, spacing for a set of 3). You may mention it is a set of 3 that arrives ready to hang with an optional frame, but do NOT repeat the full materials/shipping/care facts. Plain text, no headings.',
         '4) WORDING: "art prints" is OK in title/description/tags. The word "poster"/"posters" ONLY in tags (never title/description). NEVER write "digital print" or "digital download". Say "perspex", never "acrylic". Never say "hand-painted".',
@@ -416,6 +447,25 @@ module.exports = async (req, res) => {
       const out = await claudeJSON(content, 4000);
       await ensureTagsUnder20(out); // #4: rewrite (not cut) any tag over 20 chars BEFORE the UI shows it
       res.status(200).json({ ok: true, listing: out });
+    } catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
+    return;
+  }
+
+  // #14: Sent Items list (GitHub-backed) — read + append. Delete lives in the Etsy actions (needs the Etsy call).
+  if (q.action === 'tab1-sent-list') {
+    try { const s = await readSent(); res.status(200).json({ ok: true, items: s.items }); }
+    catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
+    return;
+  }
+  if (q.action === 'tab1-sent-add' && req.method === 'POST') {
+    try {
+      const b = req.body || {};
+      if (!b.listing_id) { res.status(400).json({ ok: false, error: 'Falta listing_id' }); return; }
+      const s = await readSent();
+      const item = { listing_id: String(b.listing_id), sku: String(b.sku || ''), title: String(b.title || ''), section: String(b.section || ''), ts: Date.now() };
+      const items = [item].concat(s.items.filter(x => String(x.listing_id) !== item.listing_id)); // newest first, no dup
+      await ghPut(SENT_PATH, JSON.stringify(items, null, 2), s.sha, 'AWA ETSY: sent ' + item.sku + ' (' + item.listing_id + ')');
+      res.status(200).json({ ok: true, items });
     } catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
     return;
   }
@@ -591,10 +641,11 @@ module.exports = async (req, res) => {
 
       const attrs = Array.isArray(b.attributes) ? b.attributes : [];
       for (const a of attrs) {
-        // FIX 4: only send real numeric taxonomy value_ids (drop strings like "5:7" that Etsy reports as "malformed").
+        // #7 / FIX 4: send ONLY the numeric taxonomy value_ids (never the display text like "5:7 (ISO ratio)",
+        // which Etsy rejects as "malformed"). value_ids alone is the canonical, accepted form.
         const ids = (a.value_ids || []).map(Number).filter(n => Number.isInteger(n) && n > 0);
         if (!a.property_id || !ids.length) continue;
-        const f = new URLSearchParams({ value_ids: ids.join(','), values: (a.values || []).join(',') });
+        const f = new URLSearchParams({ value_ids: ids.join(',') });
         const pr = await call('/shops/' + SHOP_ID + '/listings/' + lid + '/properties/' + a.property_id, { method: 'PUT', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: f.toString() });
         steps.push({ step: 'atributo ' + (a.name || a.property_id), status: pr.status, error: pr.status >= 300 ? pr.json : undefined });
       }
@@ -624,6 +675,18 @@ module.exports = async (req, res) => {
       fd.append('rank', String(b.rank || 1));
       const up = await call('/shops/' + SHOP_ID + '/listings/' + b.listing_id + '/images', { method: 'POST', body: fd });
       finish(200, { ok: up.status < 300, status: up.status, error: up.status >= 300 ? up.json : undefined });
+      return;
+    }
+
+    // #14: delete a sent draft — removes it from Etsy AND from the GitHub list.
+    if (q.action === 'tab1-sent-delete' && req.method === 'POST') {
+      const b = req.body || {};
+      if (!b.listing_id) { finish(400, { ok: false, error: 'Falta listing_id' }); return; }
+      const del = await call('/listings/' + b.listing_id, { method: 'DELETE' });
+      const s = await readSent();
+      const items = s.items.filter(x => String(x.listing_id) !== String(b.listing_id));
+      try { await ghPut(SENT_PATH, JSON.stringify(items, null, 2), s.sha, 'AWA ETSY: delete ' + b.listing_id); } catch (e) {}
+      finish(200, { ok: del.status < 300 || del.status === 404, status: del.status, items, error: (del.status >= 300 && del.status !== 404) ? del.json : undefined });
       return;
     }
 
