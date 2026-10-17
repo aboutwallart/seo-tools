@@ -1,7 +1,10 @@
-// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.16
+// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.17
+// v0.17 (2026-10-17): Sent items — a FAILED delete no longer removes the item from the list (keeps it on refresh);
+//   store the featured image with each sent item so the Sent tab can show a collapsed row that expands to a preview.
 // v0.16 (2026-10-17): FIX regression — attributes send value_ids AND values again (Etsy requires both), with the
 //   display text cleaned ("5:7 (ISO ratio)" -> "5:7") so aspect ratio isn't "malformed". Description voice = a real
 //   friendly decor adviser (short natural sentences; banned catalogue/novel phrasing like "a sense of", "drama"...).
+//   Added listings_d scope so Sent items "Borrar" can delete a draft (RECONNECT once after deploy to grant it).
 // v0.15 (2026-10-17): title has NO colours (colours only in attributes); attributes sent with value_ids ONLY (fixes
 //   "5:7 malformed" aspect ratio); friendlier fixed-text links (related listings show their title, one per line);
 //   Sent Items stored in GitHub (list/add/delete actions) for the Sent tab. Front: Craft/attrs as removable pills +
@@ -27,7 +30,7 @@ const KEY = process.env.ETSY_KEYSTRING;
 const SECRET = process.env.ETSY_SHARED_SECRET;
 const APIKEY = KEY + ':' + SECRET; // Etsy wants keystring:shared_secret in x-api-key
 const REDIRECT = 'https://tools.aboutwallart.com/api/etsy';
-const SCOPES = 'listings_r listings_w shops_r';
+const SCOPES = 'listings_r listings_w listings_d shops_r'; // listings_d = delete (needed to remove a draft from Sent items)
 const API = 'https://openapi.etsy.com/v3/application';
 const TOKEN_URL = 'https://api.etsy.com/v3/public/oauth/token';
 
@@ -465,7 +468,7 @@ module.exports = async (req, res) => {
       const b = req.body || {};
       if (!b.listing_id) { res.status(400).json({ ok: false, error: 'Falta listing_id' }); return; }
       const s = await readSent();
-      const item = { listing_id: String(b.listing_id), sku: String(b.sku || ''), title: String(b.title || ''), section: String(b.section || ''), ts: Date.now() };
+      const item = { listing_id: String(b.listing_id), sku: String(b.sku || ''), title: String(b.title || ''), section: String(b.section || ''), image: String(b.image || ''), ts: Date.now() };
       const items = [item].concat(s.items.filter(x => String(x.listing_id) !== item.listing_id)); // newest first, no dup
       await ghPut(SENT_PATH, JSON.stringify(items, null, 2), s.sha, 'AWA ETSY: sent ' + item.sku + ' (' + item.listing_id + ')');
       res.status(200).json({ ok: true, items });
@@ -687,10 +690,12 @@ module.exports = async (req, res) => {
       const b = req.body || {};
       if (!b.listing_id) { finish(400, { ok: false, error: 'Falta listing_id' }); return; }
       const del = await call('/listings/' + b.listing_id, { method: 'DELETE' });
+      const ok = del.status < 300 || del.status === 404;
       const s = await readSent();
-      const items = s.items.filter(x => String(x.listing_id) !== String(b.listing_id));
-      try { await ghPut(SENT_PATH, JSON.stringify(items, null, 2), s.sha, 'AWA ETSY: delete ' + b.listing_id); } catch (e) {}
-      finish(200, { ok: del.status < 300 || del.status === 404, status: del.status, items, error: (del.status >= 300 && del.status !== 404) ? del.json : undefined });
+      let items = s.items;
+      // only remove from the list when Etsy actually deleted it — a failed delete must NOT lose the item.
+      if (ok) { items = s.items.filter(x => String(x.listing_id) !== String(b.listing_id)); try { await ghPut(SENT_PATH, JSON.stringify(items, null, 2), s.sha, 'AWA ETSY: delete ' + b.listing_id); } catch (e) {} }
+      finish(200, { ok, status: del.status, items, error: ok ? undefined : del.json });
       return;
     }
 
