@@ -1,4 +1,8 @@
-// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.13
+// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.14
+// v0.14 (2026-10-17): Batch A — #3 keywords balanced order (drop impossible, near-dead last); #4 tags REWRITTEN to <=20
+//   before the UI shows them; #5 AI writes only the top of the description + fixed footer (section name/link + 4 random
+//   related listings) appended at publish; #8 is_personalizable ON; #10 personalisation text box "Personalise your item"
+//   (+£5, optional) via the personalization endpoint. (#6 Craft / #7 aspect ratio 5:7 auto-sent from the front.)
 // v0.13 (2026-10-17): 4 publish fixes (never let Etsy reject a publish):
 //   1. Materials sanitised to letters/numbers/spaces only + cleaned default list (no hyphen/gsm/museum).
 //   2. Tags FORCED to <=20 chars (truncate at a word boundary) instead of rejecting the publish.
@@ -91,6 +95,88 @@ const MATERIALS_DEFAULT = ['Perspex', 'Wrapped canvas', 'Satin photo paper', 'MD
 function sanitizeMaterial(s) { return String(s || '').replace(/[^A-Za-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 45); }
 // Force an Etsy tag to <=20 chars: trim, and if too long cut at the last space that still fits, else hard cut.
 function clampTag(s) { var t = String(s || '').replace(/\s+/g, ' ').trim(); if (t.length <= 20) return t; var cut = t.slice(0, 20); var sp = cut.lastIndexOf(' '); return (sp >= 10 ? cut.slice(0, sp) : cut).trim(); }
+// #4: guarantee every tag is <=20 chars by REWRITING (not cutting) the long ones with the AI, before the UI shows them.
+async function ensureTagsUnder20(out) {
+  for (let pass = 0; pass < 3; pass++) {
+    const tags = Array.isArray(out.tags) ? out.tags.map(t => String(t || '').replace(/\s+/g, ' ').trim()) : [];
+    out.tags = tags;
+    const long = tags.filter(t => t.length > 20);
+    if (!long.length) return;
+    const ok = tags.filter(t => t.length > 0 && t.length <= 20);
+    const fixPrompt = 'These Etsy tags are over 20 characters: ' + JSON.stringify(long) + '. For EACH, write a REPLACEMENT that keeps the same meaning and is a real Etsy search phrase (a descriptor + a wall-art synonym), MAXIMUM 20 characters INCLUDING SPACES. Never cut a word mid-way — rephrase with a shorter synonym instead. All replacements must be unique, lowercase, and must NOT duplicate any of these existing tags: ' + JSON.stringify(ok) + '. Return ONLY JSON: {"replacements":[{"old":"<old tag>","new":"<new tag, 20 chars or fewer>"}]}';
+    let rep = [];
+    try { const fix = await claudeJSON([{ type: 'text', text: fixPrompt }], 800); rep = Array.isArray(fix.replacements) ? fix.replacements : []; } catch (e) { /* keep going; final clamp guards */ }
+    const map = {};
+    rep.forEach(r => { if (r && r.old != null && r.new != null) map[String(r.old)] = String(r.new).replace(/\s+/g, ' ').trim(); });
+    out.tags = tags.map(t => (t.length > 20 && map[t] && map[t].length <= 20 ? map[t] : t));
+  }
+  // last-resort guard (should never fire after 3 rewrite passes): clamp so the UI never shows a tag over 20.
+  out.tags = (out.tags || []).map(t => clampTag(String(t || '')));
+}
+// #5: the common footer appended under every listing description. {SECTION}/{SECTION_LINK}/{RELATED} are filled at publish.
+const SHOP_URL_NAME = 'AboutWallArt';
+const FIXED_DESCRIPTION = [
+  'Details:',
+  '* Printed on premium satin photo paper (280gsm) for exceptional colour and clarity — wrapped canvas option also available.',
+  '* We use fade-resistant pigment inks for bright colour that won\'t fade in sunlight.',
+  '* For indoor use only.',
+  '* White mounts are not included.',
+  '* Choose your prints on their own, or add a frame in black, white or oak — so your set arrives ready to hang, with no hunting for frames to fit the size.',
+  '',
+  'About the frames:',
+  '* Our frames come with a hanger and a strut, for freestanding or wall-hanging displays (landscape or portrait).',
+  '* Made with a clear perspex front (for safety) and a matt-painted MDF frame, with a sturdy MDF backboard and strut.',
+  '* Please note: the size you choose is the print size that fits the frame, not the overall outer size.',
+  '',
+  'Personalisation:',
+  '* I can adapt the print to any size you wish.',
+  '* I can also add a quote of your choice. Just message me!',
+  '',
+  'Care:',
+  'If your print gathers any dust, wipe it gently with a clean, dry cloth.',
+  '',
+  'Packaging:',
+  'All prints are delivered in protective packaging — A4 in a board envelope, A3 and above in a strong postal tube.',
+  '',
+  'FREE UK POSTAGE — we aim to ship all orders within 1-3 business days.',
+  '',
+  'Thank you for visiting and supporting our small business!',
+  'Follow our journey:',
+  'Instagram: https://www.instagram.com/aboutwallart/',
+  'Facebook: https://www.facebook.com/aboutwallart',
+  '',
+  'See more in our {SECTION} collection: {SECTION_LINK}',
+  'You may also like: {RELATED}',
+  '',
+  '★★ Want 15% off? Join the About Wall Art Club and we\'ll send you a secret code for 15% off your next order: https://bit.ly/joinaboutwallart ★★',
+  '',
+  'AboutWallArt is a registered trademark. All rights reserved. Colours may vary slightly depending on your screen settings.',
+  '',
+  'Mae',
+  'AboutWallArt',
+  'mae@aboutwallart.com',
+  '',
+  '★★ Dreaming of your perfect home but unsure where to begin? Get our "Visualising Your Dream Home" interior design workbook FREE: https://bit.ly/FreeInteriorDesignWorkbook ★★'
+].join('\n');
+// Build the fixed footer with the Etsy section name/link + up to 4 random OTHER listings from the same section.
+async function buildFixedDescription(call, sectionId, sectionTitle, excludeListingId) {
+  let sectionLink = sectionId ? ('https://www.etsy.com/shop/' + SHOP_URL_NAME + '?section_id=' + sectionId) : ('https://www.etsy.com/shop/' + SHOP_URL_NAME);
+  let related = '';
+  if (sectionId) {
+    try {
+      const r = await call('/shops/' + SHOP_ID + '/listings/active?limit=100&includes=');
+      const all = (r.json && r.json.results) || [];
+      const inSection = all.filter(l => String(l.shop_section_id) === String(sectionId) && String(l.listing_id) !== String(excludeListingId));
+      // shuffle, take up to 4
+      for (let i = inSection.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = inSection[i]; inSection[i] = inSection[j]; inSection[j] = t; }
+      related = inSection.slice(0, 4).map(l => 'https://www.etsy.com/listing/' + l.listing_id).join('  ·  ');
+    } catch (e) { /* best effort: leave related empty */ }
+  }
+  return FIXED_DESCRIPTION
+    .replace('{SECTION}', sectionTitle || 'About Wall Art')
+    .replace('{SECTION_LINK}', sectionLink)
+    .replace('{RELATED}', related);
+}
 
 function stripHtml(h) { return String(h || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim(); }
 function normT(s) { return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
@@ -288,9 +374,16 @@ module.exports = async (req, res) => {
         keyword: x.keyword, seed: x.seed_keyword, competing: x.competing_listings_count, level: x.competition_level,
         min: x.min_price, max: x.max_price, avg: x.avg_price, median: x.median_price
       })).filter(x => x.keyword);
-      // unique keywords, ranked: lowest competition first (all come from Etsy autosuggest = real searches)
-      const seen = new Set(); const uniq = [];
-      rows.sort((a, b) => (a.competing == null ? 1e12 : a.competing) - (b.competing == null ? 1e12 : b.competing)).forEach(x => { const k = normT(x.keyword); if (!seen.has(k)) { seen.add(k); uniq.push(x); } });
+      // #3: balance demand/competition. Dedupe, drop the impossible (huge competition), push the near-dead (~0 listings)
+      // to the bottom, and show medium-low competition first (every keyword is a real Etsy autosuggest search).
+      const NEAR_DEAD = 10, IMPOSSIBLE = 100000;
+      const seen = new Set(); const kept = [];
+      rows.forEach(x => { const k = normT(x.keyword); if (!seen.has(k)) { seen.add(k); kept.push(x); } });
+      const uniq = kept
+        .map(x => ({ x, c: (x.competing == null ? Infinity : Number(x.competing)) }))
+        .filter(o => o.c <= IMPOSSIBLE)
+        .sort((a, b) => { const ad = a.c < NEAR_DEAD, bd = b.c < NEAR_DEAD; if (ad !== bd) return ad ? 1 : -1; return a.c - b.c; })
+        .map(o => o.x);
       res.status(200).json({ ok: true, seeds, took_s: r.took_s, count: uniq.length, keywords: uniq });
     } catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
     return;
@@ -310,8 +403,8 @@ module.exports = async (req, res) => {
         '', 'ETSY KEYWORD DATA (real Etsy searches with competition; prefer relevant, lower-competition ones):', kws,
         '', 'RULES — follow exactly:',
         '1) TITLE: max 140 chars, Title Case (NOT all caps), long but readable, keyword-rich WITHOUT stuffing/repeating. Lead with the keyword that best says WHAT it is. Include the room and the main colour. Position of keywords does not affect ranking.',
-        '2) TAGS: EXACTLY 13, each <=20 characters, all UNIQUE, lowercase, never the same combination twice, no spelling mistakes. Each tag = a descriptor (use the keyword data) + a wall-art synonym as the noun. Spread these 10 synonyms across DIFFERENT tags (each used about once): wall art, art prints, wall decor, wall hangings, wall prints, canvas prints, wall pictures, wall posters, canvas art, art decor. Cover the 7 tag types across the 13: 1 descriptive (what it is) 2 materials/technique 3 for whom (gifts) 4 occasion 5 solution (empty wall...) 6 style (era/palette + what it is) 7 size. If a phrase is >20 chars split it into searchable chunks. Do not repeat exact category/attribute names as a tag (a multi-word tag that contains them is fine).',
-        '3) DESCRIPTION: plain text. Relevant keywords in the FIRST sentences, natural, warm first-person brand voice (UK spelling), do NOT copy the title and do NOT list keywords. Mention: set of 3, printed in the UK on satin photo paper 280gsm, framed options in black/white/oak with perspex, or wrapped canvas, fade-resistant pigment inks, made to order, sizes. 120-220 words.',
+        '2) TAGS: EXACTLY 13, all UNIQUE, lowercase, never the same combination twice, no spelling mistakes. Each tag = a descriptor (use the keyword data) + a wall-art synonym as the noun. Spread these 10 synonyms across DIFFERENT tags (each used about once): wall art, art prints, wall decor, wall hangings, wall prints, canvas prints, wall pictures, wall posters, canvas art, art decor. Cover the 7 tag types across the 13: 1 descriptive (what it is) 2 materials/technique 3 for whom (gifts) 4 occasion 5 solution (empty wall...) 6 style (era/palette + what it is) 7 size. Do not repeat exact category/attribute names as a tag (a multi-word tag that contains them is fine). CRITICAL LENGTH RULE: every tag MUST be 20 characters or fewer INCLUDING SPACES. Count the characters of each tag before returning it. If a tag would be over 20, REWRITE it with a shorter synonym (e.g. "scandinavian wall art" = 21 -> "scandi wall art"; "nordic landscape decor" = 22 -> "nordic landscape"); NEVER return a tag over 20 and NEVER cut a word mid-way.',
+        '3) DESCRIPTION: write ONLY the TOP part of the listing (about 150-220 words). A fixed block with all the materials / shipping / care / personalisation details is added automatically BELOW it, so do NOT write any of that. Warm first-person brand voice (UK spelling, friendly decor advisor): a relevant keyword in the FIRST sentence (natural, do NOT copy the title, do NOT list keywords), what the art is and the feeling it brings, and practical advice on where and how to hang it (height, spacing for a set of 3). You may mention it is a set of 3 that arrives ready to hang with an optional frame, but do NOT repeat the full materials/shipping/care facts. Plain text, no headings.',
         '4) WORDING: "art prints" is OK in title/description/tags. The word "poster"/"posters" ONLY in tags (never title/description). NEVER write "digital print" or "digital download". Say "perspex", never "acrylic". Never say "hand-painted".',
         '5) ATTRIBUTES: choose from the EXACT option lists below (copy the option text exactly). Only include a property if it clearly applies. Several values allowed only where the property is multi-valued (Occasion, Holiday, Room, Subject may take more than one if truly relevant, else one).',
         optLines,
@@ -321,6 +414,7 @@ module.exports = async (req, res) => {
       (p.images || []).slice(0, 3).forEach(u => content.push({ type: 'image', source: { type: 'url', url: u } }));
       content.push({ type: 'text', text: prompt });
       const out = await claudeJSON(content, 4000);
+      await ensureTagsUnder20(out); // #4: rewrite (not cut) any tag over 20 chars BEFORE the UI shows it
       res.status(200).json({ ok: true, listing: out });
     } catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
     return;
@@ -454,11 +548,14 @@ module.exports = async (req, res) => {
       if (!title || title.length > 140) { finish(400, { ok: false, error: 'Título vacío o de más de 140 caracteres' }); return; }
       if (!variants.length) { finish(400, { ok: false, error: 'No hay variantes con precio' }); return; }
       const minPrice = Math.min.apply(null, variants.map(v => Number(v.price)));
+      // #5: AI writes the TOP of the description; append the fixed footer (section name/link + related listings) under it.
+      const fixedFooter = await buildFixedDescription(call, b.section_id, b.section_title, null);
+      const description = (String(b.description || '').trim() + '\n\n' + fixedFooter).trim();
       const form = new URLSearchParams({
-        quantity: '25', title, description: String(b.description || ''), price: minPrice.toFixed(2),
+        quantity: '25', title, description, price: minPrice.toFixed(2),
         who_made: 'i_did', when_made: 'made_to_order', taxonomy_id: TAXONOMY, type: 'physical',
         shipping_profile_id: SHIPPING, return_policy_id: RETURNS, readiness_state_id: READINESS,
-        should_auto_renew: 'false', is_supply: 'false', is_personalizable: 'false'
+        should_auto_renew: 'false', is_supply: 'false', is_personalizable: 'true' // #8: personalisation ON
       });
       if (tags.length) form.set('tags', tags.join(','));
       // FIX 1: sanitise materials to letters/numbers/spaces only (a hyphen = Etsy "invalid characters"), unique, max 13.
@@ -501,6 +598,14 @@ module.exports = async (req, res) => {
         const pr = await call('/shops/' + SHOP_ID + '/listings/' + lid + '/properties/' + a.property_id, { method: 'PUT', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: f.toString() });
         steps.push({ step: 'atributo ' + (a.name || a.property_id), status: pr.status, error: pr.status >= 300 ? pr.json : undefined });
       }
+      // #10: personalisation text box with a +£5 add-on (optional) — buyer asks for a custom size or a quote.
+      const persoBody = { personalization_questions: [{
+        question_text: 'Personalise your item',
+        instructions: 'Tell us a custom size or a quote to add. Leave blank when no customisation is required',
+        question_type: 'text_input', required: false, add_on_price: 5.00, max_allowed_characters: 256
+      }] };
+      const perso = await call('/shops/' + SHOP_ID + '/listings/' + lid + '/personalization?supports_multiple_personalization_questions=true', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(persoBody) });
+      steps.push({ step: 'personalización', status: perso.status, error: perso.status >= 300 ? perso.json : undefined });
       const failed = steps.filter(s => s.status >= 300);
       finish(200, { ok: !failed.length, listing_id: lid, steps, failed: failed.length });
       return;
