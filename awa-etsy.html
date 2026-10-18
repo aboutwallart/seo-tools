@@ -52,7 +52,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">Tab 1 · NEW PRODUCT · v0.19</p>
+  <p class="ver">Tab 1 · NEW PRODUCT · v0.20</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -66,6 +66,7 @@
   <div class="row" style="margin:0 0 16px">
     <button id="tabNew" onclick="switchTab('new')">New product</button>
     <button id="tabSent" class="ghost" onclick="switchTab('sent')">Sent items <span id="sentCount"></span></button>
+    <button id="tabClean" class="ghost" onclick="switchTab('clean')">Clean listings</button>
   </div>
 
   <div id="newProductTab">
@@ -159,6 +160,20 @@
       <h2>Sent items</h2>
       <p class="sub">Drafts you've sent. Saved in GitHub (they show on any computer). Preview or delete if you discard one.</p>
       <div id="sentList"></div>
+    </div>
+  </div>
+
+  <div id="cleanTab" class="hide">
+    <div class="card">
+      <h2>Clean listings (remove off-platform text)</h2>
+      <p class="sub">Etsy removes listings that point buyers off-platform. This strips everything below the "FREE UK POSTAGE" line (social links, bit.ly, email, the ★★ promos) from your existing listings. Scan first to preview — nothing is changed until you click Apply, and every original description is backed up to GitHub.</p>
+      <div class="reminder">⚠️ This edits your LIVE Etsy listings. Always Scan and review the preview before Apply.</div>
+      <div class="row" style="margin-top:12px"><button id="scanBtn" onclick="scanClean()">Scan listings</button><span id="cleanMsg" class="fixed"></span></div>
+      <div id="cleanPreview" class="hide">
+        <div id="cleanSummary" class="msg" style="margin-top:12px"></div>
+        <div id="cleanSamples" style="margin-top:8px"></div>
+        <div class="row" style="margin-top:12px"><button id="applyBtn" onclick="applyClean()">Apply to all that change</button><span id="applyMsg" class="fixed"></span></div>
+      </div>
     </div>
   </div>
 </div>
@@ -471,21 +486,20 @@
       $('pubMsg').className = 'msg ' + ((fails.length || imgFails) ? 'bad' : 'good');
       $('pubMsg').innerHTML = esc(msg) + ' Photos: ' + (images.length - imgFails) + ' of ' + images.length + ' uploaded. <a href="https://www.etsy.com/your/shops/me/tools/listings/' + j.listing_id + '" target="_blank">Open the draft in Etsy</a>';
       // #14: record in Sent items (GitHub); if the send was clean, reset the window for the next product.
-      try{ await fetch('/api/etsy?action=tab1-sent-add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listing_id: j.listing_id, sku: P.sku, title: $('fTitle').value, section: secTitle, image: images[0] || '' }) }); }catch(e){}
+      try{ await fetch('/api/etsy?action=tab1-sent-add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listing_id: j.listing_id, sku: P.sku, title: $('fTitle').value, section: secTitle, image: images[0] || '' }) }); await loadSent(); }catch(e){}
       if (!fails.length && !imgFails){ resetForNext(); $('loadMsg').className = 'msg good'; $('loadMsg').textContent = '✓ Sent to Etsy and saved in Sent items. Ready for the next product.'; }
     }catch(e){ $('pubMsg').className = 'msg bad'; $('pubMsg').textContent = 'Failed: ' + e.message; }
     $('pubBtn').disabled = false;
   }
 
   /* ---------- #14: Sent items ---------- */
-  var SENT = [], SENT_OPEN = {};
-  function toggleSent(id){ SENT_OPEN[id] = !SENT_OPEN[id]; renderSent(); }
+  var SENT = [];
   function switchTab(which){
-    var isNew = which === 'new';
-    show('newProductTab', isNew); show('sentTab', !isNew);
-    $('tabNew').className = isNew ? '' : 'ghost';
-    $('tabSent').className = isNew ? 'ghost' : '';
-    if (!isNew) loadSent();
+    show('newProductTab', which === 'new'); show('sentTab', which === 'sent'); show('cleanTab', which === 'clean');
+    $('tabNew').className = which === 'new' ? '' : 'ghost';
+    $('tabSent').className = which === 'sent' ? '' : 'ghost';
+    $('tabClean').className = which === 'clean' ? '' : 'ghost';
+    if (which === 'sent') loadSent();
   }
   async function loadSent(){
     try{ var r = await fetch('/api/etsy?action=tab1-sent-list&t=' + Date.now()); var j = await r.json(); if (j.ok){ SENT = j.items || []; renderSent(); } }catch(e){}
@@ -493,18 +507,16 @@
   function renderSent(){
     $('sentCount').textContent = SENT.length ? '(' + SENT.length + ')' : '';
     if (!SENT.length){ $('sentList').innerHTML = '<p class="fixed">You haven\'t sent any yet.</p>'; return; }
+    // newest first (backend stores newest first); always expanded — preview + actions visible, no click needed.
     $('sentList').innerHTML = SENT.map(function(it){
       var d = it.ts ? new Date(it.ts).toLocaleDateString() : '';
-      var open = !!SENT_OPEN[it.listing_id];
-      // collapsed header (click to expand) — SKU + section + date
-      var head = '<div class="row" style="gap:8px;cursor:pointer" onclick="toggleSent(\'' + esc(it.listing_id) + '\')">' +
-        '<span style="font-weight:700">' + (open ? '▾' : '▸') + '</span> <b>' + esc(it.sku || '') + '</b> <span class="fixed">' + esc(it.section || '') + (d ? ' · ' + d : '') + '</span></div>';
-      // expanded: featured image preview + full title + actions
-      var body = !open ? '' : ('<div style="margin-top:8px"><div class="fixed" style="margin-bottom:6px">' + esc(it.title || '') + '</div>' +
-        (it.image ? '<img src="' + esc(it.image) + '" style="width:120px;height:120px;object-fit:cover;border-radius:8px;border:1px solid var(--line)">' : '<span class="fixed">(no preview — sent before this version)</span>') +
-        '<div class="row" style="margin-top:8px"><a href="https://www.etsy.com/your/shops/me/tools/listings/' + esc(it.listing_id) + '" target="_blank"><button class="ghost" type="button">Open in Etsy</button></a>' +
-        '<button type="button" onclick="deleteSent(\'' + esc(it.listing_id) + '\', this)">Delete</button></div></div>');
-      return '<div class="card" style="padding:10px 12px;margin:0 0 8px">' + head + body + '</div>';
+      return '<div class="card" style="padding:10px 12px;margin:0 0 8px"><div class="row" style="gap:12px;align-items:flex-start">' +
+        (it.image ? '<img src="' + esc(it.image) + '" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--line)">' : '') +
+        '<div style="flex:1;min-width:160px"><b>' + esc(it.sku || '') + '</b> <span class="fixed">' + esc(it.section || '') + (d ? ' · ' + d : '') + '</span>' +
+        '<div class="fixed">' + esc(it.title || '') + '</div>' +
+        '<div class="row" style="margin-top:6px"><a href="https://www.etsy.com/your/shops/me/tools/listings/' + esc(it.listing_id) + '" target="_blank"><button class="ghost" type="button">Open in Etsy</button></a>' +
+        '<button type="button" onclick="deleteSent(\'' + esc(it.listing_id) + '\', this)">Delete</button></div>' +
+        '</div></div></div>';
     }).join('');
   }
   async function deleteSent(id, btn){
@@ -522,6 +534,57 @@
     $('sku').value = '';
     show('prod', false); show('kwCard', false); show('genCard', false); show('editCard', false); show('pubCard', false); show('kwBox', false);
     $('pubMsg').textContent = ''; window.scrollTo(0, 0);
+  }
+
+  /* ---------- Clean listings (remove off-platform footer from existing listings) ---------- */
+  var CLEAN = [];
+  function cleanDescription(desc){
+    var lines = String(desc || '').split('\n'), i, free = -1;
+    for (i = 0; i < lines.length; i++){ if (/free uk postage/i.test(lines[i])){ free = i; break; } }
+    if (free >= 0) return lines.slice(0, free + 1).join('\n').replace(/\s+$/, '');   // keep up to FREE UK POSTAGE, drop below
+    var markers = [/thank you for visiting/i, /follow our journey/i, /★★/, /bit\.ly/i, /join the about wall art club/i, /i think you may like to take a look/i, /back to the store/i, /mae@aboutwallart\.com/i, /registered trademark/i, /instagram\.com/i, /facebook\.com/i];
+    var cut = -1;
+    for (i = 0; i < lines.length; i++){ if (markers.some(function(m){ return m.test(lines[i]); })){ cut = i; break; } }
+    if (cut >= 0) return lines.slice(0, cut).join('\n').replace(/\s+$/, '');
+    return String(desc || '');
+  }
+  async function scanClean(){
+    $('scanBtn').disabled = true; $('cleanMsg').textContent = 'Scanning your listings…'; show('cleanPreview', false);
+    try{
+      var r = await fetch('/api/etsy?action=tab-clean-list&t=' + Date.now()); var j = await r.json();
+      if (!j.ok) throw new Error(j.error || 'Error');
+      CLEAN = (j.listings || []).map(function(l){ var cleaned = cleanDescription(l.description); return { listing_id: l.listing_id, title: l.title, original: l.description, cleaned: cleaned, changed: cleaned !== l.description }; });
+      var changed = CLEAN.filter(function(c){ return c.changed; });
+      $('cleanMsg').textContent = j.count + ' listings scanned · ' + changed.length + ' would change.';
+      $('cleanSummary').className = 'msg ' + (changed.length ? 'good' : '');
+      $('cleanSummary').textContent = changed.length + ' listings will have the off-platform footer removed. Review a few below, then Apply.';
+      $('cleanSamples').innerHTML = changed.slice(0, 3).map(function(c){
+        return '<div class="card" style="padding:8px 10px;margin:0 0 8px"><div class="fixed"><b>' + esc(c.title || c.listing_id) + '</b></div>' +
+          '<div class="grid2" style="margin-top:4px">' +
+          '<div><div class="fixed">BEFORE (end)</div><pre style="white-space:pre-wrap;font-size:11px;max-height:160px;overflow:auto;background:#f6f4ee;padding:6px;border-radius:6px">' + esc(c.original.slice(-500)) + '</pre></div>' +
+          '<div><div class="fixed">AFTER (end)</div><pre style="white-space:pre-wrap;font-size:11px;max-height:160px;overflow:auto;background:#eef7f2;padding:6px;border-radius:6px">' + esc(c.cleaned.slice(-500)) + '</pre></div></div></div>';
+      }).join('');
+      $('applyBtn').disabled = changed.length === 0;
+      show('cleanPreview');
+    }catch(e){ $('cleanMsg').textContent = 'Failed: ' + e.message; }
+    $('scanBtn').disabled = false;
+  }
+  async function applyClean(){
+    var changed = CLEAN.filter(function(c){ return c.changed; });
+    if (!changed.length) return;
+    if (!confirm('Update ' + changed.length + ' live Etsy listings? Each original description is backed up to GitHub first.')) return;
+    $('applyBtn').disabled = true; $('scanBtn').disabled = true;
+    var done = 0, failed = 0, B = 20;
+    for (var i = 0; i < changed.length; i += B){
+      var batch = changed.slice(i, i + B).map(function(c){ return { listing_id: c.listing_id, original: c.original, description: c.cleaned }; });
+      $('applyMsg').textContent = 'Updating ' + Math.min(i + B, changed.length) + ' / ' + changed.length + '…';
+      try{
+        var r = await fetch('/api/etsy?action=tab-clean-apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: batch }) });
+        var j = await r.json(); done += (j.updated || 0); failed += (j.failed || 0);
+      }catch(e){ failed += batch.length; }
+    }
+    $('applyMsg').textContent = 'Done. Updated ' + done + ', failed ' + failed + '.' + (failed ? ' (Re-scan to retry the failed ones.)' : '');
+    $('scanBtn').disabled = false;
   }
 
   if (location.search.indexOf('connected=1') >= 0) { setConnected(true); }
