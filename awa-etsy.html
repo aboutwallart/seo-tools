@@ -52,7 +52,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">Tab 1 · NEW PRODUCT · v0.23</p>
+  <p class="ver">Tab 1 · NEW PRODUCT · v0.24</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -71,13 +71,20 @@
 
   <div id="newProductTab">
   <div class="card">
-    <h2>1 · Load product</h2>
-    <p class="sub">Enter the SKU (the "sku for print files"). The tool pulls everything from Shopify.</p>
-    <div class="row">
-      <input id="sku" type="text" placeholder="e.g. LIVJPN28" style="max-width:220px">
-      <button id="loadBtn" onclick="loadProduct()">Load</button>
+    <h2>1 · Load products</h2>
+    <p class="sub">Paste one SKU, or a whole column of SKUs from Excel (one per line). The tool loads them one at a time, you review and publish, and it jumps to the next on its own.</p>
+    <textarea id="sku" placeholder="Paste SKUs here, one per line — e.g.&#10;LIVJPN28&#10;BEDABS14&#10;KITFLR09"></textarea>
+    <div class="row" style="margin-top:8px">
+      <button id="loadBtn" onclick="loadQueue()">Load</button>
+      <span id="loadMsg" class="msg"></span>
     </div>
-    <div id="loadMsg" class="msg"></div>
+    <div id="queuePanel" class="hide" style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px">
+      <div class="row" style="justify-content:space-between">
+        <b id="queuePos"></b>
+        <button type="button" class="ghost" id="skipBtn" onclick="skipCurrent()">Skip this one</button>
+      </div>
+      <div id="queueList" style="margin-top:8px"></div>
+    </div>
     <div id="prod" class="hide">
       <h3>Product</h3>
       <div id="prodTitle" style="font-size:14px"></div>
@@ -203,19 +210,65 @@
     }catch(e){}
   }
 
-  /* ---------- step 1: product ---------- */
-  async function loadProduct(){
-    var sku = $('sku').value.trim(); if (!sku) return;
-    $('loadBtn').disabled = true; $('loadMsg').className = 'msg'; $('loadMsg').textContent = 'Searching Shopify…';
+  /* ---------- step 1: product queue (paste one SKU or a whole column) ---------- */
+  var QUEUE = [], QIDX = 0;
+  function parseSkus(raw){
+    var seen = {}, out = [];
+    String(raw || '').split(/[\n\r\t, ]+/).forEach(function(s){
+      s = s.trim(); if (!s) return;
+      var k = s.toUpperCase(); if (seen[k]) return;   // ignore duplicates
+      seen[k] = 1; out.push(s);
+    });
+    return out;                                        // empties already dropped
+  }
+  function loadQueue(){
+    var list = parseSkus($('sku').value);
+    if (!list.length){ $('loadMsg').className = 'msg bad'; $('loadMsg').textContent = 'Enter at least one SKU.'; return; }
+    QUEUE = list; QIDX = 0;
+    show('queuePanel', QUEUE.length > 1); renderQueue(); loadCurrent();
+  }
+  function renderQueue(){
+    var multi = QUEUE.length > 1;
+    $('queuePos').textContent = multi ? ('Product ' + (QIDX + 1) + ' of ' + QUEUE.length) : '';
+    show('skipBtn', multi);
+    $('queueList').innerHTML = !multi ? '' : QUEUE.map(function(sku, i){
+      var state = i < QIDX ? 'done' : (i === QIDX ? 'current' : 'pending');
+      var tag = state === 'done' ? '✓ ' : (state === 'current' ? '→ ' : '');
+      var rm = state === 'pending' ? '<button type="button" class="ghost" style="padding:2px 8px;font-size:12px" onclick="removeFromQueue(' + i + ')">✕</button>' : '';
+      return '<div class="row" style="justify-content:space-between;padding:3px 0"><span class="' + (state === 'current' ? '' : 'fixed') + '">' + tag + esc(sku) + '</span>' + rm + '</div>';
+    }).join('');
+  }
+  function removeFromQueue(i){ if (i > QIDX){ QUEUE.splice(i, 1); renderQueue(); } }   // can only remove ones not started yet
+  function skipCurrent(){
+    if (QIDX + 1 < QUEUE.length){ QIDX++; renderQueue(); loadCurrent(); }
+    else { QUEUE = []; QIDX = 0; show('queuePanel', false); resetForNext(true); $('loadMsg').className = 'msg good'; $('loadMsg').textContent = 'No more products in the list.'; }
+  }
+  async function loadCurrent(){
+    var sku = (QUEUE[QIDX] || '').trim(); if (!sku) return;
+    var multi = QUEUE.length > 1;
+    $('loadBtn').disabled = true; $('loadMsg').className = 'msg'; $('loadMsg').textContent = 'Searching Shopify for ' + sku + '…';
     try{
       var r = await fetch('/api/etsy?action=tab1-load&sku=' + encodeURIComponent(sku));
       var j = await r.json();
-      if (!j.ok) throw new Error(j.error || 'Error');
+      if (!j.ok) throw new Error(j.error || 'not found');
       P = j.product; LISTING = null; KW = [];
-      $('loadMsg').className = 'msg good'; $('loadMsg').textContent = 'Product loaded.';
+      $('loadMsg').className = 'msg good'; $('loadMsg').textContent = 'Product loaded' + (multi ? ' (' + (QIDX + 1) + ' of ' + QUEUE.length + ')' : '') + '.';
       renderProduct();
-    }catch(e){ $('loadMsg').className = 'msg bad'; $('loadMsg').textContent = 'Couldn\'t load: ' + e.message; }
+    }catch(e){
+      show('prod', false); show('kwCard', false); show('genCard', false); show('editCard', false); show('pubCard', false);
+      $('loadMsg').className = 'msg bad';
+      $('loadMsg').textContent = "SKU '" + sku + "' not found in Shopify — check for a typo." + (multi ? ' Use Skip to continue with the next one.' : '');
+    }
     $('loadBtn').disabled = false;
+  }
+  function advanceAfterPublish(){
+    var total = QUEUE.length;
+    if (QIDX + 1 < total){ QIDX++; renderQueue(); resetForNext(false); loadCurrent(); }   // keep the pasted list; jump to the next
+    else {
+      QUEUE = []; QIDX = 0; show('queuePanel', false); resetForNext(true);
+      $('loadMsg').className = 'msg good';
+      $('loadMsg').textContent = total > 1 ? '✓ All products in the list are done.' : '✓ Sent to Etsy and saved in Sent items. Ready for the next product.';
+    }
   }
   function renderProduct(){
     show('prod'); show('kwCard'); show('genCard'); show('editCard', false); show('pubCard', false);
@@ -487,7 +540,7 @@
       $('pubMsg').innerHTML = esc(msg) + ' Photos: ' + (images.length - imgFails) + ' of ' + images.length + ' uploaded. <a href="https://www.etsy.com/your/shops/me/tools/listings/' + j.listing_id + '" target="_blank">Open the draft in Etsy</a>';
       // #14: record in Sent items (GitHub); if the send was clean, reset the window for the next product.
       try{ await fetch('/api/etsy?action=tab1-sent-add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listing_id: j.listing_id, sku: P.sku, title: $('fTitle').value, section: secTitle, image: images[0] || '' }) }); await loadSent(); }catch(e){}
-      if (!fails.length && !imgFails){ resetForNext(); $('loadMsg').className = 'msg good'; $('loadMsg').textContent = '✓ Sent to Etsy and saved in Sent items. Ready for the next product.'; }
+      if (!fails.length && !imgFails){ advanceAfterPublish(); }
     }catch(e){ $('pubMsg').className = 'msg bad'; $('pubMsg').textContent = 'Failed: ' + e.message; }
     $('pubBtn').disabled = false;
   }
@@ -529,9 +582,9 @@
       else { btn.disabled = false; btn.textContent = 'Delete'; alert('Couldn\'t delete: ' + (j.error ? JSON.stringify(j.error) : j.status)); }
     }catch(e){ btn.disabled = false; btn.textContent = 'Delete'; alert('Failed: ' + e.message); }
   }
-  function resetForNext(){
+  function resetForNext(clearBox){
     P = null; LISTING = null; KW = []; SEEDS = []; STYLES = []; ROOMS_SEL = []; SECTION_ID = null; FIXED_ATTRS = []; ATTR_SEL = {};
-    $('sku').value = '';
+    if (clearBox !== false) $('sku').value = '';
     show('prod', false); show('kwCard', false); show('genCard', false); show('editCard', false); show('pubCard', false); show('kwBox', false);
     $('pubMsg').textContent = ''; window.scrollTo(0, 0);
   }
