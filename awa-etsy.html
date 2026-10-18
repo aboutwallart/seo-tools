@@ -52,7 +52,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">Tab 1 · NEW PRODUCT · v0.25</p>
+  <p class="ver">Tab 1 · NEW PRODUCT · v0.26</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -86,6 +86,7 @@
       <p class="sub" style="margin:8px 0 4px">Tick the SKUs that are a family (same look → same keywords) and group them. The keyword search runs once for the whole family. Each one still gets its own room, title and tags.</p>
       <div class="row" style="margin:0 0 6px"><button type="button" class="ghost" id="groupBtn" onclick="groupFamily()">Group ticked as a family</button></div>
       <div id="queueList" style="margin-top:4px"></div>
+      <div id="familySend" style="margin-top:8px"></div>
     </div>
     <div id="prod" class="hide">
       <h3>Product</h3>
@@ -158,6 +159,7 @@
     <h2>5 · Publish DRAFT to Etsy</h2>
     <p class="sub">Creates the draft (inactive), the priced variations, the attributes, and uploads the Shopify photos.</p>
     <button id="pubBtn" onclick="publish()">Publish draft</button>
+    <button id="approveBtn" class="hide" onclick="approveMember()">Approve for sending</button>
     <div id="pubMsg" class="msg"></div>
     <div class="reminder">⚠️ Remember to apply the +16% international pricing by hand (select the new listings → +16%).</div>
     <div class="reminder">⚠️ By hand on Etsy (the API doesn't allow these): How it's made → <b>Made from scratch</b> · Tools → <b>Computerised tools</b> · Tariff → <b>4911.91</b> (unframed) / <b>4414.90</b> (framed) · GPSR.</div>
@@ -213,7 +215,7 @@
   }
 
   /* ---------- step 1: product queue (paste one SKU or a whole column) ---------- */
-  var QUEUE = [], QIDX = 0, FAMID = [], FAMILIES = {}, FAM_SEQ = 0;
+  var QUEUE = [], QIDX = 0, FAMID = [], STATE = [], FAMILIES = {}, FAM_SEQ = 0, QEND = false;
   var FAM_COLORS = ['#1d6e56', '#8a5a2b', '#3a5a9e', '#9e3a6e', '#5a7a2b', '#6e4a9e'];
   function famLetter(f){ return String.fromCharCode(65 + (f % 26)); }
   function famColor(f){ return FAM_COLORS[f % FAM_COLORS.length]; }
@@ -229,37 +231,44 @@
   function loadQueue(){
     var list = parseSkus($('sku').value);
     if (!list.length){ $('loadMsg').className = 'msg bad'; $('loadMsg').textContent = 'Enter at least one SKU.'; return; }
-    QUEUE = list; QIDX = 0; FAMID = list.map(function(){ return null; }); FAMILIES = {}; FAM_SEQ = 0;
+    QUEUE = list; QIDX = 0; FAMID = list.map(function(){ return null; }); STATE = list.map(function(){ return null; }); FAMILIES = {}; FAM_SEQ = 0; QEND = false;
     show('queuePanel', QUEUE.length > 1); renderQueue(); loadCurrent();
   }
   function renderQueue(){
     var multi = QUEUE.length > 1;
-    $('queuePos').textContent = multi ? ('Product ' + (QIDX + 1) + ' of ' + QUEUE.length) : '';
-    show('skipBtn', multi);
+    $('queuePos').textContent = QEND ? 'End of the list' : (multi ? ('Product ' + (QIDX + 1) + ' of ' + QUEUE.length) : '');
+    show('skipBtn', multi && !QEND);
     $('queueList').innerHTML = !multi ? '' : QUEUE.map(function(sku, i){
-      var state = i < QIDX ? 'done' : (i === QIDX ? 'current' : 'pending');
-      var tag = state === 'done' ? '✓ ' : (state === 'current' ? '→ ' : '');
+      var st = STATE[i], isCurrent = (i === QIDX && !QEND);
+      var tag = st === 'sent' ? '✓ sent ' : (st === 'approved' ? '✓ approved ' : (isCurrent ? '→ ' : ''));
       var fam = FAMID[i];
       var badge = fam != null ? ' <span class="pill" style="background:' + famColor(fam) + ';color:#fff;padding:1px 8px;font-size:11px">Family ' + famLetter(fam) + '</span>' : '';
-      var cb = i >= QIDX ? '<input type="checkbox" class="qSel" data-i="' + i + '" style="margin-right:6px">' : '<span style="display:inline-block;width:20px"></span>';
-      var rm = state === 'pending' ? '<button type="button" class="ghost" style="padding:2px 8px;font-size:12px" onclick="removeFromQueue(' + i + ')">✕</button>' : '';
-      return '<div class="row" style="justify-content:space-between;padding:3px 0"><span class="' + (state === 'current' ? '' : 'fixed') + '">' + cb + tag + esc(sku) + badge + '</span>' + rm + '</div>';
+      var cb = !st ? '<input type="checkbox" class="qSel" data-i="' + i + '" style="margin-right:6px">' : '<span style="display:inline-block;width:20px"></span>';
+      var rm = (!st && !isCurrent) ? '<button type="button" class="ghost" style="padding:2px 8px;font-size:12px" onclick="removeFromQueue(' + i + ')">✕</button>' : '';
+      return '<div class="row" style="justify-content:space-between;padding:3px 0"><span class="' + (isCurrent ? '' : 'fixed') + '">' + cb + tag + esc(sku) + badge + '</span>' + rm + '</div>';
     }).join('');
+    renderFamilySend();
   }
   function groupFamily(){
     var sel = Array.prototype.slice.call(document.querySelectorAll('.qSel:checked')).map(function(c){ return +c.dataset.i; });
     if (sel.length < 2){ $('loadMsg').className = 'msg bad'; $('loadMsg').textContent = 'Tick at least two SKUs to group them as a family.'; return; }
     var f = FAM_SEQ++; sel.forEach(function(i){ FAMID[i] = f; });
     renderQueue();
-    $('loadMsg').className = 'msg good'; $('loadMsg').textContent = 'Grouped ' + sel.length + ' SKUs as Family ' + famLetter(f) + '. The keyword search will run once for them.';
+    $('loadMsg').className = 'msg good'; $('loadMsg').textContent = 'Grouped ' + sel.length + ' SKUs as Family ' + famLetter(f) + '. The keyword search will run once; each one is approved, then sent together.';
   }
-  function removeFromQueue(i){ if (i > QIDX){ QUEUE.splice(i, 1); FAMID.splice(i, 1); renderQueue(); } }   // can only remove ones not started yet
+  function removeFromQueue(i){
+    if (STATE[i] || (i === QIDX && !QEND)) return;          // can't remove approved/sent or the current one
+    QUEUE.splice(i, 1); FAMID.splice(i, 1); STATE.splice(i, 1);
+    if (i < QIDX) QIDX--;
+    renderQueue();
+  }
   function skipCurrent(){
     if (QIDX + 1 < QUEUE.length){ QIDX++; renderQueue(); loadCurrent(); }
-    else { QUEUE = []; QIDX = 0; show('queuePanel', false); resetForNext(true); $('loadMsg').className = 'msg good'; $('loadMsg').textContent = 'No more products in the list.'; }
+    else endOfQueue();
   }
   async function loadCurrent(){
     var sku = (QUEUE[QIDX] || '').trim(); if (!sku) return;
+    QEND = false;
     var multi = QUEUE.length > 1;
     $('loadBtn').disabled = true; $('loadMsg').className = 'msg'; $('loadMsg').textContent = 'Searching Shopify for ' + sku + '…';
     try{
@@ -269,11 +278,13 @@
       P = j.product; LISTING = null; KW = [];
       $('loadMsg').className = 'msg good'; $('loadMsg').textContent = 'Product loaded' + (multi ? ' (' + (QIDX + 1) + ' of ' + QUEUE.length + ')' : '') + '.';
       renderProduct();
-      // family: if this product's family already has keywords, reuse them — no second Apify search.
+      // family: if this product's family already has keywords, reuse them — no second Apify search,
+      // and hide the whole keyword card (you picked them on the first one). Only Product + Generate show.
       var fam = FAMID[QIDX];
       if (fam != null && FAMILIES[fam] && FAMILIES[fam].kw && FAMILIES[fam].kw.length){
         KW = FAMILIES[fam].kw; renderKw(FAMILIES[fam].ticked || null);
-        $('kwMsg').className = 'msg good'; $('kwMsg').textContent = 'Keywords reused from Family ' + famLetter(fam) + ' — no need to search again. Go straight to Generate.';
+        show('kwCard', false);
+        $('loadMsg').textContent += ' · Keywords reused from Family ' + famLetter(fam) + ' — go straight to Generate.';
       }
     }catch(e){
       show('prod', false); show('kwCard', false); show('genCard', false); show('editCard', false); show('pubCard', false);
@@ -282,16 +293,73 @@
     }
     $('loadBtn').disabled = false;
   }
-  function advanceAfterPublish(){
-    var fam = FAMID[QIDX];                              // record this title so the family's next titles stay different (SEO)
-    if (fam != null){ if (!FAMILIES[fam]) FAMILIES[fam] = {}; if (!FAMILIES[fam].titles) FAMILIES[fam].titles = []; FAMILIES[fam].titles.push($('fTitle').value); }
-    var total = QUEUE.length;
-    if (QIDX + 1 < total){ QIDX++; renderQueue(); resetForNext(false); loadCurrent(); }   // keep the pasted list; jump to the next
-    else {
-      QUEUE = []; QIDX = 0; show('queuePanel', false); resetForNext(true);
-      $('loadMsg').className = 'msg good';
-      $('loadMsg').textContent = total > 1 ? '✓ All products in the list are done.' : '✓ Sent to Etsy and saved in Sent items. Ready for the next product.';
+  function advanceAfterPublish(){                         // single (non-family) send-now path
+    STATE[QIDX] = 'sent';
+    var allSingle = FAMID.every(function(f){ return f == null; });
+    if (QIDX + 1 < QUEUE.length){ QIDX++; renderQueue(); resetForNext(false); loadCurrent(); }   // keep the list; jump to the next
+    else if (QUEUE.length === 1 && allSingle){
+      QUEUE = []; QIDX = 0; STATE = []; FAMID = []; show('queuePanel', false); resetForNext(true);
+      $('loadMsg').className = 'msg good'; $('loadMsg').textContent = '✓ Sent to Etsy and saved in Sent items. Ready for the next product.';
+    } else { resetForNext(false); endOfQueue(); }
+  }
+  function endOfQueue(){
+    QEND = true;
+    show('prod', false); show('kwCard', false); show('genCard', false); show('editCard', false); show('pubCard', false);
+    renderQueue();
+    var pending = QUEUE.some(function(sku, i){ return FAMID[i] != null && STATE[i] === 'approved'; });
+    $('loadMsg').className = 'msg good';
+    $('loadMsg').textContent = pending ? 'End of the list. Send your approved families below.' : 'End of the list.';
+    window.scrollTo(0, 0);
+  }
+  function advanceAfterApprove(){
+    if (QIDX + 1 < QUEUE.length){ QIDX++; renderQueue(); resetForNext(false); loadCurrent(); }
+    else endOfQueue();
+  }
+  function approveMember(){
+    var fam = FAMID[QIDX];
+    if (fam == null){ publish(); return; }                 // safety: a non-family item just sends now
+    var g = gatherListing(); if (!g) return;
+    if (!FAMILIES[fam]) FAMILIES[fam] = {};
+    if (!FAMILIES[fam].approved) FAMILIES[fam].approved = [];
+    if (!FAMILIES[fam].titles) FAMILIES[fam].titles = [];
+    FAMILIES[fam].approved = FAMILIES[fam].approved.filter(function(a){ return a.qidx !== QIDX; });   // re-approve is safe
+    FAMILIES[fam].approved.push({ qidx: QIDX, g: g });
+    if (FAMILIES[fam].titles.indexOf(g.title) < 0) FAMILIES[fam].titles.push(g.title);   // so later family titles stay different (SEO)
+    STATE[QIDX] = 'approved';
+    $('loadMsg').className = 'msg good'; $('loadMsg').textContent = 'Approved ' + g.sku + ' (Family ' + famLetter(fam) + '). It will be sent when you press Send all.';
+    advanceAfterApprove();
+  }
+  function renderFamilySend(){
+    var fams = {};
+    QUEUE.forEach(function(sku, i){ var f = FAMID[i]; if (f == null) return; if (!fams[f]) fams[f] = { total: 0, approved: 0, sent: 0 }; fams[f].total++; if (STATE[i] === 'approved') fams[f].approved++; else if (STATE[i] === 'sent') fams[f].sent++; });
+    var keys = Object.keys(fams);
+    var el = $('familySend'); if (!el) return;
+    el.innerHTML = !keys.length ? '' : keys.map(function(f){
+      var c = fams[f], pending = c.total - c.sent;
+      if (pending <= 0) return '<div class="fixed" style="padding:4px 0">Family ' + famLetter(f) + ': all sent ✓</div>';
+      var ready = c.approved === pending;
+      var status = 'Family ' + famLetter(f) + ': ' + c.approved + '/' + pending + ' approved' + (c.sent ? (' · ' + c.sent + ' sent') : '');
+      var btn = ready ? ' <button type="button" id="sendFam' + f + '" onclick="sendAllFamily(' + f + ')">Send all drafts (Family ' + famLetter(f) + ')</button>' : '';
+      return '<div class="row" style="justify-content:space-between;padding:4px 0"><span class="fixed">' + status + '</span>' + btn + '</div>';
+    }).join('');
+  }
+  async function sendAllFamily(f){
+    var items = (FAMILIES[f] && FAMILIES[f].approved ? FAMILIES[f].approved : []).filter(function(a){ return STATE[a.qidx] === 'approved'; });
+    if (!items.length) return;
+    var btn = $('sendFam' + f); if (btn) btn.disabled = true;
+    var done = 0, failed = [];
+    for (var k = 0; k < items.length; k++){
+      var a = items[k];
+      $('loadMsg').className = 'msg'; $('loadMsg').textContent = 'Sending Family ' + famLetter(f) + ' — ' + (k + 1) + ' of ' + items.length + ' (' + a.g.sku + ')…';
+      var r = await sendOneDraft(a.g, function(txt){ $('loadMsg').textContent = 'Sending Family ' + famLetter(f) + ' — ' + (k + 1) + ' of ' + items.length + ': ' + txt; });
+      if (r.listing_id){ STATE[a.qidx] = 'sent'; if ((r.fails && r.fails.length) || r.imgFails) failed.push(a.g.sku + ' (partial)'); else done++; }
+      else failed.push(a.g.sku + (r.error ? ' (' + r.error + ')' : ' (not created)'));
+      renderQueue();
     }
+    FAMILIES[f].approved = FAMILIES[f].approved.filter(function(a){ return STATE[a.qidx] !== 'sent'; });
+    await loadSent();
+    $('loadMsg').className = 'msg ' + (failed.length ? 'bad' : 'good');
+    $('loadMsg').textContent = 'Family ' + famLetter(f) + ': sent ' + done + ' of ' + items.length + '.' + (failed.length ? ' Check these: ' + failed.join(' · ') : '');
   }
   function renderProduct(){
     show('prod'); show('kwCard'); show('genCard'); show('editCard', false); show('pubCard', false);
@@ -401,6 +469,9 @@
     $('fDesc').value = LISTING.description || '';
     $('matChips').innerHTML = P.materialsDefault.map(function(m){ return '<label class="chip"><input type="checkbox" class="matIn" value="' + esc(m) + '" checked>' + esc(m) + '</label>'; }).join('');
     renderPhotos(); renderEtsyRooms(); renderAttrs(); renderSections(); renderVariants();
+    // family member -> Approve (sent later together); single -> Publish now
+    var inFam = FAMID[QIDX] != null;
+    show('pubBtn', !inFam); show('approveBtn', inFam);
   }
   function checkTags(){
     var ins = document.querySelectorAll('.tagIn'), seen = {}, dup = 0, long = 0;
@@ -533,15 +604,16 @@
   }
 
   /* ---------- step 5: publish ---------- */
-  async function publish(){
+  // Read the whole edited listing (title, tags, photos, variants, attributes, section) into one plain object,
+  // so it can be sent now (single) or stored and sent later (family). Returns null if invalid.
+  function gatherListing(){
     var title = $('fTitle').value.trim();
-    // Force each tag to <=20 chars (cut at a word boundary) + drop empties/duplicates — never block the publish.
     function clampTag(s){ var t = String(s||'').replace(/\s+/g,' ').trim(); if (t.length <= 20) return t; var cut = t.slice(0,20); var sp = cut.lastIndexOf(' '); return (sp >= 10 ? cut.slice(0,sp) : cut).trim(); }
     var tags = [];
     Array.prototype.forEach.call(document.querySelectorAll('.tagIn'), function(i){ var c = clampTag(i.value); if (c && !tags.some(function(x){ return norm(x) === norm(c); })) tags.push(c); });
-    if (!title || title.length > 140){ alert('The title is empty or over 140 characters.'); return; }
+    if (!title || title.length > 140){ alert('The title is empty or over 140 characters.'); return null; }
     var images = selectedImages();
-    if (images.length > 20){ alert('More than 20 photos selected — untick down to 20.'); return; }
+    if (images.length > 20){ alert('More than 20 photos selected — untick down to 20.'); return null; }
     var variants = P.variants.map(function(v, i){ var inp = document.querySelector('.varPrice[data-i="' + i + '"]'); return { frame: v.frame, size: v.size, price: parseFloat(inp.value) }; });
     var attributes = [];
     Object.keys(ATTR_SEL).forEach(function(pid){
@@ -552,27 +624,40 @@
     attributes = attributes.concat(FIXED_ATTRS); // #6 Craft + #7 Aspect ratio 5:7 (auto)
     var materials = Array.prototype.map.call(document.querySelectorAll('.matIn:checked'), function(i){ return i.value; });
     var secTitle = ''; if (SECTION_ID && META){ var sfound = (META.sections || []).filter(function(x){ return String(x.id) === String(SECTION_ID); })[0]; if (sfound) secTitle = sfound.title; }
-    $('pubBtn').disabled = true; $('pubMsg').className = 'msg'; $('pubMsg').textContent = 'Creating draft, variations and attributes…';
+    return {
+      payload: { title: title, tags: tags, description: $('fDesc').value, materials: materials, section_id: SECTION_ID, section_title: secTitle, sku: P.sku, variants: variants, attributes: attributes },
+      images: images, title: title, sku: P.sku, secTitle: secTitle
+    };
+  }
+  // Create one draft + upload its photos + record it in Sent items. Returns {listing_id, fails, imgFails} or {error}.
+  async function sendOneDraft(g, progress){
     try{
-      var r = await fetch('/api/etsy?action=tab1-publish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: title, tags: tags, description: $('fDesc').value, materials: materials, section_id: SECTION_ID, section_title: secTitle, sku: P.sku, variants: variants, attributes: attributes }) });
+      var r = await fetch('/api/etsy?action=tab1-publish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(g.payload) });
       var j = await r.json();
-      if (!j.listing_id){ throw new Error((j.error || 'Draft wasn\'t created') + ' ' + JSON.stringify(j.steps || '')); }
+      if (!j.listing_id) return { error: (j.error || 'Draft wasn\'t created') + ' ' + JSON.stringify(j.steps || '') };
       var fails = (j.steps || []).filter(function(s){ return s.status >= 300; });
-      var msg = 'Draft created (id ' + j.listing_id + '). ' + (fails.length ? 'With errors in: ' + fails.map(function(f){ return f.step + ' [' + f.status + '] ' + JSON.stringify(f.error || ''); }).join(' · ') : 'Variations and attributes OK.');
       var imgFails = 0;
-      for (var i = 0; i < images.length; i++){
-        $('pubMsg').textContent = msg + ' Uploading photo ' + (i + 1) + ' of ' + images.length + '…';
+      for (var i = 0; i < g.images.length; i++){
+        if (progress) progress('draft ' + j.listing_id + ' — photo ' + (i + 1) + ' of ' + g.images.length);
         try{
-          var ir = await fetch('/api/etsy?action=tab1-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listing_id: j.listing_id, url: images[i], rank: i + 1 }) });
+          var ir = await fetch('/api/etsy?action=tab1-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listing_id: j.listing_id, url: g.images[i], rank: i + 1 }) });
           var ij = await ir.json(); if (!ij.ok) imgFails++;
         }catch(e){ imgFails++; }
       }
-      $('pubMsg').className = 'msg ' + ((fails.length || imgFails) ? 'bad' : 'good');
-      $('pubMsg').innerHTML = esc(msg) + ' Photos: ' + (images.length - imgFails) + ' of ' + images.length + ' uploaded. <a href="https://www.etsy.com/your/shops/me/tools/listings/' + j.listing_id + '" target="_blank">Open the draft in Etsy</a>';
-      // #14: record in Sent items (GitHub); if the send was clean, reset the window for the next product.
-      try{ await fetch('/api/etsy?action=tab1-sent-add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listing_id: j.listing_id, sku: P.sku, title: $('fTitle').value, section: secTitle, image: images[0] || '' }) }); await loadSent(); }catch(e){}
-      if (!fails.length && !imgFails){ advanceAfterPublish(); }
-    }catch(e){ $('pubMsg').className = 'msg bad'; $('pubMsg').textContent = 'Failed: ' + e.message; }
+      try{ await fetch('/api/etsy?action=tab1-sent-add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listing_id: j.listing_id, sku: g.sku, title: g.title, section: g.secTitle, image: g.images[0] || '' }) }); }catch(e){}
+      return { listing_id: j.listing_id, fails: fails, imgFails: imgFails };
+    }catch(e){ return { error: String(e && e.message || e) }; }
+  }
+  async function publish(){
+    var g = gatherListing(); if (!g) return;
+    $('pubBtn').disabled = true; $('pubMsg').className = 'msg'; $('pubMsg').textContent = 'Creating draft, variations and attributes…';
+    var r = await sendOneDraft(g, function(txt){ $('pubMsg').textContent = 'Creating… ' + txt; });
+    if (r.error){ $('pubMsg').className = 'msg bad'; $('pubMsg').textContent = 'Failed: ' + r.error; $('pubBtn').disabled = false; return; }
+    var msg = 'Draft created (id ' + r.listing_id + '). ' + (r.fails.length ? 'With errors in: ' + r.fails.map(function(f){ return f.step + ' [' + f.status + '] ' + JSON.stringify(f.error || ''); }).join(' · ') : 'Variations and attributes OK.');
+    $('pubMsg').className = 'msg ' + ((r.fails.length || r.imgFails) ? 'bad' : 'good');
+    $('pubMsg').innerHTML = esc(msg) + ' Photos: ' + (g.images.length - r.imgFails) + ' of ' + g.images.length + ' uploaded. <a href="https://www.etsy.com/your/shops/me/tools/listings/' + r.listing_id + '" target="_blank">Open the draft in Etsy</a>';
+    await loadSent();
+    if (!r.fails.length && !r.imgFails){ advanceAfterPublish(); }
     $('pubBtn').disabled = false;
   }
 
