@@ -220,7 +220,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v4.20</span>
+  <span class="ver">v4.21</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -857,13 +857,13 @@ function reviewInner(g){
      ? '<button class="btn primary" disabled><span class="spin"></span>'+esc(IMG_PROGRESS||'Uploading…')+'</button>'
      : (IMG_SAVED && !anyStaged)
        ? '<button class="btn" '+okStyle+' disabled>✓ Images uploaded</button>'
-       : '<button class="btn primary" '+(canUpload?'':'disabled title="Arrastrá todas las imágenes de todas las rooms primero"')+' onclick="uploadAllImages()">⬆ Upload all images — 1 commit</button>';
+       : '<button class="btn primary" '+(canUpload?'':'disabled title="Drag in all the images for every room first"')+' onclick="uploadAllImages()">⬆ Upload all images — 1 commit</button>';
   const gate=(!IMG_UPLOADING && anyStaged && imgIncomplete.length)
-     ? '<p class="sub" style="margin-top:8px;color:var(--warn)">Falta antes de subir: '+imgIncomplete.map(p=>esc(roomName(p))+' ('+imagesMissingStaged(p).map(esc).join(', ')+')').join(' · ')+'</p>'
+     ? '<p class="sub" style="margin-top:8px;color:var(--warn)">Missing before upload: '+imgIncomplete.map(p=>esc(roomName(p))+' ('+imagesMissingStaged(p).map(esc).join(', ')+')').join(' · ')+'</p>'
      : '';
   const bar='<div class="actions" style="margin-top:16px;gap:10px;flex-wrap:wrap">'+seoBtn+imgBtn+'</div>'+gate+
-     '<p class="sub" style="margin-top:8px">Orden: generá el SEO de cada room → <b>Save all SEO</b> → arrastrá las fotos → <b>Upload all images</b> (se desbloquea cuando está todo completo). Cada botón guarda todo en 1 commit; el progreso se ve por room.</p>';
-  return '<p class="sub">Abrí una room, revisá su SEO y arrastrá sus lifestyle. Después guardá el SEO y subí las imágenes abajo.</p>'+renderSharedBox()+'<div class="vlist">'+g.map(reviewRoom).join('')+'</div>'+bar;
+     '<p class="sub" style="margin-top:8px">Order: generate the SEO for each room → <b>Save all SEO</b> → drag in the photos → <b>Upload all images</b> (unlocks once everything is complete). Each button saves everything in 1 commit; progress shows per room.</p>';
+  return '<p class="sub">Open a room, review its SEO and drag in its lifestyle photos. Then save the SEO and upload the images below.</p>'+renderSharedBox()+'<div class="vlist">'+g.map(reviewRoom).join('')+'</div>'+bar;
 }
 function sendInner(g){
   const anyReady=g.some(canSendNow);
@@ -1272,9 +1272,9 @@ function renderSharedBox(){
   }
   const dzOrBusy = SHARED_UPLOADING
     ? '<div class="dz dz-full busy"><span class="dz-spinicon"></span>'+esc(SHARED_PROGRESS||'Uploading…')+'</div>'
-    : '<div class="dz dz-full" onclick="document.getElementById(\'sharedfile\').click()" ondragover="event.preventDefault();this.classList.add(\'over\')" ondragleave="this.classList.remove(\'over\')" ondrop="onSharedDrop(event)">📷 Drop flats + singles here — add as many tandas as you need. Nothing uploads until you press the button below.</div>';
+    : '<div class="dz dz-full" onclick="document.getElementById(\'sharedfile\').click()" ondragover="event.preventDefault();this.classList.add(\'over\')" ondragleave="this.classList.remove(\'over\')" ondrop="onSharedDrop(event)">📷 Drop flats + singles here — add as many batches as you need. Nothing uploads until you press the button below.</div>';
   const btn = (staged && !SHARED_UPLOADING)
-    ? '<div class="actions" style="margin-top:12px;align-items:center"><span class="sub" style="margin-right:auto">'+staged+' staged — suben con <b>Upload all images</b> (abajo).</span><button class="btn ghost" onclick="sharedClear()">Clear</button></div>'
+    ? '<div class="actions" style="margin-top:12px;align-items:center"><span class="sub" style="margin-right:auto">'+staged+' staged — they upload with <b>Upload all images</b> (below).</span><button class="btn ghost" onclick="sharedClear()">Clear</button></div>'
     : '';
   const err = (!SHARED_UPLOADING && SHARED_PROGRESS) ? '<div class="msg show info" style="margin-top:10px">'+esc(SHARED_PROGRESS)+'</div>' : '';
   return '<div class="sharedbox"><div class="sectlab" style="margin-bottom:6px">Shared images — flats + singles (add in batches, then upload once to every room)</div>'+
