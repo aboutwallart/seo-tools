@@ -1,4 +1,6 @@
-// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.21
+// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.23
+// v0.23 (2026-10-18): FIX — clean-apply PATCH now hits /shops/{shop_id}/listings/{id} (was /listings/{id} -> Etsy
+//   "Resource not found"). updateListing is shop-scoped. (Front also removes the leftover workbook promo intro.)
 // v0.21 (2026-10-18): Clean-listings logic (front) now removes whole PARAGRAPHS that contain off-platform content
 //   (external link / email / ★★ / social / promo phrase), order-independent, and a second scan verifies 0 remain.
 //   Backend tab-clean-list / tab-clean-apply unchanged (list + PATCH description + GitHub backup).
@@ -732,7 +734,7 @@ module.exports = async (req, res) => {
         try {
           if (it.original != null && !(String(it.listing_id) in backup)) backup[String(it.listing_id)] = String(it.original);
           const f = new URLSearchParams({ description: String(it.description || '') });
-          const up = await call('/listings/' + it.listing_id, { method: 'PATCH', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: f.toString() });
+          const up = await call('/shops/' + SHOP_ID + '/listings/' + it.listing_id, { method: 'PATCH', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: f.toString() });
           results.push({ listing_id: it.listing_id, status: up.status, error: up.status >= 300 ? up.json : undefined });
         } catch (e) { results.push({ listing_id: it.listing_id, error: String(e.message || e) }); }
       }
