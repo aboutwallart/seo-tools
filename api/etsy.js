@@ -1,4 +1,6 @@
-// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.25
+// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.27
+// v0.27 (2026-10-18): new action tab1-suggest-seeds — Claude proposes 12-15 Etsy search seed phrases from the product
+//   images + style, to add to the seeds before the Apify search (replaces doing it by hand in Gemini).
 // v0.25 (2026-10-18): family batch — tab1-generate accepts siblingTitles; when present, the prompt tells the AI the
 //   titles already used by family siblings and that this title MUST be clearly different (no SEO cannibalisation).
 // v0.23 (2026-10-18): FIX — clean-apply PATCH now hits /shops/{shop_id}/listings/{id} (was /listings/{id} -> Etsy
@@ -467,6 +469,29 @@ module.exports = async (req, res) => {
       const out = await claudeJSON(content, 4000);
       await ensureTagsUnder20(out); // #4: rewrite (not cut) any tag over 20 chars BEFORE the UI shows it
       res.status(200).json({ ok: true, listing: out });
+    } catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
+    return;
+  }
+
+  // Seed suggestions (before Apify): Claude proposes search seed phrases from the product + images.
+  if (q.action === 'tab1-suggest-seeds' && req.method === 'POST') {
+    try {
+      const b = req.body || {}; const p = b.product || {};
+      const prompt = [
+        'You suggest Etsy SEARCH SEED phrases for About Wall Art (UK). The product is a SET OF 3 wall art pieces. Look at the images to understand the real subject, style and mood.',
+        '',
+        'PRODUCT:',
+        'Title: ' + (p.title || ''), 'Style(s): ' + (b.styles || []).join(', '), 'Room: ' + (b.rooms || []).join(', '), 'Colours: ' + (p.colours || []).join(', '),
+        '',
+        'Suggest 12-15 SHORT seed phrases a shopper would TYPE into Etsy search to find art like this. Rules: 2-4 words each, lowercase, each MUST end with a wall-art noun ("wall art", "wall decor", "art prints" or "wall prints"). Base them on the subject / style / mood — NOT the room and NOT colours (those are handled separately in SEO). No duplicates, no punctuation.',
+        '', 'Return ONLY JSON: {"seeds":["phrase", ...]}'
+      ].join('\n');
+      const content = [];
+      (p.images || []).slice(0, 3).forEach(u => content.push({ type: 'image', source: { type: 'url', url: u } }));
+      content.push({ type: 'text', text: prompt });
+      const out = await claudeJSON(content, 800);
+      const seeds = (out.seeds || []).map(s => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim()).filter(Boolean);
+      res.status(200).json({ ok: true, seeds: seeds });
     } catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
     return;
   }
