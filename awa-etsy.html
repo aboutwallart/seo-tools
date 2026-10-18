@@ -52,7 +52,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">Tab 1 · NEW PRODUCT · v0.22</p>
+  <p class="ver">Tab 1 · NEW PRODUCT · v0.23</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -544,7 +544,7 @@
     { name: 'email', rx: /[\w.+-]+@[\w-]+\.[\w.-]+/ },
     { name: '★★ promo', rx: /★★/ },
     { name: 'social', rx: /\b(instagram|facebook|pinterest|tiktok|bit\.ly)\b/i },
-    { name: 'promo phrase', rx: /(join the (about wall art )?club|15% ?off|secret code|discount code|workbook|download now|follow (us|our journey))/i }
+    { name: 'promo phrase', rx: /(join the (about wall art )?club|15% ?off|secret code|discount code|workbook|download now|follow (us|our journey)|dreaming of your perfect home|visualising your dream home|interior design workbook|create your dream home on a budget|discover inspiring ideas)/i }
   ];
   function dangerTypes(text){ var t = String(text || ''); return DANGER.filter(function(d){ return d.rx.test(t); }).map(function(d){ return d.name; }); }
   // Remove whole PARAGRAPHS (blank-line-separated blocks) that contain any danger — never leave cut fragments.
