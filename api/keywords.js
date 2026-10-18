@@ -1,4 +1,11 @@
-// api/keywords.js — New Product Generator backend  ·  v0.51
+// api/keywords.js — New Product Generator backend  ·  v0.53
+// v0.53 (2026-10-18): writes custom.trends metafield for the live "Decor Style" filter (TREND_METAFIELD_MAP maps the
+//   few differing names, only in that metafield); "Above Fireplace" now written to room_type; new action
+//   suggest-synonyms (Claude -> short 1-3 word seed terms for the keyword search, replaces the Gemini step).
+// v0.52 (2026-10-12): BATCHED WRITES — new actions shopify-upload / commit-images / save-products-batch /
+//   commit-sends, plus generate-content {commit:false} and send-to-shopify {commit:false}. SEO, images and
+//   send each write GitHub in ONE commit (kills the per-image/per-room commit flood). Code was already live
+//   under the v0.51 label (that was an un-bumped deploy); this just makes the version honest.
 // v0.51 (2026-10-11): "general" keywords in matchedProductIdeas now SKIP the topic filter (gapClassify)
 //   too, not just the room veto — so manual "general" ideas show in EVERY room (dining/hallway/office/etc).
 // v0.50 (2026-10-11): ROOM VETO on top of the topic match (gapResearch/uberResearch/matchedProductIdeas):
@@ -2275,7 +2282,19 @@ function pickCollectionTag(tags, collName, product) {
   return { tag: tags[0], fallback: true };
 }
 // Tool By Room name -> Shopify custom.room_type choice. Identity unless listed. '' = drop from the metafield.
-const ROOM_TYPE_MAP = { 'Office': 'Home Office', 'Teens Bedroom': 'Nursery', 'Above Fireplace': '' };
+const ROOM_TYPE_MAP = { 'Office': 'Home Office', 'Teens Bedroom': 'Nursery' };   // 'Above Fireplace' is now a valid Room Type filter value -> written as-is
+// Tool trend name -> the exact term the live "Decor Style" filter (custom.trends) accepts. Applied ONLY when writing
+// that metafield; everywhere else (collections, pages, checklist) the names stay unchanged. Unlisted names pass through.
+const TREND_METAFIELD_MAP = {
+  'Biophilic Design': 'Biophilic Decor',
+  'Coffee House Design': 'Coffee House Decor',
+  'Preppy Style': 'Preppy Decor',
+  'Minimalism Decor': 'Minimalist Decor',
+  'Country Cottage Decor': 'Cottage Decor',
+  'Mid Century Decor': 'Glam Decor',
+  'Masculine Decor': 'Industrial Decor',
+  'Black & White Decor': 'Minimalist Decor'
+};
 async function resolveShopifyFields(sku) {
   const products = await readProducts();
   const product = products.find(p => (p.sku || '').toLowerCase() === (sku || '').toLowerCase());
@@ -2387,6 +2406,9 @@ async function resolveShopifyFields(sku) {
   // Map the few that don't match; Above Fireplace has no equivalent -> dropped (it still joins its collection by tag).
   const roomTypes = [...new Set((col['By Room'] || []).map(r => (ROOM_TYPE_MAP[r] !== undefined ? ROOM_TYPE_MAP[r] : r)).filter(Boolean))];
   if (roomTypes.length) push('custom', 'room_type', 'list.single_line_text_field', JSON.stringify(roomTypes));
+  // Trends metafield (custom.trends) -> drives the live "Decor Style" filter. Map the few names that differ (see TREND_METAFIELD_MAP).
+  const trendVals = [...new Set((product.trends || []).map(t => (TREND_METAFIELD_MAP[t] !== undefined ? TREND_METAFIELD_MAP[t] : t)).filter(Boolean))];
+  if (trendVals.length) push('custom', 'trends', 'list.single_line_text_field', JSON.stringify(trendVals));
   push('custom', 'foxkit_stock', 'number_integer', String(foxkit));
   push('custom', 'sales_last_24_hs', 'number_integer', String(sales24));
   push('custom', 'sales_count', 'number_integer', String(salesCount));
@@ -3276,6 +3298,41 @@ export default async function handler(req, res) {
       if (!process.env.APIFY_TOKEN) return res.status(500).json({ ok: false, error: 'APIFY_TOKEN not set' });
       const items = await callActor(body.input || {}, body.actor);
       return res.status(200).json({ ok: true, count: items.length, items });
+    }
+
+    // Suggest short keyword synonyms (max 3 words) with Claude — like the Gemini step, inside the tool.
+    if (action === 'suggest-synonyms') {
+      if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ ok: false, error: 'ANTHROPIC_API_KEY not set' });
+      const p = body.product || {};
+      const ctx = [
+        (p.styles || []).length ? 'Styles: ' + p.styles.join(', ') : '',
+        (p.trends || []).length ? 'Trends: ' + p.trends.join(', ') : '',
+        (p.rooms || []).length ? 'Rooms: ' + p.rooms.join(', ') : '',
+        (p.colours || []).length ? 'Colours: ' + p.colours.join(', ') : '',
+        (p.terms || []).length ? 'Current terms: ' + p.terms.join(', ') : ''
+      ].filter(Boolean).join('\n');
+      const prompt = [
+        'You suggest SHORT keyword SYNONYMS / seed terms for About Wall Art (a UK wall-art brand) to feed a keyword search for one product.',
+        'PRODUCT:', ctx || '(no details given)',
+        'Suggest 10-14 synonyms a shopper might type to find this kind of wall art. RULES: each term is 1-3 WORDS MAXIMUM (never longer — long terms return nothing), lowercase, based on the style / subject / mood, no duplicates, no punctuation, never the words "print" or "prints".',
+        'Return ONLY JSON: {"synonyms":["term", ...]}'
+      ].join('\n');
+      try {
+        const r = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+          body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 500, messages: [{ role: 'user', content: prompt }] })
+        });
+        const d = await r.json();
+        if (!r.ok) return res.status(r.status).json({ ok: false, error: JSON.stringify(d).slice(0, 300) });
+        let t = (d.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').replace(/```json\n?/g, '').replace(/```/g, '');
+        const m = t.match(/\{[\s\S]*\}/); let parsed = {}; try { parsed = JSON.parse(m ? m[0] : t); } catch { return res.status(200).json({ ok: false, error: 'Could not parse AI output' }); }
+        const syn = (parsed.synonyms || [])
+          .map(s => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim())
+          .filter(Boolean)
+          .map(s => s.split(' ').slice(0, 3).join(' '));   // hard cap at 3 words
+        return res.status(200).json({ ok: true, synonyms: [...new Set(syn)] });
+      } catch (e) { return res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
     }
 
     if (action === 'list-products') {
