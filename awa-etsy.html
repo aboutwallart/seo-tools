@@ -52,7 +52,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">Tab 1 · NEW PRODUCT · v0.24</p>
+  <p class="ver">Tab 1 · NEW PRODUCT · v0.25</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -83,7 +83,9 @@
         <b id="queuePos"></b>
         <button type="button" class="ghost" id="skipBtn" onclick="skipCurrent()">Skip this one</button>
       </div>
-      <div id="queueList" style="margin-top:8px"></div>
+      <p class="sub" style="margin:8px 0 4px">Tick the SKUs that are a family (same look → same keywords) and group them. The keyword search runs once for the whole family. Each one still gets its own room, title and tags.</p>
+      <div class="row" style="margin:0 0 6px"><button type="button" class="ghost" id="groupBtn" onclick="groupFamily()">Group ticked as a family</button></div>
+      <div id="queueList" style="margin-top:4px"></div>
     </div>
     <div id="prod" class="hide">
       <h3>Product</h3>
@@ -211,7 +213,10 @@
   }
 
   /* ---------- step 1: product queue (paste one SKU or a whole column) ---------- */
-  var QUEUE = [], QIDX = 0;
+  var QUEUE = [], QIDX = 0, FAMID = [], FAMILIES = {}, FAM_SEQ = 0;
+  var FAM_COLORS = ['#1d6e56', '#8a5a2b', '#3a5a9e', '#9e3a6e', '#5a7a2b', '#6e4a9e'];
+  function famLetter(f){ return String.fromCharCode(65 + (f % 26)); }
+  function famColor(f){ return FAM_COLORS[f % FAM_COLORS.length]; }
   function parseSkus(raw){
     var seen = {}, out = [];
     String(raw || '').split(/[\n\r\t, ]+/).forEach(function(s){
@@ -224,7 +229,7 @@
   function loadQueue(){
     var list = parseSkus($('sku').value);
     if (!list.length){ $('loadMsg').className = 'msg bad'; $('loadMsg').textContent = 'Enter at least one SKU.'; return; }
-    QUEUE = list; QIDX = 0;
+    QUEUE = list; QIDX = 0; FAMID = list.map(function(){ return null; }); FAMILIES = {}; FAM_SEQ = 0;
     show('queuePanel', QUEUE.length > 1); renderQueue(); loadCurrent();
   }
   function renderQueue(){
@@ -234,11 +239,21 @@
     $('queueList').innerHTML = !multi ? '' : QUEUE.map(function(sku, i){
       var state = i < QIDX ? 'done' : (i === QIDX ? 'current' : 'pending');
       var tag = state === 'done' ? '✓ ' : (state === 'current' ? '→ ' : '');
+      var fam = FAMID[i];
+      var badge = fam != null ? ' <span class="pill" style="background:' + famColor(fam) + ';color:#fff;padding:1px 8px;font-size:11px">Family ' + famLetter(fam) + '</span>' : '';
+      var cb = i >= QIDX ? '<input type="checkbox" class="qSel" data-i="' + i + '" style="margin-right:6px">' : '<span style="display:inline-block;width:20px"></span>';
       var rm = state === 'pending' ? '<button type="button" class="ghost" style="padding:2px 8px;font-size:12px" onclick="removeFromQueue(' + i + ')">✕</button>' : '';
-      return '<div class="row" style="justify-content:space-between;padding:3px 0"><span class="' + (state === 'current' ? '' : 'fixed') + '">' + tag + esc(sku) + '</span>' + rm + '</div>';
+      return '<div class="row" style="justify-content:space-between;padding:3px 0"><span class="' + (state === 'current' ? '' : 'fixed') + '">' + cb + tag + esc(sku) + badge + '</span>' + rm + '</div>';
     }).join('');
   }
-  function removeFromQueue(i){ if (i > QIDX){ QUEUE.splice(i, 1); renderQueue(); } }   // can only remove ones not started yet
+  function groupFamily(){
+    var sel = Array.prototype.slice.call(document.querySelectorAll('.qSel:checked')).map(function(c){ return +c.dataset.i; });
+    if (sel.length < 2){ $('loadMsg').className = 'msg bad'; $('loadMsg').textContent = 'Tick at least two SKUs to group them as a family.'; return; }
+    var f = FAM_SEQ++; sel.forEach(function(i){ FAMID[i] = f; });
+    renderQueue();
+    $('loadMsg').className = 'msg good'; $('loadMsg').textContent = 'Grouped ' + sel.length + ' SKUs as Family ' + famLetter(f) + '. The keyword search will run once for them.';
+  }
+  function removeFromQueue(i){ if (i > QIDX){ QUEUE.splice(i, 1); FAMID.splice(i, 1); renderQueue(); } }   // can only remove ones not started yet
   function skipCurrent(){
     if (QIDX + 1 < QUEUE.length){ QIDX++; renderQueue(); loadCurrent(); }
     else { QUEUE = []; QIDX = 0; show('queuePanel', false); resetForNext(true); $('loadMsg').className = 'msg good'; $('loadMsg').textContent = 'No more products in the list.'; }
@@ -254,6 +269,12 @@
       P = j.product; LISTING = null; KW = [];
       $('loadMsg').className = 'msg good'; $('loadMsg').textContent = 'Product loaded' + (multi ? ' (' + (QIDX + 1) + ' of ' + QUEUE.length + ')' : '') + '.';
       renderProduct();
+      // family: if this product's family already has keywords, reuse them — no second Apify search.
+      var fam = FAMID[QIDX];
+      if (fam != null && FAMILIES[fam] && FAMILIES[fam].kw && FAMILIES[fam].kw.length){
+        KW = FAMILIES[fam].kw; renderKw(FAMILIES[fam].ticked || null);
+        $('kwMsg').className = 'msg good'; $('kwMsg').textContent = 'Keywords reused from Family ' + famLetter(fam) + ' — no need to search again. Go straight to Generate.';
+      }
     }catch(e){
       show('prod', false); show('kwCard', false); show('genCard', false); show('editCard', false); show('pubCard', false);
       $('loadMsg').className = 'msg bad';
@@ -262,6 +283,8 @@
     $('loadBtn').disabled = false;
   }
   function advanceAfterPublish(){
+    var fam = FAMID[QIDX];                              // record this title so the family's next titles stay different (SEO)
+    if (fam != null){ if (!FAMILIES[fam]) FAMILIES[fam] = {}; if (!FAMILIES[fam].titles) FAMILIES[fam].titles = []; FAMILIES[fam].titles.push($('fTitle').value); }
     var total = QUEUE.length;
     if (QIDX + 1 < total){ QIDX++; renderQueue(); resetForNext(false); loadCurrent(); }   // keep the pasted list; jump to the next
     else {
@@ -328,10 +351,11 @@
     }catch(e){ $('kwMsg').className = 'msg bad'; $('kwMsg').textContent = 'Failed: ' + e.message; }
     $('kwBtn').disabled = false;
   }
-  function renderKw(){
+  function renderKw(tickedSet){
     show('kwBox');
     $('kwTable').innerHTML = '<tr><th></th><th>keyword</th><th>competition</th><th>listings</th><th>avg price</th></tr>' + KW.map(function(k, i){
-      return '<tr><td><input type="checkbox" class="kwTick" data-i="' + i + '" ' + (i < 40 ? 'checked' : '') + '></td><td>' + esc(k.keyword) + '</td><td>' + esc(k.level || '') + '</td><td>' + esc(k.competing == null ? '' : k.competing) + '</td><td>' + esc(k.median == null ? '' : '£' + k.median) + '</td></tr>';
+      var on = tickedSet ? (tickedSet.indexOf(k.keyword) >= 0) : (i < 40);
+      return '<tr><td><input type="checkbox" class="kwTick" data-i="' + i + '" ' + (on ? 'checked' : '') + '></td><td>' + esc(k.keyword) + '</td><td>' + esc(k.level || '') + '</td><td>' + esc(k.competing == null ? '' : k.competing) + '</td><td>' + esc(k.median == null ? '' : '£' + k.median) + '</td></tr>';
     }).join('');
   }
 
@@ -345,9 +369,16 @@
     var ticked = Array.prototype.slice.call(document.querySelectorAll('.kwTick:checked')).map(function(c){ return KW[+c.dataset.i]; });
     var options = {}; relevantProps().forEach(function(p){ options[p.name] = p.values.map(function(v){ return v.name; }); });
     P.colours = $('colours').value.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+    // family: store this family's shared keyword pool once (first member); pass the sibling titles so the AI keeps titles different.
+    var fam = FAMID[QIDX], siblingTitles = [];
+    if (fam != null){
+      if (!FAMILIES[fam]) FAMILIES[fam] = {};
+      if (!FAMILIES[fam].kw || !FAMILIES[fam].kw.length){ FAMILIES[fam].kw = KW; FAMILIES[fam].ticked = ticked.map(function(k){ return k.keyword; }); }
+      siblingTitles = FAMILIES[fam].titles || [];
+    }
     $('genBtn').disabled = true; $('genMsg').className = 'msg'; $('genMsg').textContent = 'Claude is looking at the images and writing… (~30-60s)';
     try{
-      var r = await fetch('/api/etsy?action=tab1-generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ product: P, rooms: ROOMS_SEL, styles: STYLES, keywords: ticked, options: options }) });
+      var r = await fetch('/api/etsy?action=tab1-generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ product: P, rooms: ROOMS_SEL, styles: STYLES, keywords: ticked, options: options, siblingTitles: siblingTitles }) });
       var j = await r.json();
       if (!j.ok) throw new Error(j.error || 'Error');
       LISTING = j.listing;
