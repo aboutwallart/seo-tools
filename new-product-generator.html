@@ -220,7 +220,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v4.16</span>
+  <span class="ver">v4.17</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -691,7 +691,7 @@ function productEditBody(g){
   const list=(TEMPLATES&&TEMPLATES.length)?TEMPLATES:[{suffix:DEFAULT_TEMPLATE,label:DEFAULT_TEMPLATE}];
   const chk=(arr,cls,sel)=>arr.map(x=>'<label class="opt"><input type="checkbox" class="'+cls+'" value="'+esc(x)+'"'+((sel||[]).includes(x)?' checked':'')+'>'+esc(x)+'</label>').join('');
   return '<p class="sub">Shared by every room. The base SKU and the rooms can\'t change here.</p>'+
-    '<div class="field"><label class="f">Extra keyword terms — comma-separated</label><input type="text" id="e-terms" value="'+esc((p.keywordWords||[]).join(', '))+'"></div>'+
+    '<div class="field"><label class="f">Extra keyword terms — comma-separated</label><input type="text" id="e-terms" value="'+esc((p.keywordWords||[]).join(', '))+'"><div style="margin-top:6px"><button class="btn ghost" type="button" onclick="suggestSynonyms()">Suggest synonyms (AI)</button> <span id="synMsg" class="muted"></span></div><div id="synChips" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px"></div></div>'+
     '<div class="ainotes" style="margin-bottom:16px"><label>Instructions for the AI</label><textarea id="e-ai">'+esc(p.aiNotes||'')+'</textarea></div>'+
     '<div class="field"><label class="f">Theme template</label><select id="e-template" class="sel">'+list.map(t=>'<option value="'+esc(t.suffix)+'"'+(t.suffix===p.templateSuffix?' selected':'')+'>'+esc(templateLabel(t))+'</option>').join('')+'</select></div>'+
     '<div class="cols"><div class="colgroup"><h4>By Style</h4>'+chk(BASE_GROUPS['By Style'],'e-style',c['By Style'])+'</div>'+
@@ -717,6 +717,35 @@ async function saveCommonToAll(){
     for(const p of g){ const upd={...p,...common,collections:{...(p.collections||{}),'By Style':styles.slice(),'By Colour':colours.slice(),'By Occasion':occasions.slice()}}; const r=await api({action:'save-product',product:upd}); PRODUCTS=r.products; }
     OPEN_STAGE='product'; renderFlow(); msg('Saved to all rooms.','ok');
   }catch(e){ msg('Save failed: '+e.message,'err'); }
+}
+/* ---- Suggest synonyms (AI) — short seed terms, added to Extra keyword terms ---- */
+let SYN_LIST=[];
+async function suggestSynonyms(){
+  const p=currentProduct();
+  const styles=dvals('e-style'), trends=dvals('e-trend');
+  const primary=(document.getElementById('e-primary')||{}).value||'';
+  const colour=(document.getElementById('e-colour')||{}).value||'';
+  const curTerms=((document.getElementById('e-terms')||{}).value||'').split(',').map(s=>s.trim()).filter(Boolean);
+  const m=document.getElementById('synMsg'); if(m) m.textContent='Asking the AI…';
+  try{
+    const r=await api({action:'suggest-synonyms',product:{styles,trends,rooms:(p&&p.rooms)||[],colours:[primary,colour].filter(Boolean),terms:curTerms}});
+    if(!r||!r.ok) throw new Error((r&&r.error)||'error');
+    SYN_LIST=(r.synonyms||[]).filter(s=>!curTerms.some(t=>t.toLowerCase()===s));
+    renderSynChips();
+    if(m) m.textContent=SYN_LIST.length?'Tap a synonym to add it as a term.':'No new suggestions.';
+  }catch(e){ if(m) m.textContent='Failed: '+(e.message||e); }
+}
+function renderSynChips(){
+  const box=document.getElementById('synChips'); if(!box) return;
+  box.innerHTML=SYN_LIST.map((s,i)=>'<button type="button" class="btn ghost" style="padding:2px 10px;font-size:13px" onclick="addSynonym('+i+')">+ '+esc(s)+'</button>').join('');
+}
+function addSynonym(i){
+  const s=SYN_LIST[i]; if(s==null) return;
+  const inp=document.getElementById('e-terms'); if(!inp) return;
+  const cur=inp.value.split(',').map(x=>x.trim()).filter(Boolean);
+  if(!cur.some(x=>x.toLowerCase()===s.toLowerCase())) cur.push(s);
+  inp.value=cur.join(', ');
+  SYN_LIST.splice(i,1); renderSynChips();
 }
 /* ---- Rooms — add / remove rooms after creation ---- */
 function roomsEditBody(g){
