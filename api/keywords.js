@@ -1,4 +1,7 @@
-// api/keywords.js — New Product Generator backend  ·  v0.53
+// api/keywords.js — New Product Generator backend  ·  v0.54
+// v0.54 (2026-10-18): send-to-shopify accepts allowPartialImages (old-product mode) — skips the "Missing before
+//   sending" block, guards every image gid, and any variant whose frame mockup is missing uses the product's
+//   featured (first available) image. Variants/prices are unchanged. New-product sends are unaffected.
 // v0.53 (2026-10-18): writes custom.trends metafield for the live "Decor Style" filter (TREND_METAFIELD_MAP maps the
 //   few differing names, only in that metafield); "Above Fireplace" now written to room_type; new action
 //   suggest-synonyms (Claude -> short 1-3 word seed terms for the keyword search, replaces the Gemini step).
@@ -2513,7 +2516,20 @@ async function sendToShopify(sku, opts = {}) {
   FLAT_SLOTS.forEach(slot => { if (!img.flats || !img.flats[slot]) missing.push('flat image: ' + slot.replace('flat', '')); });
   if (!img.commons || !img.commons.commonLady) missing.push('common image: Lady with black frame');
   if (!img.commons || !img.commons.commonUnboxing) missing.push('common image: Unboxing');
-  if (missing.length) { const e = new Error('Missing before sending — ' + missing.join(', ') + '.'); e.status = 400; throw e; }
+  if (missing.length && !opts.allowPartial) { const e = new Error('Missing before sending — ' + missing.join(', ') + '.'); e.status = 400; throw e; }
+  // Old-product mode (allowPartial): publish with whatever images exist. Any variant whose frame mockup is
+  // missing falls back to the product's featured (first available) image, so no variant is left imageless.
+  const featuredGid = [
+    img.lifestyle && img.lifestyle[0] && img.lifestyle[0].gid,
+    img.individuals && img.individuals[0] && img.individuals[0].gid,
+    img.flats && img.flats.flatUnframed && img.flats.flatUnframed.gid,
+    img.flats && img.flats.flatWhite && img.flats.flatWhite.gid,
+    img.flats && img.flats.flatOak && img.flats.flatOak.gid,
+    img.flats && img.flats.flatBlack && img.flats.flatBlack.gid,
+    img.flats && img.flats.flatCanvas && img.flats.flatCanvas.gid,
+    img.commons && img.commons.commonLady && img.commons.commonLady.gid,
+    img.commons && img.commons.commonUnboxing && img.commons.commonUnboxing.gid
+  ].find(Boolean);
 
   const col = product.collections || {};
   const rooms = col['By Room'] || [];
@@ -2552,9 +2568,10 @@ async function sendToShopify(sku, opts = {}) {
     const e = new Error('Fix before sending — ' + parts.join('; ') + '.'); e.status = 400; throw e;
   }
 
+  const flatGid = slot => (img.flats && img.flats[slot] && img.flats[slot].gid) || featuredGid;   // real mockup, else the featured image
   const flatFileGids = {
-    UN: img.flats.flatUnframed.gid, FB: img.flats.flatBlack.gid, FW: img.flats.flatWhite.gid,
-    FO: img.flats.flatOak.gid, CW: img.flats.flatCanvas.gid
+    UN: flatGid('flatUnframed'), FB: flatGid('flatBlack'), FW: flatGid('flatWhite'),
+    FO: flatGid('flatOak'), CW: flatGid('flatCanvas')
   };
   const variants = buildVariantMatrix(product.sku, PRICE_TABLES[setSize], flatFileGids);
 
@@ -2572,8 +2589,8 @@ async function sendToShopify(sku, opts = {}) {
   if (img.commons && img.commons.commonLady) files.push({ id: img.commons.commonLady.gid });
   if (img.commons && img.commons.commonUnboxing) files.push({ id: img.commons.commonUnboxing.gid });
   (img.individuals || []).forEach(im => files.push({ id: im.gid }));
-  ['flatUnframed', 'flatWhite', 'flatOak', 'flatBlack'].forEach(slot => files.push({ id: img.flats[slot].gid }));
-  files.push({ id: img.flats.flatCanvas.gid });
+  ['flatUnframed', 'flatWhite', 'flatOak', 'flatBlack'].forEach(slot => { if (img.flats && img.flats[slot]) files.push({ id: img.flats[slot].gid }); });   // skip a flat that's missing (old-product mode)
+  if (img.flats && img.flats.flatCanvas) files.push({ id: img.flats.flatCanvas.gid });
   files.push({ originalSource: fixedData.fixed.canvasWrapped.url, alt: fixedData.fixed.canvasWrapped.alt || 'Canvas wrapped' });
   files.push({ originalSource: roomGidEntry.url, alt: `Wall art size guide — ${roomName}` });
   files.push({ originalSource: fixedData.fixed.pictureFrames.url, alt: fixedData.fixed.pictureFrames.alt || 'Picture frames' });
@@ -3262,7 +3279,7 @@ export default async function handler(req, res) {
     if (action === 'send-to-shopify') {
       if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
       if (!process.env.SHOPIFY_STORE_DOMAIN || !process.env.SHOPIFY_ACCESS_TOKEN) return res.status(500).json({ ok: false, error: 'Shopify credentials not configured' });
-      const out = await sendToShopify(body.sku, { commit: body.commit });
+      const out = await sendToShopify(body.sku, { commit: body.commit, allowPartial: body.allowPartialImages });
       return res.status(200).json({ ok: true, ...out });
     }
 
