@@ -220,7 +220,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v4.19</span>
+  <span class="ver">v4.20</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -688,8 +688,14 @@ function setProdMode(m){
   if(h) h.textContent=OLD_MODE?'Relaxed: publish with missing images + assign each image by hand.':'';
   renderFlow();
 }
-// Can this room be sent now? New mode = fully complete; Old mode = just keyword + saved SEO (images optional).
-function canSendNow(p){ return OLD_MODE ? !!(p && p.keyword && p.content) : roomReady(p); }
+// Can this room be sent now? New mode = fully complete. Old mode = keyword + saved SEO + images uploaded
+// (nothing left staged) — same discipline as new products, but the images you have can be partial.
+function canSendNow(p){
+  if(!OLD_MODE) return roomReady(p);
+  if(!(p && p.keyword && p.content)) return false;
+  const stagedPending = (SHARED_STAGE.length>0) || ((LS_STAGE[p.sku]||[]).length>0);
+  return !stagedPending;
+}
 function changeSharedSlot(i,val){ if(SHARED_STAGE[i]){ SHARED_STAGE[i].slot=val; renderFlow(); } }
 function stageBody(key,g){
   if(key==='product') return productEditBody(g);
@@ -1537,7 +1543,7 @@ async function sendAllRooms(){
   for(const p of ready){
     SEND_PROGRESS='Sending '+roomName(p)+'…'; renderFlow();
     try{
-      const r=await api({action:'send-to-shopify', sku:p.sku, commit:false});
+      const r=await api({action:'send-to-shopify', sku:p.sku, commit:false, allowPartialImages:OLD_MODE});
       sent.push({ sku:p.sku, shopifyProductId:r.shopifyProductId, shopifyHandle:r.shopifyHandle, keyword:r.keyword, productUrl:r.productUrl });
       (r.warnings||[]).forEach(w=>{ if(!isBenign(w)) notes.push(roomName(p)+': '+w); });
       SEND_DONE[p.sku]=true; renderFlow();
