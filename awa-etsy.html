@@ -52,7 +52,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">Tab 1 · NEW PRODUCT · v0.21</p>
+  <p class="ver">Tab 1 · NEW PRODUCT · v0.22</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -583,24 +583,32 @@
     if (!changed.length) return;
     if (!confirm('Update ' + changed.length + ' live Etsy listings? Each original description is backed up to GitHub first.')) return;
     $('applyBtn').disabled = true; $('scanBtn').disabled = true;
-    var done = 0, failed = 0, B = 20;
+    var done = 0, failed = 0, errs = {}, B = 20;
     for (var i = 0; i < changed.length; i += B){
       var batch = changed.slice(i, i + B).map(function(c){ return { listing_id: c.listing_id, original: c.original, description: c.cleaned }; });
       $('applyMsg').textContent = 'Updating ' + Math.min(i + B, changed.length) + ' / ' + changed.length + '…';
       try{
         var r = await fetch('/api/etsy?action=tab-clean-apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: batch }) });
         var j = await r.json(); done += (j.updated || 0); failed += (j.failed || 0);
-      }catch(e){ failed += batch.length; }
+        (j.results || []).forEach(function(rr){ if (rr.error){ var k = JSON.stringify(rr.error).slice(0, 240); errs[k] = (errs[k] || 0) + 1; } });
+      }catch(e){ failed += batch.length; var m = String(e.message || e); errs[m] = (errs[m] || 0) + 1; }
+      if (done === 0 && failed >= 40) break;   // everything is failing — stop and show the error, don't hammer all 700
+    }
+    var errText = Object.keys(errs).slice(0, 3).map(function(k){ return '[' + errs[k] + '×] ' + k; }).join('  ·  ');
+    if (!done){   // nothing updated — surface the EXACT Etsy error so we can fix it
+      $('applyMsg').innerHTML = '<b style="color:var(--warn)">0 updated (failed ' + failed + '). Etsy error:</b> ' + esc(errText || '(no detail returned)');
+      $('scanBtn').disabled = false; $('applyBtn').disabled = false; return;
     }
     // VERIFICATION: re-scan all listings and confirm nothing dangerous is left.
     $('applyMsg').textContent = 'Updated ' + done + ' (failed ' + failed + '). Verifying…';
     try{
       var vr = await fetch('/api/etsy?action=tab-clean-list&t=' + Date.now()); var vj = await vr.json();
       var still = (vj.listings || []).filter(function(l){ return dangerTypes(l.description).length; });
-      if (!still.length){ $('applyMsg').className = 'fixed'; $('applyMsg').innerHTML = '<b style="color:var(--ok)">✓ Verified: 0 listings with off-platform content.</b> (Updated ' + done + ', failed ' + failed + '.)'; }
-      else { $('applyMsg').innerHTML = '<b style="color:var(--warn)">⚠ ' + still.length + ' listings STILL have off-platform content.</b> Re-scan and Apply again. (' + esc(still.slice(0,10).map(function(l){ return l.title || l.listing_id; }).join(' · ')) + (still.length>10?' …':'') + ')'; }
+      var tail = (failed ? ' · ' + failed + ' failed: ' + esc(errText) : '');
+      if (!still.length){ $('applyMsg').innerHTML = '<b style="color:var(--ok)">✓ Verified: 0 listings with off-platform content.</b> (Updated ' + done + '.)' + tail; }
+      else { $('applyMsg').innerHTML = '<b style="color:var(--warn)">⚠ ' + still.length + ' listings STILL have off-platform content.</b> Re-scan and Apply again.' + tail; }
     }catch(e){ $('applyMsg').textContent = 'Updated ' + done + ', failed ' + failed + '. Couldn\'t verify — re-scan to check.'; }
-    $('scanBtn').disabled = false;
+    $('scanBtn').disabled = false; $('applyBtn').disabled = false;
   }
 
   if (location.search.indexOf('connected=1') >= 0) { setConnected(true); }
