@@ -1,4 +1,8 @@
-// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.19
+// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.20
+// v0.20 (2026-10-18): URGENT off-platform cleanup — removed the bitly/social/email lines from the fixed description
+//   (Etsy "no off-platform" policy); new actions tab-clean-list + tab-clean-apply to strip that footer from ALL existing
+//   listings (backs up each original description to data/etsy-desc-backup.json first). Also: Shopify load brings ALL
+//   product images (removed the 20 cap, query first:50) so the photo picker can choose which to send.
 // v0.19 (2026-10-17): whole UI translated to English + user-facing backend messages in English; photo picker in the
 //   edit step (max 20, untick extras when a listing has more than 20 photos — only the ticked ones are sent).
 // v0.18 (2026-10-17): description voice = advice not art-description (NPG gold-standard: everyday-verb opening, keyword
@@ -46,6 +50,7 @@ const APIFY_ACTOR = 'A5KKVgfRFWo268Ggi'; // axlymxp
 // #14: Sent Items are stored in GitHub (shows on every computer; never localStorage).
 const REPO = 'aboutwallart/seo-tools';
 const SENT_PATH = 'data/etsy-sent-items.json';
+const CLEAN_BACKUP_PATH = 'data/etsy-desc-backup.json'; // original descriptions, saved before the one-time off-platform cleanup
 function ghHeaders() { return { 'Authorization': 'token ' + process.env.GITHUB_TOKEN, 'Accept': 'application/vnd.github+json', 'User-Agent': 'awa-etsy' }; }
 async function ghGet(path) {
   const r = await fetch('https://api.github.com/repos/' + REPO + '/contents/' + path + '?ref=main&t=' + Date.now(), { headers: ghHeaders() });
@@ -176,9 +181,6 @@ const FIXED_DESCRIPTION = [
   'FREE UK POSTAGE — we aim to ship all orders within 1-3 business days.',
   '',
   'Thank you for visiting and supporting our small business!',
-  'Follow our journey:',
-  'Instagram: https://www.instagram.com/aboutwallart/',
-  'Facebook: https://www.facebook.com/aboutwallart',
   '',
   'See more in our {SECTION} collection:',
   '{SECTION_LINK}',
@@ -186,15 +188,10 @@ const FIXED_DESCRIPTION = [
   'You may also like:',
   '{RELATED}',
   '',
-  '★★ Want 15% off? Join the About Wall Art Club and we\'ll send you a secret code for 15% off your next order: https://bit.ly/joinaboutwallart ★★',
-  '',
   'AboutWallArt is a registered trademark. All rights reserved. Colours may vary slightly depending on your screen settings.',
   '',
   'Mae',
-  'AboutWallArt',
-  'mae@aboutwallart.com',
-  '',
-  '★★ Dreaming of your perfect home but unsure where to begin? Get our "Visualising Your Dream Home" interior design workbook FREE: https://bit.ly/FreeInteriorDesignWorkbook ★★'
+  'AboutWallArt'
 ].join('\n');
 // Build the fixed footer with the Etsy section name/link + up to 4 random OTHER listings from the same section.
 async function buildFixedDescription(call, sectionId, sectionTitle, excludeListingId) {
@@ -253,7 +250,7 @@ async function menuGroups() {
   return groups;
 }
 async function loadProduct(sku) {
-  const gq = 'query($q:String!){ products(first:1, query:$q){ nodes{ id title handle tags productType descriptionHtml images(first:25){nodes{url}} collections(first:60){nodes{id title}} variants(first:100){nodes{sku price selectedOptions{name value}}} room:metafield(namespace:"custom",key:"room_type"){value} col:metafield(namespace:"custom",key:"primary_colour"){value} } } }';
+  const gq = 'query($q:String!){ products(first:1, query:$q){ nodes{ id title handle tags productType descriptionHtml images(first:50){nodes{url}} collections(first:60){nodes{id title}} variants(first:100){nodes{sku price selectedOptions{name value}}} room:metafield(namespace:"custom",key:"room_type"){value} col:metafield(namespace:"custom",key:"primary_colour"){value} } } }';
   const d = await shopGQL(gq, { q: 'metafield:custom.sku_for_print_files:' + sku });
   const n = d.products.nodes[0];
   if (!n) return null;
@@ -288,7 +285,7 @@ async function loadProduct(sku) {
   return {
     sku, id: n.id, title: n.title, handle: n.handle, tags: n.tags || [], productType: n.productType,
     description: stripHtml(n.descriptionHtml).slice(0, 3000),
-    images: (n.images.nodes || []).map(i => i.url).slice(0, 20),
+    images: (n.images.nodes || []).map(i => i.url),
     collections: col, rooms, roomFrom, styles, colours, variants,
     styleSynonyms: STYLE_SYN, wallArtTerms: WALL_ART_TERMS, allRooms: ROOMS,
     roomToEtsyRoom: ROOM_TO_ETSY_ROOM, roomToSection: ROOM_TO_SECTION, styleToSection: STYLE_TO_SECTION, materialsDefault: MATERIALS_DEFAULT
@@ -701,6 +698,44 @@ module.exports = async (req, res) => {
       // only remove from the list when Etsy actually deleted it — a failed delete must NOT lose the item.
       if (ok) { items = s.items.filter(x => String(x.listing_id) !== String(b.listing_id)); try { await ghPut(SENT_PATH, JSON.stringify(items, null, 2), s.sha, 'AWA ETSY: delete ' + b.listing_id); } catch (e) {} }
       finish(200, { ok, status: del.status, items, error: ok ? undefined : del.json });
+      return;
+    }
+
+    // ---- Clean listings: list all active+draft listings with their descriptions (for the off-platform cleanup) ----
+    if (q.action === 'tab-clean-list') {
+      const out = [];
+      for (const state of ['active', 'draft']) {
+        let offset = 0;
+        for (let page = 0; page < 60; page++) {
+          const r = await call('/shops/' + SHOP_ID + '/listings?state=' + state + '&limit=100&offset=' + offset);
+          const results = (r.json && r.json.results) || [];
+          results.forEach(l => out.push({ listing_id: l.listing_id, title: l.title, description: l.description || '', state }));
+          if (results.length < 100) break;
+          offset += 100;
+        }
+      }
+      finish(200, { ok: true, count: out.length, listings: out });
+      return;
+    }
+    // ---- Clean listings: apply new descriptions (backs up each original to GitHub first) ----
+    if (q.action === 'tab-clean-apply' && req.method === 'POST') {
+      const b = req.body || {};
+      const items = Array.isArray(b.items) ? b.items : []; // [{listing_id, original, description}]
+      if (!items.length) { finish(400, { ok: false, error: 'No items' }); return; }
+      const bk = await ghGet(CLEAN_BACKUP_PATH);
+      let backup = {}; try { if (bk.content) backup = JSON.parse(bk.content); } catch (e) {}
+      const results = [];
+      for (const it of items) {
+        try {
+          if (it.original != null && !(String(it.listing_id) in backup)) backup[String(it.listing_id)] = String(it.original);
+          const f = new URLSearchParams({ description: String(it.description || '') });
+          const up = await call('/listings/' + it.listing_id, { method: 'PATCH', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: f.toString() });
+          results.push({ listing_id: it.listing_id, status: up.status, error: up.status >= 300 ? up.json : undefined });
+        } catch (e) { results.push({ listing_id: it.listing_id, error: String(e.message || e) }); }
+      }
+      try { await ghPut(CLEAN_BACKUP_PATH, JSON.stringify(backup, null, 2), bk.sha, 'AWA ETSY: backup descriptions before cleanup (' + items.length + ')'); } catch (e) {}
+      const failed = results.filter(r => r.error || (r.status && r.status >= 300));
+      finish(200, { ok: !failed.length, updated: results.length - failed.length, failed: failed.length, results });
       return;
     }
 
