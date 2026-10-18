@@ -220,7 +220,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v4.17</span>
+  <span class="ver">v4.18</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -720,15 +720,27 @@ async function saveCommonToAll(){
 }
 /* ---- Suggest synonyms (AI) — short seed terms, added to Extra keyword terms ---- */
 let SYN_LIST=[];
+// Works in BOTH places: the Define step (#d-terms, context from DRAFT_PROJECT) and the product edit view (#e-terms, context from the form).
+function synContext(){
+  if(document.getElementById('e-terms')){
+    const p=currentProduct();
+    return { termsId:'e-terms', styles:dvals('e-style'), trends:dvals('e-trend'),
+      colours:[(document.getElementById('e-primary')||{}).value, (document.getElementById('e-colour')||{}).value].filter(Boolean),
+      rooms:(p&&p.rooms)||[] };
+  }
+  if(document.getElementById('d-terms')){
+    const dp=DRAFT_PROJECT||{};
+    return { termsId:'d-terms', styles:dp.styles||[], trends:dp.trends||[],
+      colours:[...(dp.primaryColour||[]), dp.colour].filter(Boolean), rooms:dp.rooms||[] };
+  }
+  return null;
+}
 async function suggestSynonyms(){
-  const p=currentProduct();
-  const styles=dvals('e-style'), trends=dvals('e-trend');
-  const primary=(document.getElementById('e-primary')||{}).value||'';
-  const colour=(document.getElementById('e-colour')||{}).value||'';
-  const curTerms=((document.getElementById('e-terms')||{}).value||'').split(',').map(s=>s.trim()).filter(Boolean);
+  const ctx=synContext(); if(!ctx) return;
+  const curTerms=((document.getElementById(ctx.termsId)||{}).value||'').split(',').map(s=>s.trim()).filter(Boolean);
   const m=document.getElementById('synMsg'); if(m) m.textContent='Asking the AI…';
   try{
-    const r=await api({action:'suggest-synonyms',product:{styles,trends,rooms:(p&&p.rooms)||[],colours:[primary,colour].filter(Boolean),terms:curTerms}});
+    const r=await api({action:'suggest-synonyms',product:{styles:ctx.styles,trends:ctx.trends,rooms:ctx.rooms,colours:ctx.colours,terms:curTerms}});
     if(!r||!r.ok) throw new Error((r&&r.error)||'error');
     SYN_LIST=(r.synonyms||[]).filter(s=>!curTerms.some(t=>t.toLowerCase()===s));
     renderSynChips();
@@ -741,7 +753,8 @@ function renderSynChips(){
 }
 function addSynonym(i){
   const s=SYN_LIST[i]; if(s==null) return;
-  const inp=document.getElementById('e-terms'); if(!inp) return;
+  const ctx=synContext(); if(!ctx) return;
+  const inp=document.getElementById(ctx.termsId); if(!inp) return;
   const cur=inp.value.split(',').map(x=>x.trim()).filter(Boolean);
   if(!cur.some(x=>x.toLowerCase()===s.toLowerCase())) cur.push(s);
   inp.value=cur.join(', ');
@@ -898,7 +911,7 @@ function defineOpen(key,i){
 function defineForm(key){
   const dp=DRAFT_PROJECT;
   if(key==='sku') return '<label class="f">Base SKU — the tool adds the room prefix <span class="req">*</span></label><input type="text" id="d-sku" value="'+esc(dp.baseSku)+'" placeholder="e.g. TRAVPARIS01">';
-  if(key==='terms') return '<label class="f">Extra keyword terms — optional, comma-separated</label><input type="text" id="d-terms" value="'+esc(dp.keywordWords.join(', '))+'" placeholder="e.g. gallery wall, travel">';
+  if(key==='terms') return '<label class="f">Extra keyword terms — optional, comma-separated</label><input type="text" id="d-terms" value="'+esc(dp.keywordWords.join(', '))+'" placeholder="e.g. gallery wall, travel"><div style="margin-top:6px"><button class="btn ghost" type="button" onclick="suggestSynonyms()">Suggest synonyms (AI)</button> <span id="synMsg" class="muted"></span></div><div id="synChips" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px"></div>';
   if(key==='ai') return '<div class="ainotes"><label>Instructions for the AI — optional</label><textarea id="d-ai" placeholder="e.g. mention it comes as a set of 3">'+esc(dp.aiNotes)+'</textarea></div>';
   if(key==='template'){ const list=(TEMPLATES&&TEMPLATES.length)?TEMPLATES:[{suffix:DEFAULT_TEMPLATE,label:DEFAULT_TEMPLATE}]; return '<label class="f">Theme template</label><select id="d-template" class="sel">'+list.map(t=>'<option value="'+esc(t.suffix)+'"'+(t.suffix===dp.templateSuffix?' selected':'')+'>'+esc(templateLabel(t))+'</option>').join('')+'</select>'; }
   if(key==='collections'){
