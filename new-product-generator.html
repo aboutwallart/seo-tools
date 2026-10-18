@@ -220,7 +220,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v4.18</span>
+  <span class="ver">v4.19</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -241,6 +241,12 @@
       <span class="sst">Shared images</span>
       <span id="sharedImagesStatus">Checking…</span>
       <button class="btn ghost small" id="sharedImagesBtn">Check / upload</button>
+    </div>
+    <div class="sharedstrip" style="gap:16px;flex-wrap:wrap">
+      <span class="sst">Product type</span>
+      <label style="font-weight:500;cursor:pointer"><input type="radio" name="prodmode" value="new" checked onchange="setProdMode('new')"> New product</label>
+      <label style="font-weight:500;cursor:pointer"><input type="radio" name="prodmode" value="old" onchange="setProdMode('old')"> Old product (from Etsy)</label>
+      <span id="prodModeHint" class="sub" style="margin:0"></span>
     </div>
 
     <!-- GUIDED FLOW — one product at a time, 5 steps -->
@@ -448,6 +454,7 @@ let VOPEN = null;         // sku currently expanded in the review list
 let OPEN_STAGE = null;    // which macro stage is expanded in the post-creation accordion (null = the natural one)
 let CURRENT_ART = null;   // which art group (artBase) is being shown when several are in progress
 let GEN_ROOM = {};        // sku -> true while its SEO is generating
+let OLD_MODE = false;     // "Old product (from Etsy)" — relaxes image gates + enables manual slot assignment. Default off (new flow untouched). In-memory: resets to New on reload.
 let SHARED_UPLOADING = false;
 let SHARED_STAGE = [];    // staged shared images before upload: [{data, mediaType, name, slot, thumb}]
 let SHARED_PROGRESS = ''; // progress/error text during the shared upload
@@ -624,7 +631,7 @@ function flowStage(){
   if(!g.length) return 'empty';
   if(!ART_IMAGE && g.some(p=>!p.content)) return 'artmissing';
   if(g.some(p=>!p.keyword)) return 'keywords';
-  if(g.some(p=>!p.roomApproved)) return 'review';
+  if(g.some(p=> OLD_MODE ? !canSendNow(p) : !p.roomApproved)) return 'review';   // old mode reaches Send with keyword + SEO, images optional
   return 'send';
 }
 function switchArt(enc){ CURRENT_ART=decodeURIComponent(enc); OPEN_STAGE=null; VOPEN=null; renderFlow(); }
@@ -662,7 +669,7 @@ function renderAccordion(){
     ['review','Review',g.every(roomReady)?'all ready':(g.filter(roomReady).length+'/'+g.length+' ready')],
     ['send','Send to Shopify','']
   ];
-  const anyReady=g.some(roomReady);
+  const anyReady=g.some(canSendNow);
   let html='<div class="card">'+artSwitcher()+'<h2>'+esc(base)+' — '+g.length+' room'+(g.length>1?'s':'')+'</h2>'+
     '<p class="sub">Click a step to open it. Every step stays here so you can review or edit it.</p>';
   stages.forEach((s,i)=>{ html+=stageRow(s[0],i+1,s[1],s[2],open===s[0],(s[0]==='send'&&!anyReady)); });
@@ -675,6 +682,15 @@ function stageRow(key,n,title,summary,isOpen,locked){
   return '<div class="psec'+(isOpen?' active':' done')+'">'+head+(isOpen?('<div class="psec-b">'+stageBody(key,groupProducts())+'</div>'):'')+'</div>';
 }
 function toggleStage(key){ OPEN_STAGE=(OPEN_STAGE===key)?null:key; renderFlow(); }
+function setProdMode(m){
+  OLD_MODE=(m==='old');
+  const h=document.getElementById('prodModeHint');
+  if(h) h.textContent=OLD_MODE?'Relaxed: publish with missing images + assign each image by hand.':'';
+  renderFlow();
+}
+// Can this room be sent now? New mode = fully complete; Old mode = just keyword + saved SEO (images optional).
+function canSendNow(p){ return OLD_MODE ? !!(p && p.keyword && p.content) : roomReady(p); }
+function changeSharedSlot(i,val){ if(SHARED_STAGE[i]){ SHARED_STAGE[i].slot=val; renderFlow(); } }
 function stageBody(key,g){
   if(key==='product') return productEditBody(g);
   if(key==='rooms') return roomsEditBody(g);
@@ -824,7 +840,7 @@ function reviewInner(g){
   const seoCount=g.filter(p=>(SEO_DRAFT[p.sku]&&SEO_DRAFT[p.sku].content)||p.content).length;
   const seoDirty=Object.keys(SEO_DRAFT).length>0;
   const imgIncomplete=g.filter(p=>imagesMissingStaged(p).length);          // rooms still missing some image
-  const canUpload=anyStaged && imgIncomplete.length===0;                   // only let upload when ALL complete
+  const canUpload=anyStaged && (OLD_MODE || imgIncomplete.length===0);     // new mode: only when ALL complete · old mode: whatever is staged
   const okStyle='style="background:var(--ok);color:#fff;border-color:var(--ok)"';
   const seoBtn=SEO_SAVING
      ? '<button class="btn primary" disabled><span class="spin"></span>Saving SEO…</button>'
@@ -844,8 +860,8 @@ function reviewInner(g){
   return '<p class="sub">Abrí una room, revisá su SEO y arrastrá sus lifestyle. Después guardá el SEO y subí las imágenes abajo.</p>'+renderSharedBox()+'<div class="vlist">'+g.map(reviewRoom).join('')+'</div>'+bar;
 }
 function sendInner(g){
-  const anyReady=g.some(roomReady);
-  const rows=g.map(p=>{ const na=((p.collections&&p.collections['Featured'])||[]).includes('New Arrivals'); const enc=encodeURIComponent(p.sku); const ready=roomReady(p);
+  const anyReady=g.some(canSendNow);
+  const rows=g.map(p=>{ const na=((p.collections&&p.collections['Featured'])||[]).includes('New Arrivals'); const enc=encodeURIComponent(p.sku); const ready=canSendNow(p);
     const tick=SEND_DONE[p.sku]?' <span style="color:var(--ok);font-weight:700" title="Sent">✓</span>':'';
     const sendCell=SEND_DONE[p.sku]
       ? '<span style="color:var(--ok);font-weight:700">Sent ✓</span>'
@@ -950,7 +966,7 @@ function defineNext(){
   else if(key==='colours'){ dp.primaryColour=(document.getElementById('d-primary').value||'').split(',').map(s=>s.trim()).filter(Boolean); dp.colour=document.getElementById('d-colour').value; }
   else if(key==='rooms'){
     dp.rooms=dvals('d-room'); if(!dp.rooms.length) return alert('Pick at least one room.');
-    if(!dp.rooms.includes('Living room')){ const na=document.getElementById('d-naroom'); dp.naRoom=na?na.value:''; if(!dp.naRoom||!dp.rooms.includes(dp.naRoom)) return alert('Pick which room gets New Arrivals.'); }
+    if(!dp.rooms.includes('Living room')){ const na=document.getElementById('d-naroom'); dp.naRoom=(na&&dp.rooms.includes(na.value))?na.value:''; }  // optional: if nothing picked, no room gets New Arrivals
     else dp.naRoom='';
     const clash=dp.rooms.map(r=>skuForRoom(dp.baseSku,r)).find(s=>PRODUCTS.some(p=>(p.sku||'').toLowerCase()===s.toLowerCase()));
     if(clash) return alert('A product with SKU "'+clash+'" already exists. Use a different base SKU.');
@@ -1243,7 +1259,9 @@ function renderSharedBox(){
     tiles='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">'+SHARED_STAGE.map((s,i)=>
       '<div style="text-align:center;width:120px"><div style="position:relative;height:120px;border-radius:8px;background:url('+s.thumb+') center/cover;border:1px solid var(--border-strong)">'+
       (SHARED_UPLOADING?'':'<button onclick="sharedRemove('+i+')" title="Remove" style="position:absolute;top:-7px;right:-7px;width:20px;height:20px;border-radius:50%;border:1px solid var(--border-strong);background:#fff;color:var(--danger);font-size:13px;line-height:1;cursor:pointer">×</button>')+'</div>'+
-      '<div class="dz-label" style="font-weight:500">'+SLOT_LABEL[s.slot]+'</div></div>'
+      (OLD_MODE
+        ? '<select class="sel" style="font-size:12px;padding:4px 6px;margin-top:4px" onchange="changeSharedSlot('+i+',this.value)">'+Object.keys(SLOT_LABEL).map(function(k){return '<option value="'+k+'"'+(s.slot===k?' selected':'')+'>'+esc(SLOT_LABEL[k])+'</option>';}).join('')+'</select>'
+        : '<div class="dz-label" style="font-weight:500">'+SLOT_LABEL[s.slot]+'</div>')+'</div>'
     ).join('')+'</div>';
   }
   const dzOrBusy = SHARED_UPLOADING
@@ -1426,7 +1444,7 @@ async function roomOk(enc){
   }
   // 2) Now it must be fully complete to mark the room done.
   p=groupProducts().find(x=>x.sku===sku);
-  if(!roomReady(p)){ msg('Still missing: '+missingBits(p).join(' · '),'err'); renderFlow(); return; }
+  if(!canSendNow(p)){ msg(OLD_MODE?'Add the keyword and save the SEO first.':'Still missing: '+missingBits(p).join(' · '),'err'); renderFlow(); return; }
   const upd={...p,roomApproved:true}; const r=await api({action:'save-product',product:upd}); PRODUCTS=r.products; VOPEN=null; renderFlow();
 }
 
@@ -1480,7 +1498,7 @@ async function uploadAllImages(){
     if(items.length){ IMG_PROGRESS='Saving all images in one commit…'; renderFlow(); const r=await api({action:'commit-images',items}); PRODUCTS=r.products; reapplySeoDraft(); }
     if(!errors.length){ SHARED_STAGE=[]; for(const p of roomsWithLs) LS_STAGE[p.sku]=[]; }
     // mark complete rooms done — in one commit
-    const toApprove=groupProducts().filter(p=>roomReady(p)&&!p.roomApproved).map(p=>({sku:p.sku,roomApproved:true}));
+    const toApprove=groupProducts().filter(p=>(OLD_MODE?canSendNow(p):roomReady(p))&&!p.roomApproved).map(p=>({sku:p.sku,roomApproved:true}));
     if(toApprove.length){ IMG_PROGRESS='Marking rooms done…'; renderFlow(); const r2=await api({action:'save-products-batch',products:toApprove}); PRODUCTS=r2.products; reapplySeoDraft(); }
     if(!errors.length) IMG_SAVED=true;   // button turns green "✓ Images uploaded"
     msg(errors.length?('Some images failed: '+errors.join(' · ')):'All images uploaded in one commit ✓', errors.length?'err':'ok');
@@ -1509,7 +1527,7 @@ async function sendRoom(enc){ await doSendRoom(decodeURIComponent(enc)); renderF
 // v4.15: create each ready room on Shopify (per-room progress + green tick), then mark them all sent
 // and lock their keywords in ONE products commit + ONE registry commit (no per-room flood).
 async function sendAllRooms(){
-  const ready=groupProducts().filter(roomReady);
+  const ready=groupProducts().filter(canSendNow);
   if(!ready.length){ msg('No rooms ready to send.','info'); return; }
   SEND_RUNNING=true; SEND_DONE={}; SEND_PROGRESS=''; renderFlow();
   const sent=[]; const fails=[]; const notes=[];
