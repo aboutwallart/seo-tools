@@ -52,7 +52,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">Tab 1 · NEW PRODUCT · v0.26</p>
+  <p class="ver">Tab 1 · NEW PRODUCT · v0.29</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -87,6 +87,7 @@
       <div class="row" style="margin:0 0 6px"><button type="button" class="ghost" id="groupBtn" onclick="groupFamily()">Group ticked as a family</button></div>
       <div id="queueList" style="margin-top:4px"></div>
       <div id="familySend" style="margin-top:8px"></div>
+      <div id="sendStatus" class="msg"></div>
     </div>
     <div id="prod" class="hide">
       <h3>Product</h3>
@@ -108,6 +109,8 @@
   <div class="card hide" id="kwCard">
     <h2>2 · Keywords (Apify)</h2>
     <p class="sub">Each style synonym + "wall art". Untick the ones you don't want (max 15 per run). Room and colour aren't searched here — they go to SEO.</p>
+    <div class="row" style="margin-bottom:6px"><button class="ghost" id="suggestBtn" onclick="suggestSeeds()">Suggest seeds (AI)</button><span id="suggestMsg" class="fixed"></span></div>
+    <div class="chips" id="seedSuggest"></div>
     <div class="chips" id="seedChips"></div>
     <div class="row" style="margin-bottom:8px"><input id="seedExtra" type="text" placeholder="add a seed by hand, e.g. calming wall art (comma-separated)" style="flex:1"><button class="ghost" onclick="addSeeds()">Add</button></div>
     <div class="row"><button id="kwBtn" onclick="runKeywords()">Search keywords</button><span id="seedCount" class="fixed"></span></div>
@@ -215,7 +218,7 @@
   }
 
   /* ---------- step 1: product queue (paste one SKU or a whole column) ---------- */
-  var QUEUE = [], QIDX = 0, FAMID = [], STATE = [], FAMILIES = {}, FAM_SEQ = 0, QEND = false;
+  var QUEUE = [], QIDX = 0, FAMID = [], STATE = [], FAMILIES = {}, FAM_SEQ = 0, QEND = false, SENDING = {};
   var FAM_COLORS = ['#1d6e56', '#8a5a2b', '#3a5a9e', '#9e3a6e', '#5a7a2b', '#6e4a9e'];
   function famLetter(f){ return String.fromCharCode(65 + (f % 26)); }
   function famColor(f){ return FAM_COLORS[f % FAM_COLORS.length]; }
@@ -240,7 +243,7 @@
     show('skipBtn', multi && !QEND);
     $('queueList').innerHTML = !multi ? '' : QUEUE.map(function(sku, i){
       var st = STATE[i], isCurrent = (i === QIDX && !QEND);
-      var tag = st === 'sent' ? '✓ sent ' : (st === 'approved' ? '✓ approved ' : (isCurrent ? '→ ' : ''));
+      var tag = st === 'sent' ? '<span style="color:var(--ok);font-weight:700">✓</span> sent ' : (st === 'sending' ? '⏳ sending ' : (st === 'approved' ? '✓ approved ' : (isCurrent ? '→ ' : '')));
       var fam = FAMID[i];
       var badge = fam != null ? ' <span class="pill" style="background:' + famColor(fam) + ';color:#fff;padding:1px 8px;font-size:11px">Family ' + famLetter(fam) + '</span>' : '';
       var cb = !st ? '<input type="checkbox" class="qSel" data-i="' + i + '" style="margin-right:6px">' : '<span style="display:inline-block;width:20px"></span>';
@@ -284,7 +287,8 @@
       if (fam != null && FAMILIES[fam] && FAMILIES[fam].kw && FAMILIES[fam].kw.length){
         KW = FAMILIES[fam].kw; renderKw(FAMILIES[fam].ticked || null);
         show('kwCard', false);
-        $('loadMsg').textContent += ' · Keywords reused from Family ' + famLetter(fam) + ' — go straight to Generate.';
+        $('loadMsg').textContent += ' · Keywords reused from Family ' + famLetter(fam) + ' — generating automatically…';
+        generate();                          // auto-run Generate for the next family member (no extra click)
       }
     }catch(e){
       show('prod', false); show('kwCard', false); show('genCard', false); show('editCard', false); show('pubCard', false);
@@ -334,32 +338,50 @@
     QUEUE.forEach(function(sku, i){ var f = FAMID[i]; if (f == null) return; if (!fams[f]) fams[f] = { total: 0, approved: 0, sent: 0 }; fams[f].total++; if (STATE[i] === 'approved') fams[f].approved++; else if (STATE[i] === 'sent') fams[f].sent++; });
     var keys = Object.keys(fams);
     var el = $('familySend'); if (!el) return;
-    el.innerHTML = !keys.length ? '' : keys.map(function(f){
+    var rows = keys.map(function(f){
       var c = fams[f], pending = c.total - c.sent;
+      if (SENDING[f]) return '<div class="row" style="justify-content:space-between;padding:4px 0"><span class="fixed">Family ' + famLetter(f) + ': sending…</span> <button type="button" disabled>Sending… (' + c.sent + '/' + c.total + ')</button></div>';
       if (pending <= 0) return '<div class="fixed" style="padding:4px 0">Family ' + famLetter(f) + ': all sent ✓</div>';
       var ready = c.approved === pending;
       var status = 'Family ' + famLetter(f) + ': ' + c.approved + '/' + pending + ' approved' + (c.sent ? (' · ' + c.sent + ' sent') : '');
       var btn = ready ? ' <button type="button" id="sendFam' + f + '" onclick="sendAllFamily(' + f + ')">Send all drafts (Family ' + famLetter(f) + ')</button>' : '';
       return '<div class="row" style="justify-content:space-between;padding:4px 0"><span class="fixed">' + status + '</span>' + btn + '</div>';
     }).join('');
+    // "Start a new list" once there is nothing left to do (end reached, or every family fully sent) and nothing is sending
+    var sending = keys.some(function(f){ return SENDING[f]; });
+    var allSent = keys.length && keys.every(function(f){ return (fams[f].total - fams[f].sent) <= 0; });
+    var showNew = !sending && (QEND || allSent) && QUEUE.length;
+    el.innerHTML = rows + (showNew ? '<div class="row" style="margin-top:8px"><button type="button" onclick="startNewBatch()">Start a new list</button></div>' : '');
+  }
+  function startNewBatch(){
+    QUEUE = []; QIDX = 0; FAMID = []; STATE = []; FAMILIES = {}; FAM_SEQ = 0; QEND = false; SENDING = {};
+    show('queuePanel', false); resetForNext(true);
+    if ($('sendStatus')) $('sendStatus').textContent = '';
+    $('loadMsg').className = 'msg'; $('loadMsg').textContent = 'Paste a new list to start another batch.';
+    window.scrollTo(0, 0);
   }
   async function sendAllFamily(f){
+    if (SENDING[f]) return;                                 // already sending -> never start a second run (no double send)
     var items = (FAMILIES[f] && FAMILIES[f].approved ? FAMILIES[f].approved : []).filter(function(a){ return STATE[a.qidx] === 'approved'; });
     if (!items.length) return;
-    var btn = $('sendFam' + f); if (btn) btn.disabled = true;
+    SENDING[f] = true; renderQueue();                       // lock the button straight away
+    function setStatus(txt, cls){ var e = $('sendStatus'); if (e){ e.className = 'msg' + (cls ? ' ' + cls : ''); e.textContent = txt; } }
     var done = 0, failed = [];
     for (var k = 0; k < items.length; k++){
       var a = items[k];
-      $('loadMsg').className = 'msg'; $('loadMsg').textContent = 'Sending Family ' + famLetter(f) + ' — ' + (k + 1) + ' of ' + items.length + ' (' + a.g.sku + ')…';
-      var r = await sendOneDraft(a.g, function(txt){ $('loadMsg').textContent = 'Sending Family ' + famLetter(f) + ' — ' + (k + 1) + ' of ' + items.length + ': ' + txt; });
+      STATE[a.qidx] = 'sending'; renderQueue();
+      var head = 'Sending Family ' + famLetter(f) + ' — ' + (k + 1) + ' of ' + items.length + ' (' + a.g.sku + ')';
+      setStatus(head + '…');
+      var r = await sendOneDraft(a.g, function(txt){ setStatus(head + ' — ' + txt); });
       if (r.listing_id){ STATE[a.qidx] = 'sent'; if ((r.fails && r.fails.length) || r.imgFails) failed.push(a.g.sku + ' (partial)'); else done++; }
-      else failed.push(a.g.sku + (r.error ? ' (' + r.error + ')' : ' (not created)'));
+      else { STATE[a.qidx] = 'approved'; failed.push(a.g.sku + (r.error ? ' (' + r.error + ')' : ' (not created)')); }
       renderQueue();
     }
+    SENDING[f] = false;
     FAMILIES[f].approved = FAMILIES[f].approved.filter(function(a){ return STATE[a.qidx] !== 'sent'; });
     await loadSent();
-    $('loadMsg').className = 'msg ' + (failed.length ? 'bad' : 'good');
-    $('loadMsg').textContent = 'Family ' + famLetter(f) + ': sent ' + done + ' of ' + items.length + '.' + (failed.length ? ' Check these: ' + failed.join(' · ') : '');
+    renderQueue();
+    setStatus('Family ' + famLetter(f) + ': sent ' + done + ' of ' + items.length + '.' + (failed.length ? ' Check these: ' + failed.join(' · ') : ' All done.'), failed.length ? 'bad' : 'good');
   }
   function renderProduct(){
     show('prod'); show('kwCard'); show('genCard'); show('editCard', false); show('pubCard', false);
@@ -387,12 +409,37 @@
   function addStyle(s){ if (s && STYLES.indexOf(s) < 0){ STYLES.push(s); renderStyles(); buildSeeds(); } }
 
   /* ---------- step 2: keywords ---------- */
+  var SUGGEST = [];
   function buildSeeds(){
     var set = [];
     STYLES.forEach(function(s){ (P.styleSynonyms[s] || []).forEach(function(w){ var seed = w + ' wall art'; if (set.indexOf(seed) < 0) set.push(seed); }); });
     if (set.indexOf('wall art') < 0 && !set.length) set.push('wall art');
     SEEDS = set.map(function(s, i){ return { t: s, on: i < 15 }; });
+    SUGGEST = []; if ($('seedSuggest')) $('seedSuggest').innerHTML = ''; if ($('suggestMsg')) $('suggestMsg').textContent = '';
     renderSeeds();
+  }
+  async function suggestSeeds(){
+    if (!P) return;
+    $('suggestBtn').disabled = true; $('suggestMsg').className = 'fixed'; $('suggestMsg').textContent = 'Asking Claude for seed ideas…';
+    try{
+      var r = await fetch('/api/etsy?action=tab1-suggest-seeds', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ product: P, rooms: ROOMS_SEL, styles: STYLES }) });
+      var j = await r.json();
+      if (!j.ok) throw new Error(j.error || 'Error');
+      SUGGEST = (j.seeds || []).filter(function(s){ return !SEEDS.some(function(x){ return x.t === s; }); });
+      renderSuggest();
+      $('suggestMsg').className = 'fixed'; $('suggestMsg').textContent = SUGGEST.length ? 'Tap a suggestion to add it as a seed.' : 'No new suggestions.';
+    }catch(e){ $('suggestMsg').className = 'fixed bad'; $('suggestMsg').textContent = 'Failed: ' + e.message; }
+    $('suggestBtn').disabled = false;
+  }
+  function renderSuggest(){
+    $('seedSuggest').innerHTML = !SUGGEST.length ? '' : ('<span class="fixed" style="width:100%">Suggestions (tap to add):</span>' + SUGGEST.map(function(s, i){
+      return '<button type="button" onclick="addSuggest(' + i + ')" style="font:inherit;cursor:pointer;background:#eef6f2;color:var(--accent);border:1px dashed var(--accent);border-radius:20px;padding:4px 10px;font-size:13px;font-weight:600">+ ' + esc(s) + '</button>';
+    }).join(''));
+  }
+  function addSuggest(i){
+    var s = SUGGEST[i]; if (!s) return;
+    if (!SEEDS.some(function(x){ return x.t === s; })) SEEDS.push({ t: s, on: true });
+    SUGGEST.splice(i, 1); renderSuggest(); renderSeeds();
   }
   function renderSeeds(){
     $('seedChips').innerHTML = SEEDS.map(function(s, i){ return '<label class="chip"><input type="checkbox" ' + (s.on ? 'checked' : '') + ' onchange="seedTick(' + i + ', this.checked)">' + esc(s.t) + '</label>'; }).join('');
@@ -537,6 +584,9 @@
     var pieces = findProp(/pieces/i); if (pieces){ var m2 = matchVal(pieces, '3'); if (m2) chosen[pieces.id] = [m2.name]; else ATTR_NOTES.push('Number of pieces: couldn\'t find option 3'); }
     var roomP = findProp(/^room$/i);
     if (roomP){ chosen[roomP.id] = []; etsyRoomNames().forEach(function(n){ var m3 = matchVal(roomP, n); if (m3) chosen[roomP.id].push(m3.name); else ATTR_NOTES.push('Room "' + n + '" isn\'t in Etsy\'s options'); }); }
+    // Frame colour: always the three frames we offer (White, Black, Brown = oak) — override whatever the AI picked.
+    var frameColP = findProp(/frame colou?r/i);
+    if (frameColP){ chosen[frameColP.id] = []; ['White','Black','Brown'].forEach(function(cv){ var mfc = matchVal(frameColP, cv); if (mfc) chosen[frameColP.id].push(mfc.name); else ATTR_NOTES.push('Frame colour "' + cv + '" isn\'t in Etsy\'s options'); }); }
     // #16 Can be personalized -> default Yes
     var persoP = findProp(/can be personali/i) || findProp(/personali/i);
     if (persoP && !(chosen[persoP.id] && chosen[persoP.id].length)){ var my = matchVal(persoP, 'Yes'); if (my) chosen[persoP.id] = [my.name]; }
