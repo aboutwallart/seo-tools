@@ -52,7 +52,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">Tab 1 · NEW PRODUCT · v0.20</p>
+  <p class="ver">Tab 1 · NEW PRODUCT · v0.21</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -536,33 +536,42 @@
     $('pubMsg').textContent = ''; window.scrollTo(0, 0);
   }
 
-  /* ---------- Clean listings (remove off-platform footer from existing listings) ---------- */
+  /* ---------- Clean listings (remove off-platform content from existing listings) ---------- */
   var CLEAN = [];
+  // What endangers the shop (Etsy "no off-platform" policy). Used BOTH to remove and to verify afterwards.
+  var DANGER = [
+    { name: 'external link', rx: /https?:\/\/(?![^\s"'<>]*etsy\.com)/i },   // any link that is NOT etsy.com
+    { name: 'email', rx: /[\w.+-]+@[\w-]+\.[\w.-]+/ },
+    { name: '★★ promo', rx: /★★/ },
+    { name: 'social', rx: /\b(instagram|facebook|pinterest|tiktok|bit\.ly)\b/i },
+    { name: 'promo phrase', rx: /(join the (about wall art )?club|15% ?off|secret code|discount code|workbook|download now|follow (us|our journey))/i }
+  ];
+  function dangerTypes(text){ var t = String(text || ''); return DANGER.filter(function(d){ return d.rx.test(t); }).map(function(d){ return d.name; }); }
+  // Remove whole PARAGRAPHS (blank-line-separated blocks) that contain any danger — never leave cut fragments.
   function cleanDescription(desc){
-    var lines = String(desc || '').split('\n'), i, free = -1;
-    for (i = 0; i < lines.length; i++){ if (/free uk postage/i.test(lines[i])){ free = i; break; } }
-    if (free >= 0) return lines.slice(0, free + 1).join('\n').replace(/\s+$/, '');   // keep up to FREE UK POSTAGE, drop below
-    var markers = [/thank you for visiting/i, /follow our journey/i, /★★/, /bit\.ly/i, /join the about wall art club/i, /i think you may like to take a look/i, /back to the store/i, /mae@aboutwallart\.com/i, /registered trademark/i, /instagram\.com/i, /facebook\.com/i];
-    var cut = -1;
-    for (i = 0; i < lines.length; i++){ if (markers.some(function(m){ return m.test(lines[i]); })){ cut = i; break; } }
-    if (cut >= 0) return lines.slice(0, cut).join('\n').replace(/\s+$/, '');
-    return String(desc || '');
+    var text = String(desc || '').replace(/\r\n/g, '\n');
+    var paras = text.split(/\n{2,}/);
+    var kept = paras.filter(function(p){ return !DANGER.some(function(d){ return d.rx.test(p); }); });
+    return kept.join('\n\n').replace(/\n{3,}/g, '\n\n').trim();
   }
   async function scanClean(){
-    $('scanBtn').disabled = true; $('cleanMsg').textContent = 'Scanning your listings…'; show('cleanPreview', false);
+    $('scanBtn').disabled = true; $('cleanMsg').textContent = 'Scanning your listings…'; show('cleanPreview', false); $('applyMsg').textContent = '';
     try{
       var r = await fetch('/api/etsy?action=tab-clean-list&t=' + Date.now()); var j = await r.json();
       if (!j.ok) throw new Error(j.error || 'Error');
-      CLEAN = (j.listings || []).map(function(l){ var cleaned = cleanDescription(l.description); return { listing_id: l.listing_id, title: l.title, original: l.description, cleaned: cleaned, changed: cleaned !== l.description }; });
+      CLEAN = (j.listings || []).map(function(l){ var cleaned = cleanDescription(l.description); return { listing_id: l.listing_id, title: l.title, original: l.description, cleaned: cleaned, changed: cleaned !== l.description, danger: dangerTypes(l.description) }; });
+      var withDanger = CLEAN.filter(function(c){ return c.danger.length; });
       var changed = CLEAN.filter(function(c){ return c.changed; });
-      $('cleanMsg').textContent = j.count + ' listings scanned · ' + changed.length + ' would change.';
-      $('cleanSummary').className = 'msg ' + (changed.length ? 'good' : '');
-      $('cleanSummary').textContent = changed.length + ' listings will have the off-platform footer removed. Review a few below, then Apply.';
-      $('cleanSamples').innerHTML = changed.slice(0, 3).map(function(c){
-        return '<div class="card" style="padding:8px 10px;margin:0 0 8px"><div class="fixed"><b>' + esc(c.title || c.listing_id) + '</b></div>' +
+      var counts = {}; DANGER.forEach(function(d){ counts[d.name] = CLEAN.filter(function(c){ return c.danger.indexOf(d.name) >= 0; }).length; });
+      var breakdown = DANGER.map(function(d){ return d.name + ': ' + counts[d.name]; }).join(' · ');
+      $('cleanMsg').textContent = j.count + ' listings scanned.';
+      $('cleanSummary').className = 'msg ' + (withDanger.length ? 'bad' : 'good');
+      $('cleanSummary').innerHTML = '<b>' + withDanger.length + '</b> listings have off-platform content (' + esc(breakdown) + '). <b>' + changed.length + '</b> will be cleaned on Apply.';
+      $('cleanSamples').innerHTML = changed.slice(0, 4).map(function(c){
+        return '<div class="card" style="padding:8px 10px;margin:0 0 8px"><div class="fixed"><b>' + esc(c.title || c.listing_id) + '</b> — found: ' + esc(c.danger.join(', ')) + '</div>' +
           '<div class="grid2" style="margin-top:4px">' +
-          '<div><div class="fixed">BEFORE (end)</div><pre style="white-space:pre-wrap;font-size:11px;max-height:160px;overflow:auto;background:#f6f4ee;padding:6px;border-radius:6px">' + esc(c.original.slice(-500)) + '</pre></div>' +
-          '<div><div class="fixed">AFTER (end)</div><pre style="white-space:pre-wrap;font-size:11px;max-height:160px;overflow:auto;background:#eef7f2;padding:6px;border-radius:6px">' + esc(c.cleaned.slice(-500)) + '</pre></div></div></div>';
+          '<div><div class="fixed">BEFORE</div><pre style="white-space:pre-wrap;font-size:11px;max-height:220px;overflow:auto;background:#f6f4ee;padding:6px;border-radius:6px">' + esc(c.original) + '</pre></div>' +
+          '<div><div class="fixed">AFTER</div><pre style="white-space:pre-wrap;font-size:11px;max-height:220px;overflow:auto;background:#eef7f2;padding:6px;border-radius:6px">' + esc(c.cleaned) + '</pre></div></div></div>';
       }).join('');
       $('applyBtn').disabled = changed.length === 0;
       show('cleanPreview');
@@ -583,7 +592,14 @@
         var j = await r.json(); done += (j.updated || 0); failed += (j.failed || 0);
       }catch(e){ failed += batch.length; }
     }
-    $('applyMsg').textContent = 'Done. Updated ' + done + ', failed ' + failed + '.' + (failed ? ' (Re-scan to retry the failed ones.)' : '');
+    // VERIFICATION: re-scan all listings and confirm nothing dangerous is left.
+    $('applyMsg').textContent = 'Updated ' + done + ' (failed ' + failed + '). Verifying…';
+    try{
+      var vr = await fetch('/api/etsy?action=tab-clean-list&t=' + Date.now()); var vj = await vr.json();
+      var still = (vj.listings || []).filter(function(l){ return dangerTypes(l.description).length; });
+      if (!still.length){ $('applyMsg').className = 'fixed'; $('applyMsg').innerHTML = '<b style="color:var(--ok)">✓ Verified: 0 listings with off-platform content.</b> (Updated ' + done + ', failed ' + failed + '.)'; }
+      else { $('applyMsg').innerHTML = '<b style="color:var(--warn)">⚠ ' + still.length + ' listings STILL have off-platform content.</b> Re-scan and Apply again. (' + esc(still.slice(0,10).map(function(l){ return l.title || l.listing_id; }).join(' · ')) + (still.length>10?' …':'') + ')'; }
+    }catch(e){ $('applyMsg').textContent = 'Updated ' + done + ', failed ' + failed + '. Couldn\'t verify — re-scan to check.'; }
     $('scanBtn').disabled = false;
   }
 
