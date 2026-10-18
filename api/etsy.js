@@ -1,4 +1,7 @@
-// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.20
+// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.21
+// v0.21 (2026-10-18): Clean-listings logic (front) now removes whole PARAGRAPHS that contain off-platform content
+//   (external link / email / ★★ / social / promo phrase), order-independent, and a second scan verifies 0 remain.
+//   Backend tab-clean-list / tab-clean-apply unchanged (list + PATCH description + GitHub backup).
 // v0.20 (2026-10-18): URGENT off-platform cleanup — removed the bitly/social/email lines from the fixed description
 //   (Etsy "no off-platform" policy); new actions tab-clean-list + tab-clean-apply to strip that footer from ALL existing
 //   listings (backs up each original description to data/etsy-desc-backup.json first). Also: Shopify load brings ALL
