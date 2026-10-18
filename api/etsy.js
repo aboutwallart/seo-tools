@@ -1,4 +1,6 @@
-// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.23
+// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.25
+// v0.25 (2026-10-18): family batch — tab1-generate accepts siblingTitles; when present, the prompt tells the AI the
+//   titles already used by family siblings and that this title MUST be clearly different (no SEO cannibalisation).
 // v0.23 (2026-10-18): FIX — clean-apply PATCH now hits /shops/{shop_id}/listings/{id} (was /listings/{id} -> Etsy
 //   "Resource not found"). updateListing is shop-scoped. (Front also removes the leftover workbook promo intro.)
 // v0.21 (2026-10-18): Clean-listings logic (front) now removes whole PARAGRAPHS that contain off-platform content
@@ -445,6 +447,11 @@ module.exports = async (req, res) => {
         'Title: ' + p.title, 'Tags: ' + (p.tags || []).join(', '), 'Room: ' + (b.rooms || []).join(', '), 'Style(s): ' + (b.styles || []).join(', '), 'Colours: ' + (p.colours || []).join(', '),
         'Store description (for facts only, do not copy): ' + (p.description || '').slice(0, 1200),
         '', 'ETSY KEYWORD DATA (real Etsy searches with competition; prefer relevant, lower-competition ones):', kws,
+        ...((b.siblingTitles || []).length ? [
+          '', 'FAMILY — AVOID SEO CANNIBALISATION: this product is part of a family that shares the same keywords. These titles are ALREADY used by its siblings:',
+          (b.siblingTitles || []).map(t => '- ' + t).join('\n'),
+          'Your title MUST be clearly DIFFERENT from every title above — lead with a different keyword and use different phrasing, not a reordering of the same words. They must not compete with each other in search.'
+        ] : []),
         '', 'RULES — follow exactly:',
         '1) TITLE: max 140 chars, Title Case (NOT all caps), long but readable, keyword-rich WITHOUT stuffing/repeating. Lead with the keyword that best says WHAT it is. Include the room. Do NOT put any colour words in the title (no "white", "black", "blue"...) — colours go ONLY in the attributes/SEO, never in the title. Position of keywords does not affect ranking.',
         '2) TAGS: EXACTLY 13, all UNIQUE, lowercase, never the same combination twice, no spelling mistakes. Each tag = a descriptor (use the keyword data) + a wall-art synonym as the noun. Spread these 10 synonyms across DIFFERENT tags (each used about once): wall art, art prints, wall decor, wall hangings, wall prints, canvas prints, wall pictures, wall posters, canvas art, art decor. Cover the 7 tag types across the 13: 1 descriptive (what it is) 2 materials/technique 3 for whom (gifts) 4 occasion 5 solution (empty wall...) 6 style (era/palette + what it is) 7 size. Do not repeat exact category/attribute names as a tag (a multi-word tag that contains them is fine). CRITICAL LENGTH RULE: every tag MUST be 20 characters or fewer INCLUDING SPACES. Count the characters of each tag before returning it. If a tag would be over 20, REWRITE it with a shorter synonym (e.g. "scandinavian wall art" = 21 -> "scandi wall art"; "nordic landscape decor" = 22 -> "nordic landscape"); NEVER return a tag over 20 and NEVER cut a word mid-way.',
