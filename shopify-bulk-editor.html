@@ -148,7 +148,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v3.4 · NEW Metafields tab (Room Type + Trends, by group, backup + preview + undo) · Excel now covers Room Type + Trends · retention: latest backup + last 20 undos · 6 tabs · batches + backup + undo</div>
+            <div class="subtitle">v3.5 · NEW Metafields tab (Room Type + Trends, by group, backup + preview + undo) · Excel now covers Room Type + Trends · retention: latest backup + last 20 undos · 6 tabs · batches + backup + undo</div>
         </div>
 
         <!-- TABS (always visible) -->
@@ -913,6 +913,11 @@ async function mfUndo(id){
         mfLoadUndos();
     } catch(e){ alert('Undo failed: '+e.message); }
 }
+// close the Status menu when clicking anywhere outside it
+document.addEventListener('click', function(e){
+    const m=document.getElementById('mfStatusMenu'), b=document.getElementById('mfStatusBtn');
+    if(m && !m.hidden && !m.contains(e.target) && e.target!==b) m.hidden=true;
+});
 
 /* ===================== BACKUP GATES (one per tab) ===================== */
 function paintGate(panelId, titleId, state, redTitle, greenTitle){
