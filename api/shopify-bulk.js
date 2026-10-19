@@ -77,6 +77,16 @@ const UNDO_DIR = 'data/bulk-price-undo';                // price undo snapshots
 const FIELD_UNDO_INDEX = 'data/bulk-field-undos.json';  // other-fields undo list
 const FIELD_UNDO_DIR = 'data/bulk-field-undo';          // other-fields undo snapshots
 
+// Product metafields the Metafields tab can bulk-edit. Field id in the API = 'mf.<short>'. All reuse the
+// field backup / apply / undo plumbing (one more branch in each). List types store a JSON-array string.
+const MF_DEFS = {
+  'mf.room_type': { namespace: 'custom', key: 'room_type', type: 'list.single_line_text_field', list: true },
+  'mf.trends':    { namespace: 'custom', key: 'trends',    type: 'list.single_line_text_field', list: true }
+};
+function mfDef(field) { return MF_DEFS[field] || null; }
+function mfParse(raw) { if (raw == null || raw === '') return []; try { const a = JSON.parse(raw); return Array.isArray(a) ? a : [String(a)]; } catch (e) { return String(raw).split(',').map(s => s.trim()).filter(Boolean); } }
+function mfDedupe(arr) { const seen = {}, out = []; (arr || []).forEach(v => { const k = String(v).toLowerCase().trim(); if (k && !seen[k]) { seen[k] = 1; out.push(String(v).trim()); } }); return out; }
+
 // Remove the brand ("About Wall Art" in any spacing/case/punctuation, optional "UK" / ".com")
 // from an SEO title and tidy the leftover separator/spaces. No brand present -> unchanged.
 function removeBrandFromTitle(s) {
@@ -170,6 +180,31 @@ module.exports = async function handler(req, res) {
     }
     throw new Error('GitHub save failed after retries');
   }
+  // Best-effort delete (keeps backups/undos from piling up forever). Never throws — cleanup must not break a run.
+  async function ghDelete(path, message) {
+    try {
+      if (!GITHUB_TOKEN) return false;
+      const cur = await ghGet(path);
+      if (!cur.sha) return false;
+      const r = await fetch(`https://api.github.com/repos/${REPO}/contents/${path}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: message || `bulk-editor delete ${path}`, sha: cur.sha })
+      });
+      return r.ok;
+    } catch (e) { return false; }
+  }
+  // Keep only the last N undo entries in an index, DELETING the snapshot files of the ones dropped.
+  async function pruneUndos(indexPath, dir, keep) {
+    try {
+      const idx = (await ghGet(indexPath)).json || [];
+      if (idx.length <= keep) return;
+      const drop = idx.slice(keep);
+      for (const e of drop) { if (e && e.id) await ghDelete(`${dir}/${e.id}.json`, `prune undo ${e.id}`); }
+      await ghPut(indexPath, idx.slice(0, keep), `prune undo index (keep ${keep})`);
+    } catch (e) {}
+  }
+  const UNDO_KEEP = 20;   // retention: keep the last 20 undos per tab; older snapshot files are deleted
 
   // ---- incremental undo snapshots (Apply runs in batches; all batches share ONE undo entry) ----
   async function saveFieldUndoSnapshot(undoId, field, snapshotChunk, isFirst, meta) {
@@ -180,6 +215,7 @@ module.exports = async function handler(req, res) {
         const idx = (await ghGet(FIELD_UNDO_INDEX)).json || [];
         idx.unshift(Object.assign({ id: undoId, createdAt: now, field, count: snapshotChunk.length, reverted: false }, meta || {}));
         await ghPut(FIELD_UNDO_INDEX, idx.slice(0, 100), `field index ${undoId}`);
+        await pruneUndos(FIELD_UNDO_INDEX, FIELD_UNDO_DIR, UNDO_KEEP);   // keep last 20, delete older snapshot files
       } catch (e) {}
     } else {
       const existing = (await ghGet(`${FIELD_UNDO_DIR}/${undoId}.json`)).json || { id: undoId, createdAt: now, field, snapshot: [] };
@@ -201,6 +237,7 @@ module.exports = async function handler(req, res) {
         const idx = (await ghGet(UNDO_INDEX)).json || [];
         idx.unshift({ id: undoId, createdAt: now, count: snapshotChunk.length, change, vendors: vendorsArr, reverted: false });
         await ghPut(UNDO_INDEX, idx.slice(0, 100), `index ${undoId}`);
+        await pruneUndos(UNDO_INDEX, UNDO_DIR, UNDO_KEEP);   // keep last 20, delete older snapshot files
       } catch (e) {}
     } else {
       const existing = (await ghGet(`${UNDO_DIR}/${undoId}.json`)).json || { id: undoId, createdAt: now, change, snapshot: [] };
@@ -431,6 +468,7 @@ module.exports = async function handler(req, res) {
     if (field === 'awaprice') return 'id title vendor status variants(first:100){ nodes { id title price compareAtPrice selectedOptions{ name value } } }';
     if (field === 'soldout') return 'id title vendor status variants(first:100){ nodes { id title inventoryPolicy inventoryQuantity selectedOptions{ name value } inventoryItem{ id } } }';
     if (field === 'seotitle') return 'id title vendor status seo{ title }';
+    if (mfDef(field)) { const d = mfDef(field); return `id title vendor status metafield(namespace:"${d.namespace}", key:"${d.key}"){ value }`; }
     return 'id title vendor status';
   }
 
@@ -512,8 +550,10 @@ module.exports = async function handler(req, res) {
       const createdAt = new Date().toISOString();
       const stamp = createdAt.replace(/[:.]/g, '-');
       const path = `data/price-backups/price-backup-${stamp}.json`;
+      let oldPath = null; try { const o = (await ghGet('data/price-backup-latest.json')).json; if (o && o.path) oldPath = o.path; } catch (e) {}
       await ghPut(path, { createdAt, count: rows.length, rows }, `full price backup (${rows.length} variants)`);
       try { await ghPut('data/price-backup-latest.json', { createdAt, count: rows.length, path }, 'latest backup pointer'); } catch (e) {}
+      if (oldPath && oldPath !== path) await ghDelete(oldPath, 'prune old price backup (keep latest only)');   // retention: keep only the latest
       return res.status(200).json({ ok: true, count: rows.length, path, createdAt });
     }
 
@@ -526,7 +566,7 @@ module.exports = async function handler(req, res) {
     if (action === 'backup-field') {
       const field = q.field || body.field;
       const allowed = ['tags', 'ptype', 'category', 'collections', 'weight', 'unitprice', 'awaprice', 'soldout', 'seotitle'];
-      if (!field || allowed.indexOf(field) === -1) return res.status(400).json({ ok: false, error: 'valid field required' });
+      if (!field || (allowed.indexOf(field) === -1 && !mfDef(field))) return res.status(400).json({ ok: false, error: 'valid field required' });
       // weight, AWA prices & sold-out only exist for About Wall Art products, so back up just those (small & fast)
       const vendorFilter = (field === 'weight' || field === 'awaprice' || field === 'soldout') ? `vendor:'About Wall Art'` : null;
       const pageSize = (field === 'weight' || field === 'soldout') ? 40 : (field === 'collections' || field === 'unitprice' || field === 'awaprice') ? 60 : 200;
@@ -539,6 +579,7 @@ module.exports = async function handler(req, res) {
         if (field === 'unitprice' || field === 'awaprice') return 'id variants(first:100){ nodes{ id price compareAtPrice } }';
         if (field === 'soldout') return 'id variants(first:100){ nodes{ id inventoryPolicy inventoryItem{ id inventoryLevels(first:5){ nodes{ location{ id } quantities(names:["available"]){ name quantity } } } } } }';
         if (field === 'seotitle') return 'id seo{ title }';
+        if (mfDef(field)) { const d = mfDef(field); return `id metafield(namespace:"${d.namespace}", key:"${d.key}"){ value }`; }
         return 'id';
       }
       const rows = [];
@@ -558,6 +599,7 @@ module.exports = async function handler(req, res) {
           else if (field === 'unitprice' || field === 'awaprice') rows.push({ productId: pr.id, variants: (pr.variants && pr.variants.nodes ? pr.variants.nodes : []).map(v => ({ variantId: v.id, price: v.price, compareAtPrice: v.compareAtPrice })) });
           else if (field === 'soldout') rows.push({ productId: pr.id, variants: (pr.variants && pr.variants.nodes ? pr.variants.nodes : []).map(v => { const lv = firstLevelOf(v); return { variantId: v.id, inventoryItemId: v.inventoryItem ? v.inventoryItem.id : null, locationId: lv.locationId, policy: v.inventoryPolicy, available: lv.available }; }) });
           else if (field === 'seotitle') rows.push({ productId: pr.id, seoTitle: pr.seo ? (pr.seo.title || '') : '' });
+          else if (mfDef(field)) rows.push({ productId: pr.id, value: pr.metafield ? pr.metafield.value : null });
         });
         pages++;
         if (!conn.pageInfo.hasNextPage) break;
@@ -566,8 +608,10 @@ module.exports = async function handler(req, res) {
       const createdAt = new Date().toISOString();
       const stamp = createdAt.replace(/[:.]/g, '-');
       const path = `data/field-backups/${field}-backup-${stamp}.json`;
+      let oldPath = null; try { const o = (await ghGet(`data/field-backup-latest-${field}.json`)).json; if (o && o.path) oldPath = o.path; } catch (e) {}
       await ghPut(path, { createdAt, field, count: rows.length, rows }, `field backup ${field} (${rows.length})`);
       try { await ghPut(`data/field-backup-latest-${field}.json`, { createdAt, field, count: rows.length, path }, `latest ${field} backup pointer`); } catch (e) {}
+      if (oldPath && oldPath !== path) await ghDelete(oldPath, `prune old ${field} backup (keep latest only)`);   // retention: keep only the latest
       return res.status(200).json({ ok: true, field, count: rows.length, path, createdAt });
     }
 
@@ -850,12 +894,23 @@ module.exports = async function handler(req, res) {
       let filters = body.filters || {};
       if (field === 'weight' || field === 'awaprice' || field === 'soldout') filters = Object.assign({}, filters, { vendor: AWA_VENDOR }); // safety: AWA only
       const searchQ = buildQuery(filters);
-      const data = await shopify(
-        `query($q:String,$cursor:String){ products(first:60, query:$q, after:$cursor){
-           pageInfo{ hasNextPage endCursor } nodes{ ${productSelection(field)} } } }`,
-        { q: searchQ || null, cursor: body.cursor || null }
-      );
-      const conn = data.products;
+      let conn;
+      if (filters.collectionId) {
+        // scope the group to one collection (its products connection takes the rest of the filters as its query)
+        const data = await shopify(
+          `query($cid:ID!,$q:String,$cursor:String){ collection(id:$cid){ products(first:60, query:$q, after:$cursor){
+             pageInfo{ hasNextPage endCursor } nodes{ ${productSelection(field)} } } } }`,
+          { cid: filters.collectionId, q: searchQ || null, cursor: body.cursor || null }
+        );
+        conn = (data.collection && data.collection.products) ? data.collection.products : { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } };
+      } else {
+        const data = await shopify(
+          `query($q:String,$cursor:String){ products(first:60, query:$q, after:$cursor){
+             pageInfo{ hasNextPage endCursor } nodes{ ${productSelection(field)} } } }`,
+          { q: searchQ || null, cursor: body.cursor || null }
+        );
+        conn = data.products;
+      }
       const rows = [];
       let productCount = 0, unitCount = 0, changeCount = 0, blockedCount = 0;
       const collTags = new Set(Array.isArray(cfg.collectionTags) ? cfg.collectionTags : []);
@@ -1056,6 +1111,21 @@ module.exports = async function handler(req, res) {
               changed, blocked: false, note: currentlySold ? 'already sold out' : '',
               payload: { variantId: v.id, inventoryItemId: v.inventoryItem ? v.inventoryItem.id : null, want: 'soldout' } });
           });
+        }
+
+        else if (mfDef(field)) {
+          const curArr = mfParse(pr.metafield ? pr.metafield.value : null);
+          const picked = mfDedupe(Array.isArray(cfg.values) ? cfg.values : []);
+          const base = (cfg.mode === 'add') ? curArr : [];
+          const nextArr = mfDedupe(base.concat(picked));
+          const lc = curArr.map(x => x.toLowerCase());
+          const changed = picked.length > 0 && (nextArr.length !== curArr.length || nextArr.some(v => lc.indexOf(v.toLowerCase()) === -1));
+          unitCount++;
+          if (changed) changeCount++;
+          rows.push({ productId: pr.id, productTitle: pr.title, vendor: pr.vendor,
+            oldVal: curArr.join(', ') || '(none)', newVal: nextArr.join(', ') || '(none)',
+            changed, blocked: false, note: changed ? '' : 'no change',
+            payload: { values: picked, mode: cfg.mode === 'add' ? 'add' : 'replace' } });
         }
       });
 
@@ -1258,6 +1328,41 @@ module.exports = async function handler(req, res) {
         updated = its.length - failed.size;
       }
 
+      // ---------- METAFIELDS (list text: room_type / trends) via metafieldsSet ----------
+      else if (mfDef(field)) {
+        const d = mfDef(field);
+        const its = items.filter(it => it.productId);
+        const pids = its.map(it => it.productId);
+        // read current metafield value per product (for undo + "add" mode)
+        const cur = {};
+        for (let i = 0; i < pids.length; i += 50) {
+          const chunk = pids.slice(i, i + 50);
+          const qy = 'query { ' + chunk.map((pid, j) => `p${j}: product(id:"${pid}"){ id metafield(namespace:"${d.namespace}", key:"${d.key}"){ value } }`).join(' ') + ' }';
+          const data = await shopify(qy);
+          chunk.forEach((pid, j) => { const n = data[`p${j}`]; if (n) cur[pid] = n.metafield ? n.metafield.value : null; });
+        }
+        its.forEach(it => snapshot.push({ productId: it.productId, oldValue: cur[it.productId] != null ? cur[it.productId] : null }));
+        await saveFieldUndoSnapshot(undoId, field, snapshot, isFirst, { label: d.key });
+        for (let i = 0; i < its.length; i += 20) {
+          const chunk = its.slice(i, i + 20);
+          const parts = chunk.map((it, j) => {
+            const p = it.payload || {};
+            const picked = mfDedupe(Array.isArray(p.values) ? p.values : []);
+            const base = (p.mode === 'add') ? mfParse(cur[it.productId]) : [];
+            const finalArr = mfDedupe(base.concat(picked));
+            const val = JSON.stringify(finalArr);
+            return `  u${j}: metafieldsSet(metafields:[{ownerId:"${it.productId}", namespace:"${d.namespace}", key:"${d.key}", type:"${d.type}", value:${JSON.stringify(val)}}]){ userErrors{ field message } }`;
+          });
+          const m = 'mutation {\n' + parts.join('\n') + '\n}';
+          const data = await shopify(m);
+          chunk.forEach((it, j) => {
+            const ue = data[`u${j}`] && data[`u${j}`].userErrors ? data[`u${j}`].userErrors : [];
+            if (ue.length) ue.forEach(e => errors.push(`${it.productId}: ${e.message}`));
+            else updated++;
+          });
+        }
+      }
+
       return res.status(200).json({ ok: true, updated, undoId, field, errors: errors.slice(0, 20) });
     }
 
@@ -1380,6 +1485,27 @@ module.exports = async function handler(req, res) {
           const ue = data.inventorySetQuantities && data.inventorySetQuantities.userErrors ? data.inventorySetQuantities.userErrors : [];
           if (ue.length) ue.forEach(e => errors.push(e.message));
         }
+      } else if (mfDef(field)) {
+        const d = mfDef(field);
+        // restore each product's old metafield value; if it had none, delete the metafield (= leave it empty, as it was)
+        const toSet = work.filter(s => s.oldValue != null && s.oldValue !== '');
+        const toDel = work.filter(s => !(s.oldValue != null && s.oldValue !== ''));
+        for (let i = 0; i < toSet.length; i += 20) {
+          const chunk = toSet.slice(i, i + 20);
+          const m = 'mutation {\n' + chunk.map((s, j) =>
+            `  u${j}: metafieldsSet(metafields:[{ownerId:"${s.productId}", namespace:"${d.namespace}", key:"${d.key}", type:"${d.type}", value:${JSON.stringify(s.oldValue)}}]){ userErrors{ message } }`
+          ).join('\n') + '\n}';
+          const data = await shopify(m);
+          chunk.forEach((s, j) => { const ue = data[`u${j}`] && data[`u${j}`].userErrors ? data[`u${j}`].userErrors : []; if (ue.length) ue.forEach(e => errors.push(e.message)); else restored++; });
+        }
+        for (let i = 0; i < toDel.length; i += 20) {
+          const chunk = toDel.slice(i, i + 20);
+          const m = 'mutation {\n' + chunk.map((s, j) =>
+            `  u${j}: metafieldsDelete(metafields:[{ownerId:"${s.productId}", namespace:"${d.namespace}", key:"${d.key}"}]){ userErrors{ message } }`
+          ).join('\n') + '\n}';
+          const data = await shopify(m);
+          chunk.forEach((s, j) => { const ue = data[`u${j}`] && data[`u${j}`].userErrors ? data[`u${j}`].userErrors : []; if (ue.length) ue.forEach(e => errors.push(e.message)); else restored++; });
+        }
       }
 
       const total = snap.snapshot.length;
@@ -1393,6 +1519,39 @@ module.exports = async function handler(req, res) {
         } catch (e) {}
       }
       return res.status(200).json({ ok: true, restored, total, nextOffset, hasMore, errors: errors.slice(0, 20) });
+    }
+
+    // ---- mf-choices: live value list for a metafield that has a fixed choice list (e.g. room_type) ----
+    if (action === 'mf-choices') {
+      const field = q.field || body.field;
+      const d = mfDef(field);
+      if (!d) return res.status(400).json({ ok: false, error: 'unknown metafield' });
+      const data = await shopify(`query{ metafieldDefinitions(first:1, ownerType: PRODUCT, namespace:"${d.namespace}", key:"${d.key}"){ nodes{ validations{ name value } } } }`);
+      const node = data.metafieldDefinitions && data.metafieldDefinitions.nodes && data.metafieldDefinitions.nodes[0];
+      let choices = [];
+      if (node) { const v = (node.validations || []).find(x => x.name === 'choices'); if (v && v.value) { try { choices = JSON.parse(v.value); } catch (e) {} } }
+      return res.status(200).json({ ok: true, field, choices });
+    }
+
+    // ---- collections-by-vendor: the distinct collections the chosen vendor's products are in (scoped, not the whole store) ----
+    if (action === 'collections-by-vendor') {
+      const vendor = (q.vendor || body.vendor || '').trim();
+      const qFilter = vendor ? `vendor:'${vendor.replace(/'/g, "\\'")}'` : null;
+      const seen = {}; const out = [];
+      let cursor = null, pages = 0;
+      while (pages < 300) {
+        const data = await shopify(
+          `query($q:String,$c:String){ products(first:100, query:$q, after:$c){ pageInfo{ hasNextPage endCursor } nodes{ collections(first:40){ nodes{ id title } } } } }`,
+          { q: qFilter, c: cursor }
+        );
+        const conn = data.products;
+        conn.nodes.forEach(pr => (pr.collections && pr.collections.nodes ? pr.collections.nodes : []).forEach(c => { if (c && c.id && !seen[c.id]) { seen[c.id] = 1; out.push({ id: c.id, title: c.title }); } }));
+        pages++;
+        if (!conn.pageInfo.hasNextPage) break;
+        cursor = conn.pageInfo.endCursor;
+      }
+      out.sort((a, b) => a.title.localeCompare(b.title));
+      return res.status(200).json({ ok: true, vendor, collections: out });
     }
 
     // ---- addvar-preview: one page — projects the new variants that would be created ----
@@ -1472,7 +1631,7 @@ module.exports = async function handler(req, res) {
           await ghPut(`${ADDVAR_UNDO_DIR}/${undoId}.json`, { id: undoId, createdAt: now, config: { group: cfg.group, addType: cfg.addType, newName: cfg.newName }, items: createdChunk }, `addvar undo ${undoId}`);
           const idx = (await ghGet(ADDVAR_UNDO_INDEX)).json || [];
           idx.unshift({ id: undoId, createdAt: now, group: cfg.group, addType: cfg.addType, newName: cfg.newName, count: created, reverted: false });
-          await ghPut(ADDVAR_UNDO_INDEX, idx.slice(0, 100), `addvar index ${undoId}`);
+          await ghPut(ADDVAR_UNDO_INDEX, idx.slice(0, 100), `addvar index ${undoId}`); await pruneUndos(ADDVAR_UNDO_INDEX, ADDVAR_UNDO_DIR, UNDO_KEEP);
         } else {
           const existing = (await ghGet(`${ADDVAR_UNDO_DIR}/${undoId}.json`)).json || { id: undoId, items: [] };
           existing.items = (existing.items || []).concat(createdChunk);
@@ -1520,11 +1679,12 @@ module.exports = async function handler(req, res) {
     // ======================= EXCEL EXPORT / IMPORT (About Wall Art) =======================
     // Editable columns the importer will apply (everything else in the file is reference only).
     const XLSX_VAR_COLS = ['sku', 'barcode', 'price', 'compareAt', 'cost', 'weight', 'soldout'];
-    const XLSX_PROD_COLS = ['productType', 'tags', 'seoTitle', 'seoDescription', 'status', 'vendor'];
+    const XLSX_PROD_COLS = ['productType', 'tags', 'seoTitle', 'seoDescription', 'status', 'vendor', 'roomType', 'trends'];
+    const XLSX_MF = { roomType: MF_DEFS['mf.room_type'], trends: MF_DEFS['mf.trends'] };   // Excel col -> metafield def
 
     // ---- xlsx-data: one page of rows (one row per variant) for the download ----
     if (action === 'xlsx-data') {
-      const sel = 'id title handle vendor status productType tags category{ fullName } seo{ title description } collections(first:20){ nodes{ title } } variants(first:100){ nodes{ id sku barcode price compareAtPrice inventoryPolicy inventoryQuantity selectedOptions{ name value } inventoryItem{ id unitCost{ amount } measurement{ weight{ value unit } } } } }';
+      const sel = 'id title handle vendor status productType tags category{ fullName } seo{ title description } rtMf: metafield(namespace:"custom", key:"room_type"){ value } trMf: metafield(namespace:"custom", key:"trends"){ value } collections(first:20){ nodes{ title } } variants(first:100){ nodes{ id sku barcode price compareAtPrice inventoryPolicy inventoryQuantity selectedOptions{ name value } inventoryItem{ id unitCost{ amount } measurement{ weight{ value unit } } } } }';
       // scope: default About Wall Art, or a chosen list of vendors (Collective)
       const vendorList = Array.isArray(body.vendors) ? body.vendors.filter(Boolean) : [];
       const qFilter = vendorList.length ? '(' + vendorList.map(v => `vendor:'${String(v).replace(/'/g, "\\'")}'`).join(' OR ') + ')' : `vendor:'${AWA_VENDOR}'`;
@@ -1545,7 +1705,8 @@ module.exports = async function handler(req, res) {
             sku: v.sku || '', barcode: v.barcode || '', price: v.price, compareAt: (v.compareAtPrice && v.compareAtPrice !== '0.00') ? v.compareAtPrice : '',
             cost: v.inventoryItem && v.inventoryItem.unitCost ? v.inventoryItem.unitCost.amount : '', weight: w ? w.value : '',
             soldout: isSoldOut(v.inventoryPolicy, v.inventoryQuantity) ? 'yes' : 'no',
-            productType: pr.productType || '', tags: (pr.tags || []).join(', '), seoTitle: pr.seo ? (pr.seo.title || '') : '', seoDescription: pr.seo ? (pr.seo.description || '') : ''
+            productType: pr.productType || '', tags: (pr.tags || []).join(', '), seoTitle: pr.seo ? (pr.seo.title || '') : '', seoDescription: pr.seo ? (pr.seo.description || '') : '',
+            roomType: mfParse(pr.rtMf ? pr.rtMf.value : null).join(', '), trends: mfParse(pr.trMf ? pr.trMf.value : null).join(', ')
           });
         });
       });
@@ -1576,7 +1737,7 @@ module.exports = async function handler(req, res) {
         const pids = Array.from(new Set(rows.map(r => r.productId).filter(Boolean)));
         for (let i = 0; i < pids.length; i += 40) {
           const chunk = pids.slice(i, i + 40);
-          const qy = 'query { ' + chunk.map((pid, j) => `p${j}: product(id:"${pid}"){ id productType tags status vendor seo{ title description } }`).join(' ') + ' }';
+          const qy = 'query { ' + chunk.map((pid, j) => `p${j}: product(id:"${pid}"){ id productType tags status vendor seo{ title description } rtMf: metafield(namespace:"custom", key:"room_type"){ value } trMf: metafield(namespace:"custom", key:"trends"){ value } }`).join(' ') + ' }';
           const data = await shopify(qy);
           chunk.forEach((pid, j) => { const n = data[`p${j}`]; if (n) curP[pid] = n; });
         }
@@ -1608,6 +1769,7 @@ module.exports = async function handler(req, res) {
           else if (c === 'seoTitle') { const ov = cp.seo ? s(cp.seo.title) : ''; if (up !== ov) { diffs.push({ kind: 'p', field: 'seoTitle', id: pid, old: ov, new: up }); seenProdField.add(key); } }
           else if (c === 'seoDescription') { const ov = cp.seo ? s(cp.seo.description) : ''; if (up !== ov) { diffs.push({ kind: 'p', field: 'seoDescription', id: pid, old: ov, new: up }); seenProdField.add(key); } }
           else if (c === 'tags') { const upList = up.split(',').map(t => t.trim()).filter(Boolean).join(', '); const ov = (cp.tags || []).join(', '); if (upList !== ov) { diffs.push({ kind: 'p', field: 'tags', id: pid, old: ov, new: upList }); seenProdField.add(key); } }
+          else if (c === 'roomType' || c === 'trends') { const d = XLSX_MF[c]; const raw = (c === 'roomType') ? (cp.rtMf ? cp.rtMf.value : null) : (cp.trMf ? cp.trMf.value : null); const ov = mfDedupe(mfParse(raw)).join(', '); const nv = mfDedupe(up.split(',').map(t => t.trim()).filter(Boolean)).join(', '); if (nv !== ov) { diffs.push({ kind: 'mf', field: c, id: pid, old: ov, new: nv, ns: d.namespace, key: d.key, type: d.type }); seenProdField.add(key); } }
         });
       });
       if (dryRun) {
@@ -1678,12 +1840,27 @@ module.exports = async function handler(req, res) {
           if (ue.length) ue.forEach(e => errors.push(`${pid}: ${e.message}`)); else applied += flds.length;
         } catch (e) { errors.push(`${pid}: ${String(e.message || e)}`); }
       }
+      // 4) metafields (roomType / trends) via metafieldsSet (or metafieldsDelete when the cell is emptied)
+      const mfDiffs = diffs.filter(d2 => d2.kind === 'mf');
+      for (const d2 of mfDiffs) {
+        snapshot.push(d2);
+        try {
+          const arr = d2.new ? d2.new.split(',').map(t => t.trim()).filter(Boolean) : [];
+          if (arr.length) {
+            const d3 = await shopify(`mutation { metafieldsSet(metafields:[{ownerId:"${d2.id}", namespace:"${d2.ns}", key:"${d2.key}", type:"${d2.type}", value:${JSON.stringify(JSON.stringify(arr))}}]){ userErrors{ message } } }`);
+            const ue = d3.metafieldsSet && d3.metafieldsSet.userErrors ? d3.metafieldsSet.userErrors : []; if (ue.length) ue.forEach(e => errors.push(`${d2.id}: ${e.message}`)); else applied++;
+          } else {
+            const d3 = await shopify(`mutation { metafieldsDelete(metafields:[{ownerId:"${d2.id}", namespace:"${d2.ns}", key:"${d2.key}"}]){ userErrors{ message } } }`);
+            const ue = d3.metafieldsDelete && d3.metafieldsDelete.userErrors ? d3.metafieldsDelete.userErrors : []; if (ue.length) ue.forEach(e => errors.push(`${d2.id}: ${e.message}`)); else applied++;
+          }
+        } catch (e) { errors.push(`${d2.id}: ${String(e.message || e)}`); }
+      }
       // save undo
       try {
         const DIR = 'data/xlsx-undo', IDX = 'data/xlsx-undos.json';
         if (isFirst) {
           await ghPut(`${DIR}/${undoId}.json`, { id: undoId, createdAt: now, snapshot }, `xlsx undo ${undoId}`);
-          const idx = (await ghGet(IDX)).json || []; idx.unshift({ id: undoId, createdAt: now, count: snapshot.length, reverted: false }); await ghPut(IDX, idx.slice(0, 100), `xlsx index ${undoId}`);
+          const idx = (await ghGet(IDX)).json || []; idx.unshift({ id: undoId, createdAt: now, count: snapshot.length, reverted: false }); await ghPut(IDX, idx.slice(0, 100), `xlsx index ${undoId}`); await pruneUndos(IDX, DIR, UNDO_KEEP);
         } else {
           const ex = (await ghGet(`${DIR}/${undoId}.json`)).json || { id: undoId, snapshot: [] }; ex.snapshot = (ex.snapshot || []).concat(snapshot); await ghPut(`${DIR}/${undoId}.json`, ex, `xlsx undo append ${undoId}`);
           const idx = (await ghGet(IDX)).json || []; const hit = idx.find(x => x.id === undoId); if (hit) hit.count = (hit.count || 0) + snapshot.length; await ghPut(IDX, idx, `xlsx index count ${undoId}`);
@@ -1730,6 +1907,15 @@ module.exports = async function handler(req, res) {
         prodDiffs[pid].forEach(d2 => { if (d2.field === 'productType') input += `, productType:${JSON.stringify(d2.old)}`; else if (d2.field === 'vendor') input += `, vendor:${JSON.stringify(d2.old)}`; else if (d2.field === 'status') input += `, status:${d2.old}`; else if (d2.field === 'tags') input += `, tags:[${d2.old.split(',').map(t => JSON.stringify(t.trim())).filter(x => x !== '""').join(',')}]`; else if (d2.field === 'seoTitle') seo.title = d2.old; else if (d2.field === 'seoDescription') seo.description = d2.old; });
         if (seo.title != null || seo.description != null) input += `, seo:{${seo.title != null ? `title:${JSON.stringify(seo.title)}` : ''}${seo.title != null && seo.description != null ? ', ' : ''}${seo.description != null ? `description:${JSON.stringify(seo.description)}` : ''}}`;
         try { const d3 = await shopify(`mutation { productUpdate(input:{${input}}){ userErrors{ message } } }`); const ue = d3.productUpdate && d3.productUpdate.userErrors ? d3.productUpdate.userErrors : []; if (ue.length) ue.forEach(e => errors.push(e.message)); else restored += prodDiffs[pid].length; } catch (e) { errors.push(String(e.message || e)); }
+      }
+      // metafields (roomType / trends): restore the old value, or delete it if it was empty before
+      for (const d2 of work.filter(x => x.kind === 'mf')) {
+        try {
+          const arr = d2.old ? d2.old.split(',').map(t => t.trim()).filter(Boolean) : [];
+          if (arr.length) await shopify(`mutation { metafieldsSet(metafields:[{ownerId:"${d2.id}", namespace:"${d2.ns}", key:"${d2.key}", type:"${d2.type}", value:${JSON.stringify(JSON.stringify(arr))}}]){ userErrors{ message } } }`);
+          else await shopify(`mutation { metafieldsDelete(metafields:[{ownerId:"${d2.id}", namespace:"${d2.ns}", key:"${d2.key}"}]){ userErrors{ message } } }`);
+          restored++;
+        } catch (e) { errors.push(String(e.message || e)); }
       }
       const total = snap.snapshot.length, nextOffset = offset + work.length, hasMore = nextOffset < total;
       if (!hasMore) { try { const idx = (await ghGet('data/xlsx-undos.json')).json || []; const hit = idx.find(x => x.id === undoId); if (hit) hit.reverted = true; await ghPut('data/xlsx-undos.json', idx, `xlsx reverted ${undoId}`); } catch (e) {} }
