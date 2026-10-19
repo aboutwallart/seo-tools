@@ -1,4 +1,7 @@
-// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.32
+// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.33
+// v0.33 (2026-10-19): video registry fixes — etsy-reg-refresh now PAGES THROUGH ALL listings (count-driven; the old
+//   loop stopped after the first 100), stores each listing's featured image (includes=Images), and folds in the tool's
+//   "Sent items" so drafts without a SKU on Etsy are covered too. Registry entry = {listing_id,title,state,image}.
 // v0.32 (2026-10-19): VIDEOS TO ETSY (for the video tool's new "Send to Etsy" tab). ONE registry data/etsy-listings.json
 //   maps base SKU -> [listings] (old live listings + drafts); action etsy-reg-refresh rebuilds it from Etsy (active+draft,
 //   includes=Inventory), tab1-sent-add now also adds each new draft to it. etsy-reg-get / etsy-video-log-get read them.
@@ -597,7 +600,7 @@ module.exports = async (req, res) => {
         const key = baseSkuEtsy(item.sku);
         if (key) {
           const arr = Array.isArray(rg.map[key]) ? rg.map[key] : [];
-          if (!arr.some(x => String(x.listing_id) === item.listing_id)) arr.push({ listing_id: item.listing_id, title: item.title, state: 'draft' });
+          if (!arr.some(x => String(x.listing_id) === item.listing_id)) arr.push({ listing_id: item.listing_id, title: item.title, state: 'draft', image: item.image || '' });
           rg.map[key] = arr;
           await ghPut(REG_PATH, JSON.stringify(rg.map, null, 2), rg.sha, 'AWA ETSY: registry + ' + key + ' (' + item.listing_id + ')');
         }
@@ -828,30 +831,44 @@ module.exports = async (req, res) => {
       return;
     }
 
-    // ---- Video tab: rebuild the registry (SKU -> listings) from Etsy (live listings + drafts) ----
+    // ---- Video tab: rebuild the registry (SKU -> [{listing_id,title,state,image}]) ----
+    // Pages through ALL listings (active + draft) using the total count, grabs each listing's featured image,
+    // and folds in the tool's own "Sent items" (drafts Etsy may not have a SKU for).
     if (q.action === 'etsy-reg-refresh') {
       const map = {};
+      const addListing = (sku, listing) => {
+        const k = baseSkuEtsy(sku); if (!k) return;
+        const arr = map[k] || (map[k] = []);
+        if (!arr.some(x => String(x.listing_id) === String(listing.listing_id))) arr.push(listing);
+      };
+      let scanned = 0;
       for (const state of ['active', 'draft']) {
-        let offset = 0;
-        for (let page = 0; page < 80; page++) {   // safety cap 80 * 100 = 8000 listings
-          const lr = await call('/shops/' + SHOP_ID + '/listings/' + state + '?limit=100&offset=' + offset + '&includes=Inventory');
+        let offset = 0, total = Infinity;
+        for (let page = 0; page < 300 && offset < total; page++) {   // count-driven: pages until all are read
+          const lr = await call('/shops/' + SHOP_ID + '/listings?state=' + state + '&limit=100&offset=' + offset + '&includes=Inventory,Images');
           if (lr.status >= 300) break;
-          const results = (lr.json && lr.json.results) || [];
+          const j = lr.json || {};
+          total = (typeof j.count === 'number') ? j.count : 0;
+          const results = j.results || [];
           if (!results.length) break;
           results.forEach(l => {
+            scanned++;
+            const im = (l.images && l.images[0]) || {};
+            const image = im.url_570xN || im.url_fullxfull || im.url_300x300 || '';
+            const listing = { listing_id: String(l.listing_id), title: l.title || '', state, image };
             const skus = [].concat(l.skus || [], ((l.inventory && l.inventory.products) || []).map(p => p.sku));
-            Array.from(new Set(skus.map(baseSkuEtsy).filter(Boolean))).forEach(k => {
-              const arr = map[k] || (map[k] = []);
-              if (!arr.some(x => String(x.listing_id) === String(l.listing_id))) arr.push({ listing_id: String(l.listing_id), title: l.title || '', state });
-            });
+            Array.from(new Set(skus.map(baseSkuEtsy).filter(Boolean))).forEach(k => addListing(k, listing));
           });
-          if (results.length < 100) break;
           offset += 100;
         }
       }
+      try {
+        const sent = await readSent();
+        (sent.items || []).forEach(it => { if (it.listing_id) addListing(it.sku, { listing_id: String(it.listing_id), title: it.title || '', state: 'draft', image: it.image || '' }); });
+      } catch (e) { /* best-effort */ }
       const rg = await readReg();
-      await ghPut(REG_PATH, JSON.stringify(map, null, 2), rg.sha, 'AWA ETSY: registry refresh from Etsy (' + Object.keys(map).length + ' SKUs)');
-      finish(200, { ok: true, skus: Object.keys(map).length, listings: Object.values(map).reduce((n, a) => n + a.length, 0) });
+      await ghPut(REG_PATH, JSON.stringify(map, null, 2), rg.sha, 'AWA ETSY: registry refresh (' + Object.keys(map).length + ' SKUs, scanned ' + scanned + ')');
+      finish(200, { ok: true, skus: Object.keys(map).length, listings: Object.values(map).reduce((n, a) => n + a.length, 0), scanned });
       return;
     }
 
