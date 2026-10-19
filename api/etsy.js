@@ -1,4 +1,9 @@
-// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.27
+// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.30
+// v0.30 (2026-10-19): FIX SKU loading — Shopify search was partial (took the first product that merely contained a
+//   piece of the SKU), so pasted SKUs loaded the wrong product and families got mixed. Now loadProduct brings up to 25
+//   candidates, selects ONLY the one whose "sku_for_print_files" metafield equals the SKU exactly, and when there is no
+//   exact match returns { noMatch:true, similar:[{sku,title,image}] } (parecidos con foto) instead of a bare 404. New
+//   action tab1-thumb returns the featured image + title + exact-match flag for one SKU (feeds the family list previews).
 // v0.27 (2026-10-18): new action tab1-suggest-seeds — Claude proposes 12-15 Etsy search seed phrases from the product
 //   images + style, to add to the seeds before the Apify search (replaces doing it by hand in Gemini).
 // v0.25 (2026-10-18): family batch — tab1-generate accepts siblingTitles; when present, the prompt tells the AI the
@@ -228,6 +233,7 @@ async function buildFixedDescription(call, sectionId, sectionTitle, excludeListi
 
 function stripHtml(h) { return String(h || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim(); }
 function normT(s) { return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
+function eqSku(a, b) { return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase(); }
 function sizeLabel(v) {
   const m = /^(A\d)\b/i.exec(v); if (m) return m[1].toUpperCase();
   const n = /(\d+)\s*x\s*(\d+)/i.exec(v); return n ? n[1] + 'x' + n[2] : String(v).slice(0, 20);
@@ -259,10 +265,17 @@ async function menuGroups() {
   return groups;
 }
 async function loadProduct(sku) {
-  const gq = 'query($q:String!){ products(first:1, query:$q){ nodes{ id title handle tags productType descriptionHtml images(first:50){nodes{url}} collections(first:60){nodes{id title}} variants(first:100){nodes{sku price selectedOptions{name value}}} room:metafield(namespace:"custom",key:"room_type"){value} col:metafield(namespace:"custom",key:"primary_colour"){value} } } }';
+  // Bring several candidates (Shopify's metafield search is partial, so it can return products that merely contain a
+  // piece of the SKU). We then keep ONLY the one whose sku_for_print_files metafield equals the SKU exactly.
+  const gq = 'query($q:String!){ products(first:25, query:$q){ nodes{ id title handle tags productType descriptionHtml images(first:50){nodes{url}} collections(first:60){nodes{id title}} variants(first:100){nodes{sku price selectedOptions{name value}}} room:metafield(namespace:"custom",key:"room_type"){value} col:metafield(namespace:"custom",key:"primary_colour"){value} skuMf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } }';
   const d = await shopGQL(gq, { q: 'metafield:custom.sku_for_print_files:' + sku });
-  const n = d.products.nodes[0];
-  if (!n) return null;
+  const nodes = d.products.nodes || [];
+  const n = nodes.find(x => eqSku(x.skuMf && x.skuMf.value, sku));
+  if (!n) {
+    // No exact match — hand back the closest candidates (with featured image) so Mae can spot a typo and pick one.
+    const similar = nodes.slice(0, 8).map(x => ({ sku: (x.skuMf && x.skuMf.value) || '', title: x.title, image: (x.images.nodes[0] || {}).url || '' }));
+    return { noMatch: true, similar };
+  }
   const groups = await menuGroups();
   const col = { room: [], style: [], colour: [], occasion: [] };
   (n.collections.nodes || []).forEach(c => {
@@ -292,13 +305,24 @@ async function loadProduct(sku) {
     variants.push({ frame: frameLabel(o.Frame || ''), size: sizeLabel(o.Size || ''), price: parseFloat(v.price) });
   });
   return {
-    sku, id: n.id, title: n.title, handle: n.handle, tags: n.tags || [], productType: n.productType,
-    description: stripHtml(n.descriptionHtml).slice(0, 3000),
-    images: (n.images.nodes || []).map(i => i.url),
-    collections: col, rooms, roomFrom, styles, colours, variants,
-    styleSynonyms: STYLE_SYN, wallArtTerms: WALL_ART_TERMS, allRooms: ROOMS,
-    roomToEtsyRoom: ROOM_TO_ETSY_ROOM, roomToSection: ROOM_TO_SECTION, styleToSection: STYLE_TO_SECTION, materialsDefault: MATERIALS_DEFAULT
+    product: {
+      sku, id: n.id, title: n.title, handle: n.handle, tags: n.tags || [], productType: n.productType,
+      description: stripHtml(n.descriptionHtml).slice(0, 3000),
+      images: (n.images.nodes || []).map(i => i.url),
+      collections: col, rooms, roomFrom, styles, colours, variants,
+      styleSynonyms: STYLE_SYN, wallArtTerms: WALL_ART_TERMS, allRooms: ROOMS,
+      roomToEtsyRoom: ROOM_TO_ETSY_ROOM, roomToSection: ROOM_TO_SECTION, styleToSection: STYLE_TO_SECTION, materialsDefault: MATERIALS_DEFAULT
+    }
   };
+}
+// Lightweight preview for the family list: featured image + title + exact-match flag for one SKU.
+async function loadThumb(sku) {
+  const gq = 'query($q:String!){ products(first:25, query:$q){ nodes{ title images(first:1){nodes{url}} skuMf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } }';
+  const d = await shopGQL(gq, { q: 'metafield:custom.sku_for_print_files:' + sku });
+  const nodes = d.products.nodes || [];
+  const hit = nodes.find(x => eqSku(x.skuMf && x.skuMf.value, sku));
+  if (hit) return { exact: true, title: hit.title, image: (hit.images.nodes[0] || {}).url || '' };
+  return { exact: false, title: '', image: '' };
 }
 async function runApify(seeds) {
   const APIFY = process.env.APIFY_TOKEN;
@@ -407,8 +431,19 @@ module.exports = async (req, res) => {
       const sku = String(q.sku || '').trim();
       if (!sku) { res.status(400).json({ ok: false, error: 'Missing SKU' }); return; }
       const p = await loadProduct(sku);
-      if (!p) { res.status(404).json({ ok: false, error: 'No product found with print-files SKU = ' + sku }); return; }
-      res.status(200).json({ ok: true, product: p });
+      if (p && p.product) { res.status(200).json({ ok: true, product: p.product }); return; }
+      if (p && p.noMatch) { res.status(200).json({ ok: true, noMatch: true, similar: p.similar || [] }); return; }
+      res.status(404).json({ ok: false, error: 'No product found with print-files SKU = ' + sku });
+    } catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
+    return;
+  }
+
+  if (q.action === 'tab1-thumb') {
+    try {
+      const sku = String(q.sku || '').trim();
+      if (!sku) { res.status(400).json({ ok: false, error: 'Missing SKU' }); return; }
+      const t = await loadThumb(sku);
+      res.status(200).json({ ok: true, sku, image: t.image, title: t.title, exact: t.exact });
     } catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
     return;
   }
