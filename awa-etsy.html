@@ -47,12 +47,22 @@
   .scroll{ max-height:340px; overflow:auto; border:1px solid var(--line); border-radius:8px; }
   .hide{ display:none; }
   .fixed{ font-size:13px; color:var(--muted); }
+  .qthumb{ display:inline-block; width:64px; height:64px; object-fit:cover; border-radius:6px; border:1px solid var(--line); background:#f1efe8; vertical-align:middle; }
+  .qthumb.ph{ background:#f1efe8; }
+  .row-bad{ color:var(--warn); font-weight:600; }
+  .sim-grid{ display:flex; flex-wrap:wrap; gap:10px; margin:10px 0 0; }
+  .sim-card{ width:124px; border:1px solid var(--line); border-radius:8px; padding:6px; cursor:pointer; background:#fff; text-align:center; }
+  .sim-card:hover{ border-color:var(--accent); box-shadow:0 1px 4px rgba(0,0,0,.08); }
+  .sim-card img{ width:100%; height:100px; object-fit:cover; border-radius:6px; border:1px solid var(--line); }
+  .sim-card .s-ph{ width:100%; height:100px; display:block; border-radius:6px; background:#f1efe8; border:1px solid var(--line); }
+  .sim-card .s-sku{ font-size:12px; font-weight:600; margin-top:5px; word-break:break-all; }
+  .sim-card .s-title{ font-size:11px; color:var(--muted); margin-top:2px; line-height:1.3; max-height:43px; overflow:hidden; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">Tab 1 · NEW PRODUCT · v0.29</p>
+  <p class="ver">Tab 1 · NEW PRODUCT · v0.30</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -78,6 +88,7 @@
       <button id="loadBtn" onclick="loadQueue()">Load</button>
       <span id="loadMsg" class="msg"></span>
     </div>
+    <div id="noMatchBox" class="hide"></div>
     <div id="queuePanel" class="hide" style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px">
       <div class="row" style="justify-content:space-between">
         <b id="queuePos"></b>
@@ -219,6 +230,7 @@
 
   /* ---------- step 1: product queue (paste one SKU or a whole column) ---------- */
   var QUEUE = [], QIDX = 0, FAMID = [], STATE = [], FAMILIES = {}, FAM_SEQ = 0, QEND = false, SENDING = {};
+  var QTHUMB = {}, SIMILAR = [];   // QTHUMB[sku] = {image,title,exact} — featured-image previews for the family list
   var FAM_COLORS = ['#1d6e56', '#8a5a2b', '#3a5a9e', '#9e3a6e', '#5a7a2b', '#6e4a9e'];
   function famLetter(f){ return String.fromCharCode(65 + (f % 26)); }
   function famColor(f){ return FAM_COLORS[f % FAM_COLORS.length]; }
@@ -236,6 +248,33 @@
     if (!list.length){ $('loadMsg').className = 'msg bad'; $('loadMsg').textContent = 'Enter at least one SKU.'; return; }
     QUEUE = list; QIDX = 0; FAMID = list.map(function(){ return null; }); STATE = list.map(function(){ return null; }); FAMILIES = {}; FAM_SEQ = 0; QEND = false;
     show('queuePanel', QUEUE.length > 1); renderQueue(); loadCurrent();
+    if (QUEUE.length > 1) fetchThumbs(QUEUE.slice());   // fill each row's featured image, progressively
+  }
+  function thumbInner(th){
+    return (th && th.image) ? '<img class="qthumb" src="' + esc(th.image) + '" alt="">' : '<span class="qthumb ph"></span>';
+  }
+  function applyThumbState(i, sku){
+    var th = QTHUMB[sku]; if (!th) return;
+    var t = $('qth' + i); if (t) t.innerHTML = thumbInner(th);
+    var s = $('qsku' + i), n = $('qnote' + i);
+    if (th.exact === false){ if (s) s.classList.add('row-bad'); if (n) n.innerHTML = ' <span class="fixed">(no exact match)</span>'; }
+    else { if (s) s.classList.remove('row-bad'); if (n) n.innerHTML = ''; }
+  }
+  function fetchThumbs(list){
+    var i = 0, running = 0;
+    function next(){
+      while (running < 4 && i < list.length){
+        (function(sku){
+          running++;
+          fetch('/api/etsy?action=tab1-thumb&sku=' + encodeURIComponent(sku))
+            .then(function(r){ return r.json(); })
+            .then(function(j){ if (j && j.ok) QTHUMB[sku] = { image: j.image || '', title: j.title || '', exact: !!j.exact }; })
+            .catch(function(){})
+            .then(function(){ var ci = QUEUE.indexOf(sku); if (ci >= 0) applyThumbState(ci, sku); running--; next(); });
+        })(list[i]); i++;
+      }
+    }
+    next();
   }
   function renderQueue(){
     var multi = QUEUE.length > 1;
@@ -246,10 +285,15 @@
       var tag = st === 'sent' ? '<span style="color:var(--ok);font-weight:700">✓</span> sent ' : (st === 'sending' ? '⏳ sending ' : (st === 'approved' ? '✓ approved ' : (isCurrent ? '→ ' : '')));
       var fam = FAMID[i];
       var badge = fam != null ? ' <span class="pill" style="background:' + famColor(fam) + ';color:#fff;padding:1px 8px;font-size:11px">Family ' + famLetter(fam) + '</span>' : '';
-      var cb = !st ? '<input type="checkbox" class="qSel" data-i="' + i + '" style="margin-right:6px">' : '<span style="display:inline-block;width:20px"></span>';
+      var cb = !st ? '<input type="checkbox" class="qSel" data-i="' + i + '" style="margin-right:2px">' : '<span style="display:inline-block;width:18px"></span>';
       var rm = (!st && !isCurrent) ? '<button type="button" class="ghost" style="padding:2px 8px;font-size:12px" onclick="removeFromQueue(' + i + ')">✕</button>' : '';
-      return '<div class="row" style="justify-content:space-between;padding:3px 0"><span class="' + (isCurrent ? '' : 'fixed') + '">' + cb + tag + esc(sku) + badge + '</span>' + rm + '</div>';
+      var thumb = '<span class="qthumb-wrap" id="qth' + i + '">' + thumbInner(QTHUMB[sku]) + '</span>';
+      return '<div class="row" style="justify-content:space-between;padding:4px 0">'
+        + '<span style="display:flex;align-items:center;gap:8px">' + cb + thumb
+        + '<span id="qsku' + i + '" class="' + (isCurrent ? '' : 'fixed') + '">' + tag + esc(sku) + badge + '</span><span id="qnote' + i + '"></span>'
+        + '</span>' + rm + '</div>';
     }).join('');
+    if (multi) QUEUE.forEach(function(sku, i){ applyThumbState(i, sku); });   // paint any thumbs already cached
     renderFamilySend();
   }
   function groupFamily(){
@@ -274,10 +318,12 @@
     QEND = false;
     var multi = QUEUE.length > 1;
     $('loadBtn').disabled = true; $('loadMsg').className = 'msg'; $('loadMsg').textContent = 'Searching Shopify for ' + sku + '…';
+    $('noMatchBox').className = 'hide'; $('noMatchBox').innerHTML = '';
     try{
       var r = await fetch('/api/etsy?action=tab1-load&sku=' + encodeURIComponent(sku));
       var j = await r.json();
-      if (!j.ok) throw new Error(j.error || 'not found');
+      if (j.ok && j.noMatch){ renderNoMatch(sku, j.similar || []); $('loadBtn').disabled = false; return; }
+      if (!j.ok || !j.product) throw new Error(j.error || 'not found');
       P = j.product; LISTING = null; KW = [];
       $('loadMsg').className = 'msg good'; $('loadMsg').textContent = 'Product loaded' + (multi ? ' (' + (QIDX + 1) + ' of ' + QUEUE.length + ')' : '') + '.';
       renderProduct();
@@ -296,6 +342,26 @@
       $('loadMsg').textContent = "SKU '" + sku + "' not found in Shopify — check for a typo." + (multi ? ' Use Skip to continue with the next one.' : '');
     }
     $('loadBtn').disabled = false;
+  }
+  function renderNoMatch(sku, similar){
+    show('prod', false); show('kwCard', false); show('genCard', false); show('editCard', false); show('pubCard', false);
+    SIMILAR = similar || [];
+    $('loadMsg').className = 'msg bad';
+    $('loadMsg').textContent = "SKU '" + sku + "' not found." + (SIMILAR.length ? ' Pick the right one below if you see it:' : ' Check for a typo.');
+    var box = $('noMatchBox');
+    if (!SIMILAR.length){ box.className = 'hide'; box.innerHTML = ''; return; }
+    box.className = '';
+    box.innerHTML = '<div class="sim-grid">' + SIMILAR.map(function(s, ix){
+      var img = s.image ? '<img src="' + esc(s.image) + '" alt="">' : '<span class="s-ph"></span>';
+      return '<div class="sim-card" onclick="pickSimilar(' + ix + ')">' + img
+        + '<div class="s-sku">' + esc(s.sku || '(no SKU)') + '</div>'
+        + '<div class="s-title">' + esc(s.title || '') + '</div></div>';
+    }).join('') + '</div>';
+  }
+  function pickSimilar(ix){
+    var s = SIMILAR[ix]; if (!s || !s.sku) return;
+    $('noMatchBox').className = 'hide'; $('noMatchBox').innerHTML = '';
+    QUEUE[QIDX] = s.sku; renderQueue(); loadCurrent();
   }
   function advanceAfterPublish(){                         // single (non-family) send-now path
     STATE[QIDX] = 'sent';
