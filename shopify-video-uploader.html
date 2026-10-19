@@ -112,9 +112,15 @@
         <div class="header">
             <h1>🎬 Shopify Video Uploader</h1>
             <p>Push square videos from your Drive folder to the right product — placed as image&nbsp;2.</p>
-            <div class="subtitle">v1.7 · reads folder "SHOPIFY SQ VIDEOS" · matches by SKU for print files · "sent" = pushed by this tool only · manual fixes saved · Send/Replace individually or in bulk · click a SKU to copy</div>
+            <div class="subtitle">v1.8 · Shopify + Send to Etsy · reads folder "SHOPIFY SQ VIDEOS" · matches by SKU for print files · "sent" = pushed by this tool only</div>
         </div>
 
+        <div class="toolbar" style="justify-content:center; gap:8px">
+            <button class="btn btn-primary" id="tabShopifyBtn" onclick="switchVTab('shopify')">Shopify</button>
+            <button class="btn btn-light" id="tabEtsyBtn" onclick="switchVTab('etsy')">Send to Etsy</button>
+        </div>
+
+        <div id="shopifyTab">
         <div class="toolbar">
             <button class="btn btn-primary" id="loadBtn" onclick="loadVideos()">↻ Load videos</button>
             <input type="search" id="search" placeholder="Search SKU, product title or filename…" oninput="render()">
@@ -129,6 +135,23 @@
         <div id="unmatchedSection"></div>
         <div id="readySection"></div>
         <div id="sentSection"></div>
+        </div><!-- /shopifyTab -->
+
+        <div id="etsyTab" style="display:none">
+            <div class="toolbar">
+                <button class="btn btn-primary" id="etsyLoadBtn" onclick="loadEtsy()">↻ Load videos</button>
+                <button class="btn btn-light" id="etsyRefreshBtn" onclick="etsyRefresh()" title="Read your Etsy listings and rebuild the SKU list">⟳ Refresh from Etsy</button>
+                <input type="search" id="etsySearch" placeholder="Search SKU or filename…" oninput="renderEtsy()">
+                <button class="btn btn-light" id="etsySelectAllBtn" onclick="etsyToggleSelectAll()">Select all unsent</button>
+                <button class="btn btn-green" id="etsyBulkBtn" onclick="etsySendSelected()" disabled>Send selected (0)</button>
+                <div class="stats" id="etsyStats"></div>
+            </div>
+            <div class="status" id="etsyStatus">Click <b>Load videos</b> to begin.</div>
+            <div id="etsyConn"></div>
+            <div id="etsyNotSection"></div>
+            <div id="etsyReadySection"></div>
+            <div id="etsySentSection"></div>
+        </div><!-- /etsyTab -->
     </div>
 
 <script>
@@ -383,6 +406,205 @@ async function unmarkDone(fileId){
         v.sentViaTool = false; v.manual = false; v.videoId = null; v.sentAt = null;
         render();
     } catch(e){ setMsg(fileId, '⚠️ ' + esc(e.message), 'err'); }
+}
+
+/* ===================== SEND TO ETSY TAB ===================== */
+const ETSY_API = '/api/etsy';
+let etsyVideos = [];
+let etsyLog = {};               // listing_id -> video_id pushed by this tool
+const etsySelected = new Set();
+
+function switchVTab(which){
+    document.getElementById('shopifyTab').style.display = which === 'etsy' ? 'none' : '';
+    document.getElementById('etsyTab').style.display = which === 'etsy' ? '' : 'none';
+    document.getElementById('tabShopifyBtn').className = 'btn ' + (which === 'etsy' ? 'btn-light' : 'btn-primary');
+    document.getElementById('tabEtsyBtn').className = 'btn ' + (which === 'etsy' ? 'btn-primary' : 'btn-light');
+}
+
+// Video filename -> base SKU. SKUs can contain spaces (e.g. "CYANOTYPE BROWN"), so only strip the extension,
+// a "(1)" copy suffix and a trailing " SQ".
+function etsySkuOf(fileName){
+    let s = String(fileName || '').replace(/\.[^.]+$/, '');
+    s = s.replace(/\s*\(\d+\)\s*$/, '').replace(/\s+SQ$/i, '');
+    return s.trim().toUpperCase();
+}
+function etsySetStatus(m){ document.getElementById('etsyStatus').innerHTML = m; }
+function etsyFind(id){ return etsyVideos.find(v => v.fileId === id); }
+function etsySetMsg(id, t, k){ const el = document.getElementById('emsg-' + id); if (el){ el.className = 'row-msg ' + (k || ''); el.innerHTML = t; } }
+
+function etsyState(v){
+    const total = v.listings.length;
+    if (!total) return { kind: 'not', sent: 0, total: 0 };
+    const sent = v.listings.filter(l => etsyLog[String(l.listing_id)]).length;
+    return { kind: sent >= total ? 'sent' : 'ready', sent: sent, total: total };
+}
+
+async function loadEtsy(){
+    const btn = document.getElementById('etsyLoadBtn'); btn.disabled = true;
+    document.getElementById('etsyConn').innerHTML = '';
+    etsySetStatus('<span class="spinner" style="border-top-color:#333"></span> Loading videos and matching Etsy listings…');
+    try {
+        let conn = false;
+        try { const cs = await (await fetch(ETSY_API + '?action=status')).json(); conn = !!(cs && cs.connected); } catch(e){}
+        if (!conn){
+            document.getElementById('etsyConn').innerHTML =
+                '<div class="empty">Etsy isn’t connected.<br><br>' +
+                '<button class="btn btn-primary" onclick="location.href=\'/api/etsy?action=auth\'">Connect Etsy</button>' +
+                '<div class="muted" style="margin-top:10px">After connecting you’ll land on the Etsy tool — come back here and press <b>Load videos</b>.</div></div>';
+            etsySetStatus(''); btn.disabled = false; return;
+        }
+        const [ld, rd, gd] = await Promise.all([
+            fetch(API + '?action=list').then(r => r.json()),
+            fetch(ETSY_API + '?action=etsy-reg-get').then(r => r.json()),
+            fetch(ETSY_API + '?action=etsy-video-log-get').then(r => r.json())
+        ]);
+        if (!ld.ok){ etsySetStatus('⚠️ ' + esc(ld.error || 'Could not load videos')); btn.disabled = false; return; }
+        const registry = (rd && rd.registry) || {};
+        etsyLog = {};
+        ((gd && gd.log) || []).forEach(e => { if (e && e.listing_id) etsyLog[String(e.listing_id)] = e.video_id || null; });
+        etsyVideos = (ld.videos || []).map(v => {
+            const sku = etsySkuOf(v.fileName);
+            return { fileId: v.fileId, fileName: v.fileName, thumbnail: v.thumbnail, sku: sku, listings: (registry[sku] || []).slice() };
+        });
+        etsySelected.clear();
+        etsySetStatus('Loaded <b>' + etsyVideos.length + '</b> videos · <b>' + Object.keys(registry).length + '</b> SKUs in the Etsy registry.');
+        renderEtsy();
+    } catch(e){ etsySetStatus('⚠️ ' + esc(e.message)); }
+    btn.disabled = false;
+}
+
+function etsyRefresh(){
+    const btn = document.getElementById('etsyRefreshBtn'); btn.disabled = true;
+    etsySetStatus('<span class="spinner" style="border-top-color:#333"></span> Reading your Etsy listings and rebuilding the SKU list… this can take a moment.');
+    fetch(ETSY_API + '?action=etsy-reg-refresh', { method:'POST' }).then(r => r.json()).then(d => {
+        btn.disabled = false;
+        if (!d.ok){ etsySetStatus('⚠️ ' + esc(d.error || 'Refresh failed')); return; }
+        etsySetStatus('Registry updated: <b>' + d.skus + '</b> SKUs across <b>' + d.listings + '</b> listings. Reloading…');
+        loadEtsy();
+    }).catch(e => { btn.disabled = false; etsySetStatus('⚠️ ' + esc(e.message)); });
+}
+
+function etsyCard(v){
+    const st = etsyState(v);
+    const cls = st.kind === 'sent' ? 'sent' : (st.kind === 'not' ? 'unmatched' : 'matched');
+    const check = st.kind === 'ready'
+        ? '<div class="checkwrap"><input type="checkbox" ' + (etsySelected.has(v.fileId)?'checked':'') + ' onchange="etsyToggleSelect(\'' + v.fileId + '\', this.checked)"></div>'
+        : '';
+    let info, actions = '';
+    if (st.kind === 'not'){
+        info = skuBadge(v.sku) + '<div class="warn">⚠ Not on Etsy yet</div>' +
+               '<div class="muted">No Etsy listing has this SKU. Send it as a draft from the Etsy tool first, then press “Refresh from Etsy”.</div>';
+    } else {
+        const lines = v.listings.map(l => {
+            const has = !!etsyLog[String(l.listing_id)];
+            return '<div class="muted">' + (has ? '✓ ' : '• ') + esc(l.title || ('listing ' + l.listing_id)) + ' <span style="opacity:.6">(' + esc(l.state || '') + ')</span></div>';
+        }).join('');
+        info = skuBadge(v.sku) +
+               '<div class="ptitle">Goes to <b>' + st.total + '</b> Etsy listing' + (st.total === 1 ? '' : 's') + (st.sent ? (' · ' + st.sent + ' of ' + st.total + ' done') : '') + '</div>' + lines;
+        if (st.kind === 'sent'){
+            actions = '<div class="sent-stamp">✓ on all ' + st.total + ' listing' + (st.total === 1 ? '' : 's') + '</div>' +
+                      '<div class="card-actions"><button class="btn btn-undo" onclick="etsyUndo(\'' + v.fileId + '\')">↺ Remove from Etsy</button></div>';
+        } else {
+            actions = '<div class="card-actions">' +
+                      '<button class="btn btn-green" onclick="etsySendOne(\'' + v.fileId + '\')">Send to Etsy (' + st.total + ')</button>' +
+                      (st.sent ? '<button class="btn btn-undo" onclick="etsyUndo(\'' + v.fileId + '\')">↺ Remove</button>' : '') +
+                      '</div>';
+        }
+    }
+    return '<div class="card ' + cls + '" id="ecard-' + v.fileId + '">' +
+        '<div class="thumb"><img src="' + esc(v.thumbnail) + '" loading="lazy" alt="" onerror="this.style.display=\'none\'"><div class="play">▶</div>' + check + '</div>' +
+        '<div class="card-body"><div class="filename">' + esc(v.fileName) + '</div>' + info +
+        '<div class="row-msg" id="emsg-' + v.fileId + '"></div>' + actions + '</div></div>';
+}
+
+function etsyMatchesSearch(v, q){ return !q || (v.sku||'').toLowerCase().includes(q) || (v.fileName||'').toLowerCase().includes(q); }
+
+function renderEtsy(){
+    const q = document.getElementById('etsySearch').value.trim().toLowerCase();
+    const shown = etsyVideos.filter(v => etsyMatchesSearch(v, q));
+    const not = shown.filter(v => etsyState(v).kind === 'not');
+    const ready = shown.filter(v => etsyState(v).kind === 'ready');
+    const sent = shown.filter(v => etsyState(v).kind === 'sent');
+    document.getElementById('etsyNotSection').innerHTML = not.length ? '<div class="section-title">⚠ Not on Etsy yet (' + not.length + ')</div><div class="grid">' + not.map(etsyCard).join('') + '</div>' : '';
+    document.getElementById('etsyReadySection').innerHTML = ready.length ? '<div class="section-title">Ready to send (' + ready.length + ')</div><div class="grid">' + ready.map(etsyCard).join('') + '</div>' : '';
+    document.getElementById('etsySentSection').innerHTML = sent.length ? '<div class="section-title">On Etsy (' + sent.length + ')</div><div class="grid">' + sent.map(etsyCard).join('') + '</div>' : '';
+    if (!etsyVideos.length) document.getElementById('etsyReadySection').innerHTML = '<div class="empty">No videos loaded yet.</div>';
+    etsyUpdateStats();
+}
+
+function etsyUpdateStats(){
+    const r = etsyVideos.filter(v => etsyState(v).kind === 'ready').length;
+    const s = etsyVideos.filter(v => etsyState(v).kind === 'sent').length;
+    const n = etsyVideos.filter(v => etsyState(v).kind === 'not').length;
+    document.getElementById('etsyStats').innerHTML =
+        '<span class="chip matched">' + r + ' ready</span>' +
+        '<span class="chip sent">' + s + ' on Etsy</span>' +
+        '<span class="chip unmatched">' + n + ' not on Etsy</span>';
+    const b = document.getElementById('etsyBulkBtn');
+    b.textContent = 'Send selected (' + etsySelected.size + ')';
+    b.disabled = etsySelected.size === 0;
+}
+
+function etsyToggleSelect(id, on){ if (on) etsySelected.add(id); else etsySelected.delete(id); etsyUpdateStats(); }
+function etsyToggleSelectAll(){
+    const q = document.getElementById('etsySearch').value.trim().toLowerCase();
+    const ready = etsyVideos.filter(v => etsyState(v).kind === 'ready' && etsyMatchesSearch(v, q));
+    const all = ready.every(v => etsySelected.has(v.fileId));
+    ready.forEach(v => { if (all) etsySelected.delete(v.fileId); else etsySelected.add(v.fileId); });
+    renderEtsy();
+}
+
+// Send ONE video to EVERY Etsy listing that shares its SKU (the backend applies the replace rule per listing).
+async function etsySendOne(fileId, skipRender){
+    const v = etsyFind(fileId); if (!v || !v.listings.length) return false;
+    const card = document.getElementById('ecard-' + fileId); if (card) card.classList.add('busy');
+    let okAll = true, done = 0; const total = v.listings.length;
+    for (let i = 0; i < v.listings.length; i++){
+        const l = v.listings[i];
+        etsySetMsg(fileId, '<span class="spinner" style="border-top-color:#2e7d32"></span> Sending ' + (done+1) + ' of ' + total + '…', '');
+        try {
+            const r = await fetch(ETSY_API + '?action=etsy-video-send', { method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({ fileId: v.fileId, fileName: v.fileName, sku: v.sku, listing_id: l.listing_id }) });
+            const d = await r.json();
+            if (!d.ok){ okAll = false; etsySetMsg(fileId, '⚠️ ' + esc(d.error), 'err'); }
+            else { etsyLog[String(l.listing_id)] = d.video_id || 'sent'; done++; }
+        } catch(e){ okAll = false; etsySetMsg(fileId, '⚠️ ' + esc(e.message), 'err'); }
+    }
+    if (card) card.classList.remove('busy');
+    etsySelected.delete(fileId);
+    if (okAll) etsySetMsg(fileId, '', '');
+    if (!skipRender) renderEtsy();
+    return okAll;
+}
+
+async function etsySendSelected(){
+    const ids = Array.from(etsySelected); if (!ids.length) return;
+    const b = document.getElementById('etsyBulkBtn'); b.disabled = true;
+    let done = 0;
+    for (let i = 0; i < ids.length; i++){ b.textContent = 'Sending ' + (done+1) + '/' + ids.length + '…'; await etsySendOne(ids[i], true); done++; }
+    etsySetStatus('Finished sending ' + done + ' video' + (done === 1 ? '' : 's') + ' to Etsy.');
+    renderEtsy();
+}
+
+async function etsyUndo(fileId){
+    const v = etsyFind(fileId); if (!v || !v.listings.length) return;
+    if (!confirm('Remove this video from its Etsy listing' + (v.listings.length > 1 ? 's' : '') + '?')) return;
+    const card = document.getElementById('ecard-' + fileId); if (card) card.classList.add('busy');
+    for (let i = 0; i < v.listings.length; i++){
+        const l = v.listings[i]; const vid = etsyLog[String(l.listing_id)];
+        if (!vid){ continue; }
+        if (vid === 'sent'){ delete etsyLog[String(l.listing_id)]; continue; }   // no stored id — just clear locally
+        etsySetMsg(fileId, '<span class="spinner" style="border-top-color:#e65100"></span> Removing ' + (i+1) + ' of ' + v.listings.length + '…', '');
+        try {
+            const r = await fetch(ETSY_API + '?action=etsy-video-undo', { method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({ listing_id: l.listing_id, video_id: vid }) });
+            const d = await r.json();
+            if (d.ok) delete etsyLog[String(l.listing_id)];
+            else etsySetMsg(fileId, '⚠️ ' + esc(d.error), 'err');
+        } catch(e){ etsySetMsg(fileId, '⚠️ ' + esc(e.message), 'err'); }
+    }
+    if (card) card.classList.remove('busy');
+    renderEtsy();
 }
 </script>
 </body>
