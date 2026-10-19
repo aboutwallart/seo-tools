@@ -148,7 +148,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v3.5 · NEW Metafields tab (Room Type + Trends, by group, backup + preview + undo) · Excel now covers Room Type + Trends · retention: latest backup + last 20 undos · 6 tabs · batches + backup + undo</div>
+            <div class="subtitle">v3.6 · NEW Metafields tab (Room Type + Trends, by group, backup + preview + undo) · Excel now covers Room Type + Trends and names the file by its columns + date · retention: latest backup + last 20 undos · 6 tabs · batches + backup + undo</div>
         </div>
 
         <!-- TABS (always visible) -->
@@ -1592,7 +1592,9 @@ async function xlDownload(){
         const ws = XLSX.utils.aoa_to_sheet(aoa);
         const isColl = xlScopeVal()==='collective';
         const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, isColl?'Collective':'AWA');
-        XLSX.writeFile(wb, (isColl?'collective':'awa') + '-products.xlsx');
+        const fnCols = xlOrder.join('-').toLowerCase().replace(/[^a-z0-9-]/g,'') || 'products';
+        const fnDate = new Date().toISOString().slice(0,10);
+        XLSX.writeFile(wb, (isColl?'collective':'awa') + '-' + fnCols + '-' + fnDate + '.xlsx');
         document.getElementById('xlDlStatus').innerHTML='✅ Downloaded '+all.length+' rows. Edit in Excel, then upload below.';
     } catch(e){ document.getElementById('xlDlStatus').innerHTML='⚠️ '+esc(e.message); }
     document.getElementById('xlDownloadBtn').disabled = false;
