@@ -62,7 +62,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">Tab 1 · NEW PRODUCT · v0.30</p>
+  <p class="ver">Tab 1 · NEW PRODUCT · v0.31</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -230,13 +230,13 @@
 
   /* ---------- step 1: product queue (paste one SKU or a whole column) ---------- */
   var QUEUE = [], QIDX = 0, FAMID = [], STATE = [], FAMILIES = {}, FAM_SEQ = 0, QEND = false, SENDING = {};
-  var QTHUMB = {}, SIMILAR = [];   // QTHUMB[sku] = {image,title,exact} — featured-image previews for the family list
+  var QTHUMB = {}, SIMILAR = [], FIXIDX = -1;   // QTHUMB[sku] = {image,title,exact} — featured-image previews for the family list; FIXIDX = row being fixed
   var FAM_COLORS = ['#1d6e56', '#8a5a2b', '#3a5a9e', '#9e3a6e', '#5a7a2b', '#6e4a9e'];
   function famLetter(f){ return String.fromCharCode(65 + (f % 26)); }
   function famColor(f){ return FAM_COLORS[f % FAM_COLORS.length]; }
   function parseSkus(raw){
     var seen = {}, out = [];
-    String(raw || '').split(/[\n\r\t, ]+/).forEach(function(s){
+    String(raw || '').split(/[\n\r]+/).forEach(function(s){   // one SKU per line — SKUs can contain spaces, so DON'T split on spaces
       s = s.trim(); if (!s) return;
       var k = s.toUpperCase(); if (seen[k]) return;   // ignore duplicates
       seen[k] = 1; out.push(s);
@@ -257,7 +257,7 @@
     var th = QTHUMB[sku]; if (!th) return;
     var t = $('qth' + i); if (t) t.innerHTML = thumbInner(th);
     var s = $('qsku' + i), n = $('qnote' + i);
-    if (th.exact === false){ if (s) s.classList.add('row-bad'); if (n) n.innerHTML = ' <span class="fixed">(no exact match)</span>'; }
+    if (th.exact === false){ if (s) s.classList.add('row-bad'); if (n) n.innerHTML = ' <span class="fixed">(no exact match)</span> <button type="button" class="ghost" style="padding:1px 8px;font-size:12px" onclick="openFix(' + i + ')">pick the right one</button>'; }
     else { if (s) s.classList.remove('row-bad'); if (n) n.innerHTML = ''; }
   }
   function fetchThumbs(list){
@@ -322,7 +322,17 @@
     try{
       var r = await fetch('/api/etsy?action=tab1-load&sku=' + encodeURIComponent(sku));
       var j = await r.json();
-      if (j.ok && j.noMatch){ renderNoMatch(sku, j.similar || []); $('loadBtn').disabled = false; return; }
+      if (j.ok && j.noMatch){
+        show('prod', false); show('kwCard', false); show('genCard', false); show('editCard', false); show('pubCard', false);
+        if (multi){
+          $('loadMsg').className = 'msg bad';
+          $('loadMsg').textContent = "SKU '" + sku + "' has no exact match — use 'pick the right one' on it in the list below.";
+        } else {
+          FIXIDX = 0; SIMILAR = j.similar || []; renderFixGrid(sku, SIMILAR);
+          $('loadMsg').className = 'msg bad'; $('loadMsg').textContent = "SKU '" + sku + "' not found." + (SIMILAR.length ? ' Pick the right one below.' : ' Check for a typo.');
+        }
+        $('loadBtn').disabled = false; return;
+      }
       if (!j.ok || !j.product) throw new Error(j.error || 'not found');
       P = j.product; LISTING = null; KW = [];
       $('loadMsg').className = 'msg good'; $('loadMsg').textContent = 'Product loaded' + (multi ? ' (' + (QIDX + 1) + ' of ' + QUEUE.length + ')' : '') + '.';
@@ -343,25 +353,43 @@
     }
     $('loadBtn').disabled = false;
   }
-  function renderNoMatch(sku, similar){
-    show('prod', false); show('kwCard', false); show('genCard', false); show('editCard', false); show('pubCard', false);
-    SIMILAR = similar || [];
-    $('loadMsg').className = 'msg bad';
-    $('loadMsg').textContent = "SKU '" + sku + "' not found." + (SIMILAR.length ? ' Pick the right one below if you see it:' : ' Check for a typo.');
-    var box = $('noMatchBox');
-    if (!SIMILAR.length){ box.className = 'hide'; box.innerHTML = ''; return; }
-    box.className = '';
-    box.innerHTML = '<div class="sim-grid">' + SIMILAR.map(function(s, ix){
+  // Open the "pick the right one" grid for ONE row (by index). Asks the backend for that SKU's closest candidates.
+  async function openFix(i){
+    FIXIDX = i;
+    var sku = (QUEUE[i] || '').trim(); if (!sku) return;
+    var box = $('noMatchBox'); box.className = ''; box.innerHTML = '<p class="sub" style="margin:8px 0 4px">Loading options for <b>' + esc(sku) + '</b>…</p>';
+    try{
+      var r = await fetch('/api/etsy?action=tab1-load&sku=' + encodeURIComponent(sku));
+      var j = await r.json();
+      if (j.ok && j.product){   // turns out it matches now — mark the row green, nothing to fix
+        QTHUMB[sku] = { image: (j.product.images || [])[0] || '', title: j.product.title || '', exact: true };
+        box.className = 'hide'; box.innerHTML = ''; var ci = QUEUE.indexOf(sku); if (ci >= 0) applyThumbState(ci, sku);
+        return;
+      }
+      SIMILAR = (j && j.similar) || [];
+      renderFixGrid(sku, SIMILAR);
+    }catch(e){ box.innerHTML = '<p class="msg bad">Could not load options for ' + esc(sku) + '.</p>'; }
+  }
+  function renderFixGrid(sku, similar){
+    var box = $('noMatchBox'); box.className = '';
+    if (!similar.length){ box.innerHTML = '<p class="msg bad">No similar SKUs found for ' + esc(sku) + ' — check the spelling.</p>'; return; }
+    box.innerHTML = '<p class="sub" style="margin:8px 0 4px">Pick the right one for <b>' + esc(sku) + '</b>:</p><div class="sim-grid">' + similar.map(function(s, ix){
       var img = s.image ? '<img src="' + esc(s.image) + '" alt="">' : '<span class="s-ph"></span>';
-      return '<div class="sim-card" onclick="pickSimilar(' + ix + ')">' + img
+      return '<div class="sim-card" onclick="pickFix(' + ix + ')">' + img
         + '<div class="s-sku">' + esc(s.sku || '(no SKU)') + '</div>'
         + '<div class="s-title">' + esc(s.title || '') + '</div></div>';
     }).join('') + '</div>';
+    box.scrollIntoView({ block: 'nearest' });
   }
-  function pickSimilar(ix){
+  function pickFix(ix){
     var s = SIMILAR[ix]; if (!s || !s.sku) return;
+    var i = FIXIDX; if (i < 0 || i >= QUEUE.length) return;
     $('noMatchBox').className = 'hide'; $('noMatchBox').innerHTML = '';
-    QUEUE[QIDX] = s.sku; renderQueue(); loadCurrent();
+    delete QTHUMB[QUEUE[i]];           // drop the old (broken) SKU's cache
+    QUEUE[i] = s.sku; FIXIDX = -1;
+    renderQueue();
+    fetchThumbs([s.sku]);              // repaint that row — it will turn green
+    if (i === QIDX && !QEND) loadCurrent();   // if it was the current product, load it now
   }
   function advanceAfterPublish(){                         // single (non-family) send-now path
     STATE[QIDX] = 'sent';
@@ -705,13 +733,16 @@
     var noSec = ROOMS_SEL.length && ROOMS_SEL.every(function(r){ return !P.roomToSection[r]; });
     $('secNote').textContent = cands.length > 1 ? 'More than one candidate: pick one.' : (!cands.length ? (noSec ? 'This room has no section yet (created in Tab 4). Pick another or leave it with no section.' : 'No candidate: pick one below.') : '');
   }
+  function clearSecWarn(){ if (SECTION_ID){ var sn = $('secNote'); sn.className = 'fixed'; sn.textContent = ''; } }
   function pickSection(el){
     document.querySelectorAll('.secIn').forEach(function(c){ if (c !== el) c.checked = false; });
     SECTION_ID = el.checked ? el.value : null; if (el.checked) $('secOther').value = '';
+    clearSecWarn();
   }
   function pickOtherSection(){
     var v = $('secOther').value; document.querySelectorAll('.secIn').forEach(function(c){ c.checked = false; });
     SECTION_ID = v || null;
+    clearSecWarn();
   }
   function renderVariants(){
     $('varTable').innerHTML = '<tr><th>Frame</th><th>Size</th><th>UK price £</th></tr>' + P.variants.map(function(v, i){
@@ -723,6 +754,7 @@
   // Read the whole edited listing (title, tags, photos, variants, attributes, section) into one plain object,
   // so it can be sent now (single) or stored and sent later (family). Returns null if invalid.
   function gatherListing(){
+    if (!SECTION_ID){ var sn = $('secNote'); sn.className = 'msg bad'; sn.textContent = 'Pick a shop section before you publish.'; sn.scrollIntoView({ block: 'center' }); return null; }
     var title = $('fTitle').value.trim();
     function clampTag(s){ var t = String(s||'').replace(/\s+/g,' ').trim(); if (t.length <= 20) return t; var cut = t.slice(0,20); var sp = cut.lastIndexOf(' '); return (sp >= 10 ? cut.slice(0,sp) : cut).trim(); }
     var tags = [];
