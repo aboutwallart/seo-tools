@@ -148,7 +148,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v3.3 · Other fields now includes SEO title → remove brand · Excel covers Collective (vendors in an aligned grid, Select all, file named per catalog) · 5 tabs · batches + backup + undo</div>
+            <div class="subtitle">v3.4 · NEW Metafields tab (Room Type + Trends, by group, backup + preview + undo) · Excel now covers Room Type + Trends · retention: latest backup + last 20 undos · 6 tabs · batches + backup + undo</div>
         </div>
 
         <!-- TABS (always visible) -->
@@ -158,6 +158,7 @@
             <button class="tab" id="tabBtn2" onclick="switchTab(2)">✨ Other fields</button>
             <button class="tab" id="tabBtnAv" onclick="switchTab('av')">➕ Add variants</button>
             <button class="tab" id="tabBtnXl" onclick="switchTab('xl')">📊 Excel</button>
+            <button class="tab" id="tabBtnMf" onclick="switchTab('mf')">🏷️ Metafields</button>
         </div>
 
         <!-- ============ TAB 1: PRICES ============ -->
@@ -619,6 +620,99 @@
                 </div>
             </div>
         </div><!-- /tabXl -->
+
+        <!-- ===================== METAFIELDS TAB ===================== -->
+        <div class="tabpanel" id="tabMf" hidden>
+            <div class="tabbar" style="margin-bottom:14px;">
+                <button class="tab active" id="mfSubBtn-products" onclick="mfSwitchSub('products')">Products</button>
+                <button class="tab" id="mfSubBtn-pages" onclick="mfSwitchSub('pages')">Pages</button>
+                <button class="tab" id="mfSubBtn-blogs" onclick="mfSwitchSub('blogs')">Blogs</button>
+                <button class="tab" id="mfSubBtn-collections" onclick="mfSwitchSub('collections')">Collections</button>
+            </div>
+
+            <!-- PRODUCTS sub-tab -->
+            <div id="mfPanel-products">
+                <div class="panel">
+                    <h2><span class="step-num">1</span> Pick the metafield</h2>
+                    <div class="row"><div class="field"><label>Metafield</label>
+                        <select id="mfField" onchange="mfOnField()">
+                            <option value="mf.room_type">Room Type</option>
+                            <option value="mf.trends">Trends</option>
+                        </select></div></div>
+                </div>
+
+                <div class="panel backup-panel red" id="mfBackupPanel" style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+                    <div style="flex:1; min-width:240px;">
+                        <div class="backup-title" id="mfBackupTitle">🛟 First, back up all Room Type</div>
+                        <div class="backup-note" id="mfBackupNote">Locked until you back up today's values across the store. Only the latest backup is kept.</div>
+                    </div>
+                    <button class="btn btn-light" id="mfBackupBtn" onclick="mfBackup()">↓ Back up all Room Type</button>
+                </div>
+
+                <div id="mfBody" class="locked-wrap locked">
+                    <div class="panel">
+                        <h2><span class="step-num">2</span> Choose products</h2>
+                        <div class="row">
+                            <div class="field"><label>Supplier (vendor)</label><select id="mfVendor" onchange="mfOnVendor()"><option value="">— All —</option></select></div>
+                            <div class="field ms"><label>Status (pick several)</label>
+                                <button type="button" class="ms-btn" id="mfStatusBtn" onclick="mfToggleStatusMenu(event)">Any ▾</button>
+                                <div class="ms-menu" id="mfStatusMenu" hidden>
+                                    <label><input type="checkbox" class="mfst" value="active" onchange="mfUpdateStatusBtn()"> Active</label>
+                                    <label><input type="checkbox" class="mfst" value="draft" onchange="mfUpdateStatusBtn()"> Draft</label>
+                                    <label><input type="checkbox" class="mfst" value="archived" onchange="mfUpdateStatusBtn()"> Archived</label>
+                                </div>
+                            </div>
+                            <div class="field"><label>Tag (filter)</label><input type="text" id="mfTag" placeholder="(optional)"></div>
+                            <div class="field"><label>Title contains</label><input type="text" id="mfTitle" placeholder="(optional)"></div>
+                            <div class="field"><label>Collection</label><select id="mfColl"><option value="">— All —</option></select></div>
+                            <button class="btn btn-light" onclick="mfLoadVendors()">↻ Load suppliers</button>
+                        </div>
+                        <div class="hint" id="mfCollHint" style="margin-top:10px;">Pick a supplier to load only its collections.</div>
+                    </div>
+
+                    <div class="panel">
+                        <h2><span class="step-num">3</span> What to set</h2>
+                        <div class="row">
+                            <div class="field"><label>Mode</label>
+                                <select id="mfMode">
+                                    <option value="replace">Replace — keep only what I pick</option>
+                                    <option value="add">Add — keep what's there and add these</option>
+                                </select></div>
+                        </div>
+                        <div style="margin-top:14px;">
+                            <label class="field" style="margin-bottom:6px;"><span id="mfValuesLabel">Pick the values</span></label>
+                            <div class="picker">
+                                <input type="text" class="search" id="mfValSearch" placeholder="Type a word…" oninput="mfRenderChoices()">
+                                <div class="picker-list" id="mfChoiceList"></div>
+                            </div>
+                            <div class="picked-tags" id="mfPicked"></div>
+                        </div>
+                    </div>
+
+                    <div class="panel">
+                        <div class="row" style="gap:10px;">
+                            <button class="btn btn-light" id="mfPreviewBtn" onclick="mfPreview()">👁 Preview changes</button>
+                            <button class="btn btn-green" id="mfApplyBtn" onclick="mfApply()" disabled>✅ Apply</button>
+                        </div>
+                        <div id="mfPreviewStatus" class="muted" style="margin-top:10px;"></div>
+                        <div class="tbl-wrap" id="mfPreviewTable"></div>
+                    </div>
+
+                    <div class="panel">
+                        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+                            <b>Recent changes</b><span class="muted">tap "Undo" to put a run back</span>
+                            <button class="btn btn-light" style="margin-left:auto;" onclick="mfLoadUndos()">↻ Refresh</button>
+                        </div>
+                        <div id="mfUndoList" class="muted">—</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PAGES / BLOGS / COLLECTIONS — structure ready, built later -->
+            <div id="mfPanel-pages" hidden><div class="panel"><p class="muted">Pages metafields — coming soon.</p></div></div>
+            <div id="mfPanel-blogs" hidden><div class="panel"><p class="muted">Blogs metafields — coming soon.</p></div></div>
+            <div id="mfPanel-collections" hidden><div class="panel"><p class="muted">Collections metafields — coming soon.</p></div></div>
+        </div><!-- /tabMf -->
     </div>
 
     <datalist id="allTagsList"></datalist>
@@ -660,14 +754,164 @@ function switchTab(w){
     document.getElementById('tab2').hidden = w!==2;
     document.getElementById('tabAv').hidden = w!=='av';
     document.getElementById('tabXl').hidden = w!=='xl';
+    document.getElementById('tabMf').hidden = w!=='mf';
     document.getElementById('tabBtn1').classList.toggle('active', w===1);
     document.getElementById('tabBtnAwa').classList.toggle('active', w==='awa');
     document.getElementById('tabBtn2').classList.toggle('active', w===2);
     document.getElementById('tabBtnAv').classList.toggle('active', w==='av');
     document.getElementById('tabBtnXl').classList.toggle('active', w==='xl');
+    document.getElementById('tabBtnMf').classList.toggle('active', w==='mf');
     if (w===2) loadFieldMeta(); // fresh from Shopify every time you open Other fields
     if (w==='av') { avOnGroup(); avLoadAdded(); } // Add variants tab
     if (w==='xl') { xlRenderChecks(); xlLoadUndos(); } // Excel tab
+    if (w==='mf') mfInit(); // Metafields tab
+}
+
+/* ===================== METAFIELDS TAB ===================== */
+// Trends values accepted by the live "Decor Style" filter (from Shopify Search & Discovery — top values + grouped).
+// When new ones are added in Shopify, add them here. Room Type values are read live from the metafield definition.
+const MF_TRENDS = ["Anniversary Gifts","Biophilic Decor","Boho Decor","Children's Decor","Chinoiserie decor","Classic & Elegant Decor","Classy Decor","Coastal Decor","Coffee House Decor","Contemporary Decor","Cottage Decor","Eclectic Decor","Exotic Decor","Farmhouse Decor","French Country Decor","Gifts","Glam Decor","Gothic Decor","Industrial Decor","Islamic Decor","Japandi Decor","Japandi & Zen Decor","Kids Decor","Maximalist Decor","Mediterranean Decor","Minimalist Decor","Moroccan Decor","Old Money Decor","Preppy Decor","Rustic & Country Decor","Scandi Decor","Seasonal Decor","Shabby Chic Decor","Spiritual Decor","Christian Decor","Teens Decor","Timeless","Transitional Decor","Travel Decor Home Decor","Tropical","Tropical Decor","Wildlife Decor","Zen Decor"];
+const mfState = { field:'mf.room_type', choices:[], picked:[], previewRows:[], collByVendor:{} };
+function mfLabel(){ return mfState.field==='mf.trends' ? 'Trends' : 'Room Type'; }
+function mfInit(){ mfSwitchSub('products'); mfOnField(); mfLoadVendors(); mfLoadUndos(); }
+function mfSwitchSub(sub){
+    ['products','pages','blogs','collections'].forEach(s=>{
+        document.getElementById('mfPanel-'+s).hidden = s!==sub;
+        document.getElementById('mfSubBtn-'+s).classList.toggle('active', s===sub);
+    });
+}
+async function mfOnField(){
+    mfState.field = document.getElementById('mfField').value;
+    const lbl = mfLabel();
+    document.getElementById('mfBackupBtn').innerHTML = '↓ Back up all '+lbl;
+    document.getElementById('mfValuesLabel').textContent = 'Pick the '+lbl+' value(s)';
+    mfState.picked = []; mfRenderPicked(); document.getElementById('mfValSearch').value=''; mfState.previewRows=[];
+    document.getElementById('mfApplyBtn').disabled = true; document.getElementById('mfPreviewTable').innerHTML=''; document.getElementById('mfPreviewStatus').textContent='';
+    if (mfState.field==='mf.trends'){ mfState.choices = MF_TRENDS.slice(); mfRenderChoices(); }
+    else {
+        document.getElementById('mfChoiceList').innerHTML = '<div class="muted" style="padding:8px;">Loading…</div>';
+        try { const d = await (await fetch(API+'?action=mf-choices&field='+encodeURIComponent(mfState.field))).json(); mfState.choices = (d&&d.choices)||[]; } catch(e){ mfState.choices=[]; }
+        mfRenderChoices();
+    }
+    mfCheckBackup();
+}
+async function mfCheckBackup(){
+    paintGate('mfBackupPanel','mfBackupTitle','red','🛟 First, back up all '+mfLabel(),'✅ '+mfLabel()+' backup done');
+    lockBody('mfBody');
+    try {
+        const d = await (await fetch(API+'?action=last-field-backup&field='+encodeURIComponent(mfState.field))).json();
+        if (d && d.latest){ paintGate('mfBackupPanel','mfBackupTitle','green','', '✅ '+mfLabel()+' backup done ('+new Date(d.latest.createdAt).toLocaleString()+')'); unlockBody('mfBody'); }
+    } catch(e){}
+}
+async function mfBackup(){
+    const btn=document.getElementById('mfBackupBtn'); btn.disabled=true; btn.innerHTML='<span class="spinner"></span> Backing up…';
+    try {
+        const d = await (await fetch(API+'?action=backup-field&field='+encodeURIComponent(mfState.field))).json();
+        if (d && d.ok){ paintGate('mfBackupPanel','mfBackupTitle','green','', '✅ '+mfLabel()+' backup done ('+d.count+' products)'); unlockBody('mfBody'); }
+        else alert('Backup failed: '+((d&&d.error)||''));
+    } catch(e){ alert('Backup failed: '+e.message); }
+    btn.disabled=false; btn.innerHTML='↓ Back up all '+mfLabel();
+}
+async function mfLoadVendors(){
+    try {
+        const d = await (await fetch(API+'?action=vendors')).json();
+        const sel=document.getElementById('mfVendor'); const cur=sel.value;
+        sel.innerHTML='<option value="">— All —</option>'+(((d&&d.vendors)||[]).map(v=>'<option value="'+esc(v.vendor)+'">'+esc(v.vendor)+' ('+v.count+')</option>').join(''));
+        sel.value=cur;
+    } catch(e){}
+}
+async function mfOnVendor(){
+    const vendor=document.getElementById('mfVendor').value;
+    const coll=document.getElementById('mfColl'); const hint=document.getElementById('mfCollHint');
+    if(!vendor){ coll.innerHTML='<option value="">— All —</option>'; hint.textContent='Pick a supplier to load only its collections.'; return; }
+    if(mfState.collByVendor[vendor]){ mfFillColl(mfState.collByVendor[vendor]); hint.textContent=mfState.collByVendor[vendor].length+' collections for this supplier.'; return; }
+    hint.innerHTML='<span class="spinner"></span> Loading collections for '+esc(vendor)+'…'; coll.innerHTML='<option value="">— All —</option>';
+    try {
+        const d=await (await fetch(API+'?action=collections-by-vendor&vendor='+encodeURIComponent(vendor))).json();
+        const list=(d&&d.collections)||[]; mfState.collByVendor[vendor]=list; mfFillColl(list); hint.textContent=list.length+' collections for this supplier.';
+    } catch(e){ hint.textContent='Could not load collections.'; }
+}
+function mfFillColl(list){ document.getElementById('mfColl').innerHTML='<option value="">— All —</option>'+list.map(c=>'<option value="'+esc(c.id)+'">'+esc(c.title)+'</option>').join(''); }
+function mfToggleStatusMenu(e){ e.stopPropagation(); const m=document.getElementById('mfStatusMenu'); m.hidden=!m.hidden; }
+function mfUpdateStatusBtn(){ const vals=Array.from(document.querySelectorAll('.mfst:checked')).map(x=>x.value); document.getElementById('mfStatusBtn').textContent=(vals.length?vals.map(v=>v[0].toUpperCase()+v.slice(1)).join(', '):'Any')+' ▾'; }
+function mfRenderChoices(){
+    const term=(document.getElementById('mfValSearch').value||'').toLowerCase();
+    const list=mfState.choices.filter(v=>v.toLowerCase().indexOf(term)>=0 && mfState.picked.indexOf(v)<0).slice(0,80);
+    document.getElementById('mfChoiceList').innerHTML = list.length ? list.map(v=>'<div style="padding:6px 8px; cursor:pointer; border-bottom:1px solid #f0f0f0;" data-v="'+esc(v)+'" onclick="mfPick(this.getAttribute(\'data-v\'))">'+esc(v)+'</div>').join('') : '<div class="muted" style="padding:8px;">No matches.</div>';
+}
+function mfPick(v){ if(mfState.picked.indexOf(v)<0) mfState.picked.push(v); document.getElementById('mfValSearch').value=''; mfRenderChoices(); mfRenderPicked(); }
+function mfUnpick(v){ mfState.picked=mfState.picked.filter(x=>x!==v); mfRenderChoices(); mfRenderPicked(); }
+function mfRenderPicked(){ document.getElementById('mfPicked').innerHTML=mfState.picked.map(v=>'<span style="display:inline-block; background:#e9f2ff; border:1px solid #cfe0f7; border-radius:20px; padding:4px 10px; margin:3px 3px 0 0; font-size:13px;">'+esc(v)+' <span style="cursor:pointer; font-weight:700;" data-v="'+esc(v)+'" onclick="mfUnpick(this.getAttribute(\'data-v\'))">×</span></span>').join(''); }
+function mfFilters(){
+    const f={}; const statuses=Array.from(document.querySelectorAll('.mfst:checked')).map(x=>x.value);
+    const v=document.getElementById('mfVendor').value; if(v) f.vendor=v;
+    if(statuses.length) f.statuses=statuses;
+    const tag=document.getElementById('mfTag').value.trim(); if(tag) f.tag=tag;
+    const t=document.getElementById('mfTitle').value.trim(); if(t) f.titleContains=t;
+    const c=document.getElementById('mfColl').value; if(c) f.collectionId=c;
+    return f;
+}
+async function mfPreview(){
+    if(!mfState.picked.length){ document.getElementById('mfPreviewStatus').textContent='Pick at least one value first.'; return; }
+    const btn=document.getElementById('mfPreviewBtn'); btn.disabled=true; btn.innerHTML='<span class="spinner"></span> Previewing…'; document.getElementById('mfApplyBtn').disabled=true;
+    const cfg={ values: mfState.picked.slice(), mode: document.getElementById('mfMode').value };
+    const filters=mfFilters(); mfState.previewRows=[]; let cursor=null, scanned=0, changed=0, pages=0;
+    try {
+        do {
+            const r=await (await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'preview-field',field:mfState.field,config:cfg,filters,cursor})})).json();
+            if(!r.ok) throw new Error(r.error||'error');
+            (r.rows||[]).forEach(row=>{ scanned++; if(row.changed){ changed++; mfState.previewRows.push(row); } });
+            cursor = r.pageInfo && r.pageInfo.hasNextPage ? r.pageInfo.endCursor : null; pages++;
+            document.getElementById('mfPreviewStatus').textContent='Scanning… '+scanned+' products, '+changed+' will change.';
+        } while(cursor && pages<500);
+        const sample=mfState.previewRows.slice(0,40).map(row=>'<tr><td style="padding:6px 8px;">'+esc(row.productTitle||'')+'</td><td style="padding:6px 8px; color:#999;">'+esc(row.oldVal||'')+'</td><td style="padding:6px 8px; color:#0a7;">'+esc(row.newVal||'')+'</td></tr>').join('');
+        document.getElementById('mfPreviewTable').innerHTML = changed ? '<table style="width:100%; border-collapse:collapse; font-size:13px; margin-top:12px;"><tr style="text-align:left; color:#888;"><th style="padding:6px 8px;">Product</th><th style="padding:6px 8px;">Now</th><th style="padding:6px 8px;">After</th></tr>'+sample+'</table>'+(changed>40?'<div class="muted" style="margin-top:6px;">…and '+(changed-40)+' more.</div>':'') : '';
+        document.getElementById('mfPreviewStatus').textContent = changed+' of '+scanned+' products will change'+(changed?' — press Apply.':'.');
+        document.getElementById('mfApplyBtn').disabled = changed===0;
+    } catch(e){ document.getElementById('mfPreviewStatus').textContent='Failed: '+e.message; }
+    btn.disabled=false; btn.innerHTML='👁 Preview changes';
+}
+async function mfApply(){
+    if(!mfState.previewRows.length) return;
+    if(!confirm('Apply '+mfLabel()+' to '+mfState.previewRows.length+' products?')) return;
+    const btn=document.getElementById('mfApplyBtn'); btn.disabled=true; btn.innerHTML='<span class="spinner"></span> Applying…';
+    const items=mfState.previewRows.map(r=>({productId:r.productId, payload:r.payload}));
+    let undoId=null, done=0, errs=[]; const BATCH=100;
+    try {
+        for(let i=0;i<items.length;i+=BATCH){
+            const chunk=items.slice(i,i+BATCH);
+            const body={action:'apply-field', field:mfState.field, items:chunk}; if(undoId) body.undoId=undoId;
+            const r=await (await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+            if(!r.ok) throw new Error(r.error||'error');
+            undoId=r.undoId; done+=r.updated||0; (r.errors||[]).forEach(e=>errs.push(e));
+            btn.innerHTML='<span class="spinner"></span> Applied '+done+'/'+items.length+'…';
+        }
+        document.getElementById('mfPreviewStatus').textContent='✅ Updated '+done+' products'+(errs.length?(' · '+errs.length+' errors'):'')+'.';
+        mfState.previewRows=[]; document.getElementById('mfPreviewTable').innerHTML=''; mfLoadUndos();
+    } catch(e){ document.getElementById('mfPreviewStatus').textContent='Failed: '+e.message; }
+    btn.disabled=true; btn.innerHTML='✅ Apply';
+}
+async function mfLoadUndos(){
+    try {
+        const d=await (await fetch(API+'?action=field-undo-list')).json();
+        const undos=((d&&d.undos)||[]).filter(u=> String(u.field||'').indexOf('mf.')===0);
+        const box=document.getElementById('mfUndoList');
+        if(!undos.length){ box.innerHTML='<span class="muted">No metafield changes yet.</span>'; return; }
+        box.innerHTML=undos.map(u=>{ const lbl=u.field==='mf.trends'?'Trends':'Room Type'; const when=new Date(u.createdAt).toLocaleString();
+            return '<div style="display:flex; align-items:center; gap:10px; padding:6px 0; border-bottom:1px solid #f2f2f2;"><span>'+lbl+' · '+u.count+' products · '+when+'</span>'+(u.reverted?'<span class="muted" style="margin-left:auto;">reverted</span>':'<button class="btn btn-light" style="margin-left:auto;" onclick="mfUndo(\''+u.id+'\')">↩ Undo</button>')+'</div>';
+        }).join('');
+    } catch(e){}
+}
+async function mfUndo(id){
+    if(!confirm('Undo this change? It restores the values as they were.')) return;
+    let offset=0, hasMore=true; const BATCH=100;
+    try {
+        while(hasMore){
+            const r=await (await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'field-undo',undoId:id,offset,limit:BATCH})})).json();
+            if(!r.ok) throw new Error(r.error||'error'); offset=r.nextOffset; hasMore=r.hasMore;
+        }
+        mfLoadUndos();
+    } catch(e){ alert('Undo failed: '+e.message); }
 }
 
 /* ===================== BACKUP GATES (one per tab) ===================== */
@@ -1263,7 +1507,9 @@ const XLCOLS = [
     { key:'vendor', label:'Vendor', grp:'prod', editable:true },
     { key:'status', label:'Status', grp:'prod', editable:true },
     { key:'seoTitle', label:'SEO title', grp:'prod', editable:true },
-    { key:'seoDescription', label:'SEO description', grp:'prod', editable:true }
+    { key:'seoDescription', label:'SEO description', grp:'prod', editable:true },
+    { key:'roomType', label:'Room Type', grp:'prod', editable:true },
+    { key:'trends', label:'Trends', grp:'prod', editable:true }
 ];
 const XL_LABEL2KEY = {}; XLCOLS.forEach(c => XL_LABEL2KEY[c.label] = c.key);
 let xlOrder = ['title','sku','frame','size','paper','price','compareAt','soldout']; // default selected (order)
