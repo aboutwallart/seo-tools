@@ -1,4 +1,10 @@
-// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.31
+// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.32
+// v0.32 (2026-10-19): VIDEOS TO ETSY (for the video tool's new "Send to Etsy" tab). ONE registry data/etsy-listings.json
+//   maps base SKU -> [listings] (old live listings + drafts); action etsy-reg-refresh rebuilds it from Etsy (active+draft,
+//   includes=Inventory), tab1-sent-add now also adds each new draft to it. etsy-reg-get / etsy-video-log-get read them.
+//   etsy-video-send uploads one Drive video to one listing (same SKU can be in several listings -> the tab loops them);
+//   replace rule: 0-1 videos -> add; already 2 -> remove the one this tool pushed (else any) then add. etsy-video-undo
+//   removes the tool's video from a listing. data/etsy-video-log.json tracks what this tool pushed (for replace + undo).
 // v0.31 (2026-10-19): description variety — listings were written in separate memory-less AI calls, so every one opened
 //   with the same verb ("Hang this…") and all carried the same hang-a-set-of-3 paragraph, making them read identical.
 //   Now each generate call picks ONE opening verb at random (from 19) and TWO advice angles at random (from 7) and
@@ -70,6 +76,8 @@ const APIFY_ACTOR = 'A5KKVgfRFWo268Ggi'; // axlymxp
 const REPO = 'aboutwallart/seo-tools';
 const SENT_PATH = 'data/etsy-sent-items.json';
 const CLEAN_BACKUP_PATH = 'data/etsy-desc-backup.json'; // original descriptions, saved before the one-time off-platform cleanup
+const REG_PATH = 'data/etsy-listings.json';       // ONE registry: SKU -> [{listing_id,title,state}] (old live listings + new drafts)
+const VIDEO_LOG_PATH = 'data/etsy-video-log.json'; // [{listing_id, video_id, sku, fileId, fileName, ts}] — videos this tool pushed
 function ghHeaders() { return { 'Authorization': 'token ' + process.env.GITHUB_TOKEN, 'Accept': 'application/vnd.github+json', 'User-Agent': 'awa-etsy' }; }
 async function ghGet(path) {
   const r = await fetch('https://api.github.com/repos/' + REPO + '/contents/' + path + '?ref=main&t=' + Date.now(), { headers: ghHeaders() });
@@ -87,6 +95,19 @@ async function ghPut(path, content, sha, message) {
   return true;
 }
 async function readSent() { try { const f = await ghGet(SENT_PATH); if (f.content) { const j = JSON.parse(f.content); return { items: Array.isArray(j) ? j : (j.items || []), sha: f.sha }; } } catch (e) {} return { items: [], sha: null }; }
+async function readReg() { try { const f = await ghGet(REG_PATH); if (f.content) { const j = JSON.parse(f.content); return { map: (j && typeof j === 'object' && !Array.isArray(j)) ? j : {}, sha: f.sha }; } } catch (e) {} return { map: {}, sha: null }; }
+async function readVideoLog() { try { const f = await ghGet(VIDEO_LOG_PATH); if (f.content) { const j = JSON.parse(f.content); return { items: Array.isArray(j) ? j : (j.items || []), sha: f.sha }; } } catch (e) {} return { items: [], sha: null }; }
+// Etsy variant SKUs look like "{BASE}- {size}{frame} {paper}" (the base can contain spaces, e.g. "CYANOTYPE BROWN").
+// The video filename gives the BASE, so group by the base code.
+function baseSkuEtsy(s) { return String(s || '').split(/\s*-\s/)[0].trim().toUpperCase(); }
+// Download a video straight from the shared Drive folder (same source as the Shopify video tool).
+async function driveDownloadEtsy(fileId) {
+  const r = await fetch('https://drive.google.com/uc?export=download&id=' + fileId, { redirect: 'follow' });
+  if (!r.ok) throw new Error('Drive download failed: ' + r.status);
+  const buf = Buffer.from(await r.arrayBuffer());
+  if (buf.slice(0, 64).toString('latin1').indexOf('ftyp') === -1) throw new Error('Drive did not return a valid MP4 — the folder must be shared "Anyone with the link".');
+  return buf;
+}
 const WALL_ART_TERMS = ['wall art', 'art prints', 'wall decor', 'wall hangings', 'wall prints', 'canvas prints', 'wall pictures', 'wall posters', 'canvas art', 'art decor'];
 const ROOMS = ['Living room', 'Bedroom', 'Nursery', 'Teens', 'Bathroom', 'Kitchen', 'Dining room', 'Hallway', 'Office', 'Laundry room', 'Above fireplace', 'Games room'];
 const ROOM_SYN = {
@@ -570,8 +591,31 @@ module.exports = async (req, res) => {
       const item = { listing_id: String(b.listing_id), sku: String(b.sku || ''), title: String(b.title || ''), section: String(b.section || ''), image: String(b.image || ''), ts: Date.now() };
       const items = [item].concat(s.items.filter(x => String(x.listing_id) !== item.listing_id)); // newest first, no dup
       await ghPut(SENT_PATH, JSON.stringify(items, null, 2), s.sha, 'AWA ETSY: sent ' + item.sku + ' (' + item.listing_id + ')');
+      // also add this new draft to the ONE Etsy listings registry (SKU -> listings), so the video tab finds it
+      try {
+        const rg = await readReg();
+        const key = baseSkuEtsy(item.sku);
+        if (key) {
+          const arr = Array.isArray(rg.map[key]) ? rg.map[key] : [];
+          if (!arr.some(x => String(x.listing_id) === item.listing_id)) arr.push({ listing_id: item.listing_id, title: item.title, state: 'draft' });
+          rg.map[key] = arr;
+          await ghPut(REG_PATH, JSON.stringify(rg.map, null, 2), rg.sha, 'AWA ETSY: registry + ' + key + ' (' + item.listing_id + ')');
+        }
+      } catch (e) { /* best-effort; a Refresh can rebuild it */ }
       res.status(200).json({ ok: true, items });
     } catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
+    return;
+  }
+
+  // ---- Video tab (reads; no Etsy auth needed) ----
+  if (q.action === 'etsy-reg-get') {
+    try { const r = await readReg(); res.status(200).json({ ok: true, registry: r.map }); }
+    catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
+    return;
+  }
+  if (q.action === 'etsy-video-log-get') {
+    try { const r = await readVideoLog(); res.status(200).json({ ok: true, log: r.items }); }
+    catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
     return;
   }
 
@@ -781,6 +825,81 @@ module.exports = async (req, res) => {
       fd.append('rank', String(b.rank || 1));
       const up = await call('/shops/' + SHOP_ID + '/listings/' + b.listing_id + '/images', { method: 'POST', body: fd });
       finish(200, { ok: up.status < 300, status: up.status, error: up.status >= 300 ? up.json : undefined });
+      return;
+    }
+
+    // ---- Video tab: rebuild the registry (SKU -> listings) from Etsy (live listings + drafts) ----
+    if (q.action === 'etsy-reg-refresh') {
+      const map = {};
+      for (const state of ['active', 'draft']) {
+        let offset = 0;
+        for (let page = 0; page < 80; page++) {   // safety cap 80 * 100 = 8000 listings
+          const lr = await call('/shops/' + SHOP_ID + '/listings/' + state + '?limit=100&offset=' + offset + '&includes=Inventory');
+          if (lr.status >= 300) break;
+          const results = (lr.json && lr.json.results) || [];
+          if (!results.length) break;
+          results.forEach(l => {
+            const skus = [].concat(l.skus || [], ((l.inventory && l.inventory.products) || []).map(p => p.sku));
+            Array.from(new Set(skus.map(baseSkuEtsy).filter(Boolean))).forEach(k => {
+              const arr = map[k] || (map[k] = []);
+              if (!arr.some(x => String(x.listing_id) === String(l.listing_id))) arr.push({ listing_id: String(l.listing_id), title: l.title || '', state });
+            });
+          });
+          if (results.length < 100) break;
+          offset += 100;
+        }
+      }
+      const rg = await readReg();
+      await ghPut(REG_PATH, JSON.stringify(map, null, 2), rg.sha, 'AWA ETSY: registry refresh from Etsy (' + Object.keys(map).length + ' SKUs)');
+      finish(200, { ok: true, skus: Object.keys(map).length, listings: Object.values(map).reduce((n, a) => n + a.length, 0) });
+      return;
+    }
+
+    // ---- Video tab: send ONE video to ONE Etsy listing (replace rule applied) ----
+    if (q.action === 'etsy-video-send' && req.method === 'POST') {
+      const b = req.body || {};
+      if (!b.fileId || !b.listing_id) { finish(400, { ok: false, error: 'Missing fileId or listing_id' }); return; }
+      const listingId = String(b.listing_id);
+      // existing videos on the listing (Etsy allows up to 2)
+      const lr = await call('/listings/' + listingId + '?includes=Videos');
+      const existing = (lr.json && lr.json.videos) || [];
+      // if already at 2: make room. Remove the one THIS tool pushed if present, else remove any.
+      if (existing.length >= 2) {
+        const vlog = await readVideoLog();
+        const ours = vlog.items.find(e => String(e.listing_id) === listingId && existing.some(v => String(v.video_id) === String(e.video_id)));
+        const delId = ours ? ours.video_id : existing[0].video_id;
+        await call('/shops/' + SHOP_ID + '/listings/' + listingId + '/videos/' + delId, { method: 'DELETE' });
+      }
+      // download from Drive + upload to Etsy (multipart: video + name)
+      const buf = await driveDownloadEtsy(b.fileId);
+      const fd = new FormData();
+      fd.append('video', new Blob([buf], { type: 'video/mp4' }), b.fileName || 'video.mp4');
+      fd.append('name', String(b.fileName || 'video.mp4'));
+      const up = await call('/shops/' + SHOP_ID + '/listings/' + listingId + '/videos', { method: 'POST', body: fd });
+      if (up.status >= 300) { finish(200, { ok: false, error: 'Etsy upload failed (' + up.status + '): ' + JSON.stringify(up.json).slice(0, 300) }); return; }
+      const videoId = up.json && (up.json.video_id || (up.json.results && up.json.results[0] && up.json.results[0].video_id));
+      try {
+        const vlog = await readVideoLog();
+        const items = vlog.items.filter(e => String(e.listing_id) !== listingId);
+        items.push({ listing_id: listingId, video_id: videoId != null ? String(videoId) : null, sku: String(b.sku || ''), fileId: b.fileId, fileName: b.fileName || '', ts: Date.now() });
+        await ghPut(VIDEO_LOG_PATH, JSON.stringify(items, null, 2), vlog.sha, 'AWA ETSY: video -> listing ' + listingId);
+      } catch (e) { /* video is on the listing; only the log write failed */ }
+      finish(200, { ok: true, video_id: videoId != null ? String(videoId) : null });
+      return;
+    }
+
+    // ---- Video tab: remove the tool's video from ONE listing (so you can resend) ----
+    if (q.action === 'etsy-video-undo' && req.method === 'POST') {
+      const b = req.body || {};
+      if (!b.listing_id || !b.video_id) { finish(400, { ok: false, error: 'Missing listing_id or video_id' }); return; }
+      const del = await call('/shops/' + SHOP_ID + '/listings/' + String(b.listing_id) + '/videos/' + String(b.video_id), { method: 'DELETE' });
+      if (del.status >= 300) { finish(200, { ok: false, error: 'Etsy delete failed (' + del.status + ')' }); return; }
+      try {
+        const vlog = await readVideoLog();
+        const items = vlog.items.filter(e => !(String(e.listing_id) === String(b.listing_id) && String(e.video_id) === String(b.video_id)));
+        await ghPut(VIDEO_LOG_PATH, JSON.stringify(items, null, 2), vlog.sha, 'AWA ETSY: video undo listing ' + b.listing_id);
+      } catch (e) { /* best-effort */ }
+      finish(200, { ok: true });
       return;
     }
 
