@@ -1,4 +1,9 @@
-// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.30
+// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.31
+// v0.31 (2026-10-19): description variety — listings were written in separate memory-less AI calls, so every one opened
+//   with the same verb ("Hang this…") and all carried the same hang-a-set-of-3 paragraph, making them read identical.
+//   Now each generate call picks ONE opening verb at random (from 19) and TWO advice angles at random (from 7) and
+//   forces the AI to open with that verb and build the advice around those angles — so each listing opens and reads
+//   differently, and the hanging advice appears only when that angle is picked. Voice/banned-words/rules unchanged.
 // v0.30 (2026-10-19): FIX SKU loading — Shopify search was partial (took the first product that merely contained a
 //   piece of the SKU), so pasted SKUs loaded the wrong product and families got mixed. Now loadProduct brings up to 25
 //   candidates, selects ONLY the one whose "sku_for_print_files" metafield equals the SKU exactly, and when there is no
@@ -234,6 +239,24 @@ async function buildFixedDescription(call, sectionId, sectionTitle, excludeListi
 function stripHtml(h) { return String(h || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim(); }
 function normT(s) { return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
 function eqSku(a, b) { return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase(); }
+// Description variety: each generate call picks ONE opening verb + TWO advice angles at random, so listings written in
+// separate (memory-less) AI calls still open differently and don't all read the same.
+const OPEN_VERBS = ['Add', 'Bring', 'Give', 'Style', 'Layer', 'Create', 'Turn', 'Set', 'Warm up', 'Lift', 'Pull together', 'Finish', 'Soften', 'Freshen up', 'Anchor', 'Brighten', 'Make', 'Update', 'Transform'];
+const FOCUS_ANGLES = [
+  'where it works best — which rooms, which wall, the light it suits',
+  'how to style it with what the buyer already owns — colours, materials, furniture',
+  'the mood and atmosphere it brings to the room',
+  'how to hang a set of three well — even gaps of about 5-8 cm, same height, centred around eye level (~145-150 cm)',
+  'who it makes a good gift for and the occasions it suits',
+  'how to rescue an empty or awkward wall so it feels finished',
+  'how the three pieces work together as a trio and alongside the rest of the room'
+];
+function pickRandom(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function pickDistinct(arr, n) {
+  const pool = arr.slice(), out = [];
+  while (out.length < n && pool.length) out.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+  return out;
+}
 function sizeLabel(v) {
   const m = /^(A\d)\b/i.exec(v); if (m) return m[1].toUpperCase();
   const n = /(\d+)\s*x\s*(\d+)/i.exec(v); return n ? n[1] + 'x' + n[2] : String(v).slice(0, 20);
@@ -477,6 +500,8 @@ module.exports = async (req, res) => {
       const b = req.body || {}; const p = b.product || {};
       const kws = (b.keywords || []).slice(0, 60).map(k => k.keyword + ' (' + (k.level || '?') + ', ' + (k.competing == null ? '?' : k.competing) + ' listings)').join('\n');
       const optLines = Object.keys(b.options || {}).map(n => '- "' + n + '": ' + (b.options[n] || []).slice(0, 80).join(' | ')).join('\n');
+      const openVerb = pickRandom(OPEN_VERBS);           // forced opener (varies per product across isolated calls)
+      const focusAngles = pickDistinct(FOCUS_ANGLES, 2); // build the advice around these so listings don't read the same
       const prompt = [
         'You write Etsy listings for About Wall Art (UK brand). The product is a SET OF 3 wall art pieces, made to order, printed in the UK, available unframed / framed (black, white, oak) / wrapped canvas, sizes A4-A2 and 20x30 in. Look at the product images to understand the real subject, colours, style and orientation.',
         '',
@@ -492,7 +517,7 @@ module.exports = async (req, res) => {
         '', 'RULES — follow exactly:',
         '1) TITLE: max 140 chars, Title Case (NOT all caps), long but readable, keyword-rich WITHOUT stuffing/repeating. Lead with the keyword that best says WHAT it is. Include the room. Do NOT put any colour words in the title (no "white", "black", "blue"...) — colours go ONLY in the attributes/SEO, never in the title. Position of keywords does not affect ranking.',
         '2) TAGS: EXACTLY 13, all UNIQUE, lowercase, never the same combination twice, no spelling mistakes. Each tag = a descriptor (use the keyword data) + a wall-art synonym as the noun. Spread these 10 synonyms across DIFFERENT tags (each used about once): wall art, art prints, wall decor, wall hangings, wall prints, canvas prints, wall pictures, wall posters, canvas art, art decor. Cover the 7 tag types across the 13: 1 descriptive (what it is) 2 materials/technique 3 for whom (gifts) 4 occasion 5 solution (empty wall...) 6 style (era/palette + what it is) 7 size. Do not repeat exact category/attribute names as a tag (a multi-word tag that contains them is fine). CRITICAL LENGTH RULE: every tag MUST be 20 characters or fewer INCLUDING SPACES. Count the characters of each tag before returning it. If a tag would be over 20, REWRITE it with a shorter synonym (e.g. "scandinavian wall art" = 21 -> "scandi wall art"; "nordic landscape decor" = 22 -> "nordic landscape"); NEVER return a tag over 20 and NEVER cut a word mid-way.',
-        '3) DESCRIPTION: write ONLY the TOP part (about 120-170 words, 2 short paragraphs); a fixed block with materials/shipping/care/personalisation is added automatically BELOW, so do NOT write any of that. THIS IS ADVICE, NOT A DESCRIPTION OF THE ART — the buyer can already SEE the art in the photos, so NEVER describe what is visible (the scene, subject, colours, composition, figures, textures). Instead tell them what the photos do NOT show: what it adds to a room, the mood it creates, who and which rooms it suits, and real practical advice (how to style it; how to hang a set of 3 — same height, even gap of about 5-8 cm, centre around eye level ~145-150 cm). OPENING: begin the FIRST sentence with an everyday verb people actually say (Add, Bring, Give, Picture, Imagine, Hang, Make, Turn — vary it per product, never the same verb every time) with the keyword woven in NATURALLY; NEVER a keyword fragment followed by a dash. VOICE: a very warm, friendly UK interior-decor adviser talking to ONE person, first person (I/we), conversational, human, practical; short, varied, natural sentences; UK spelling. If it reads like AI or a spec sheet, it has FAILED. BANNED, never use: "a sense of", "evokes", "a feeling of", "drama", "dramatic", "a cohesive story", "tells a story", "rendered in", "punctuated by", "journey", "whisper", "dance", "symphony", "statement piece", "gracing", "adorn", "elevate", or stacks of flowery adjectives. Plain text, no headings.',
+        '3) DESCRIPTION: write ONLY the TOP part (about 120-170 words, 2 short paragraphs); a fixed block with materials/shipping/care/personalisation is added automatically BELOW, so do NOT write any of that. THIS IS ADVICE, NOT A DESCRIPTION OF THE ART — the buyer can already SEE the art in the photos, so NEVER describe what is visible (the scene, subject, colours, composition, figures, textures). Instead tell them what the photos do NOT show. FOCUS this listing mainly on these angles, and do NOT try to cover everything (a clear, narrow angle is what makes each listing read differently from the others):\n' + focusAngles.map(a => '- ' + a).join('\n') + '\nOPENING: begin the FIRST sentence with the verb "' + openVerb + '" (use it as the first word, or right after a 1-2 word lead-in), with the keyword woven in NATURALLY; NEVER a keyword fragment followed by a dash. VOICE: a very warm, friendly UK interior-decor adviser talking to ONE person, first person (I/we), conversational, human, practical; short, varied, natural sentences; UK spelling. If it reads like AI or a spec sheet, it has FAILED. BANNED, never use: "a sense of", "evokes", "a feeling of", "drama", "dramatic", "a cohesive story", "tells a story", "rendered in", "punctuated by", "journey", "whisper", "dance", "symphony", "statement piece", "gracing", "adorn", "elevate", or stacks of flowery adjectives. Plain text, no headings.',
         '4) WORDING: "art prints" is OK in title/description/tags. The word "poster"/"posters" ONLY in tags (never title/description). NEVER write "digital print" or "digital download". Say "perspex", never "acrylic". Never say "hand-painted".',
         '5) ATTRIBUTES: choose from the EXACT option lists below (copy the option text exactly). Only include a property if it clearly applies. Several values allowed only where the property is multi-valued (Occasion, Holiday, Room, Subject may take more than one if truly relevant, else one).',
         optLines,
