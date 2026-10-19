@@ -1,4 +1,12 @@
-// shopify-bulk.js — v3.3 (26 Sep 2026)
+// shopify-bulk.js — v3.5 (19 Oct 2026)
+// v3.5: fix — the Metafields "filter by Collection" preview failed (collection.products takes no query arg); now
+//       it fetches the collection's products and filters vendor/status/tag/title in code.
+// v3.4: Metafields support — Room Type (live from the metafield definition) + Trends bulk-edited by group
+//       (preview-field/apply-field/field-undo gain an 'mf.<key>' branch + Replace/Add via metafieldsSet; undo
+//       restores the old value or deletes it). New actions: mf-choices (live room_type values) and
+//       collections-by-vendor (a vendor's own collections, scoped — client-side filter since collection.products
+//       takes no query). Excel export/import adds Room Type + Trends columns. Retention: every tab keeps only the
+//       latest backup + the last 20 undos (older files deleted).
 // v3.3: Other-fields tab gains "SEO title" → "Remove brand" — strips "About Wall Art" (any form) from
 //       product SEO titles, with per-field backup, preview and undo, same as the other product fields.
 // v3.2: xlsx-data accepts a vendors[] list (Collective) — defaults to About Wall Art — and adds an
@@ -896,13 +904,24 @@ module.exports = async function handler(req, res) {
       const searchQ = buildQuery(filters);
       let conn;
       if (filters.collectionId) {
-        // scope the group to one collection (its products connection takes the rest of the filters as its query)
+        // collection.products takes NO query arg — fetch the collection's products, then filter the rest in code
         const data = await shopify(
-          `query($cid:ID!,$q:String,$cursor:String){ collection(id:$cid){ products(first:60, query:$q, after:$cursor){
-             pageInfo{ hasNextPage endCursor } nodes{ ${productSelection(field)} } } } }`,
-          { cid: filters.collectionId, q: searchQ || null, cursor: body.cursor || null }
+          `query($cid:ID!,$cursor:String){ collection(id:$cid){ products(first:60, after:$cursor){
+             pageInfo{ hasNextPage endCursor } nodes{ ${productSelection(field)} tags } } } }`,
+          { cid: filters.collectionId, cursor: body.cursor || null }
         );
-        conn = (data.collection && data.collection.products) ? data.collection.products : { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } };
+        const raw = (data.collection && data.collection.products) ? data.collection.products : { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } };
+        const wantVendor = filters.vendor ? String(filters.vendor).toLowerCase() : null;
+        const wantStatuses = Array.isArray(filters.statuses) ? filters.statuses.map(s => String(s).toLowerCase()) : [];
+        const wantTag = filters.tag ? String(filters.tag).toLowerCase() : null;
+        const wantTitle = filters.titleContains ? String(filters.titleContains).toLowerCase() : null;
+        conn = { pageInfo: raw.pageInfo, nodes: (raw.nodes || []).filter(pr => {
+          if (wantVendor && String(pr.vendor || '').toLowerCase() !== wantVendor) return false;
+          if (wantStatuses.length && wantStatuses.indexOf(String(pr.status || '').toLowerCase()) === -1) return false;
+          if (wantTag && !(pr.tags || []).some(t => String(t).toLowerCase() === wantTag)) return false;
+          if (wantTitle && String(pr.title || '').toLowerCase().indexOf(wantTitle) === -1) return false;
+          return true;
+        }) };
       } else {
         const data = await shopify(
           `query($q:String,$cursor:String){ products(first:60, query:$q, after:$cursor){
