@@ -1,4 +1,13 @@
-// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT)  ·  v0.33
+// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT + Tab 2 APPLY TO DUPLICATE)  ·  v0.34
+// v0.34 (2026-10-20): TAB 2 "Apply to duplicate". Etsy can't set international pricing by API, so Mae duplicates a
+//   listing in Etsy (the copy keeps the international prices) and this tab fills in the rest by API. Test rule: a
+//   duplicate's SKU = the original SKU + "B" at the end. New actions:
+//   tab2-list — scans all listings (active+draft), indexes by base SKU, returns the DRAFT duplicates (base SKU ends in
+//     "B") that have a matching original (same base SKU without the "B"), each with its original candidate(s).
+//   tab2-apply — reads the ORIGINAL (title/description/tags/materials/shop_section_id + its attributes), then on the
+//     DUPLICATE: PATCHes those text fields, re-applies each attribute (skips Frame=513/Size=514 — those are the
+//     variations tied to price), and replaces the photos with the product's Shopify images (delete all, upload all,
+//     cap 20, Shopify order). NEVER touches inventory / variations / prices. Registers the result in Sent items.
 // v0.33 (2026-10-19): video registry fixes — etsy-reg-refresh now PAGES THROUGH ALL listings (count-driven; the old
 //   loop stopped after the first 100), stores each listing's featured image (includes=Images), and folds in the tool's
 //   "Sent items" so drafts without a SKU on Etsy are covered too. Registry entry = {listing_id,title,state,image}.
@@ -969,6 +978,150 @@ module.exports = async (req, res) => {
       try { await ghPut(CLEAN_BACKUP_PATH, JSON.stringify(backup, null, 2), bk.sha, 'AWA ETSY: backup descriptions before cleanup (' + items.length + ')'); } catch (e) {}
       const failed = results.filter(r => r.error || (r.status && r.status >= 300));
       finish(200, { ok: !failed.length, updated: results.length - failed.length, failed: failed.length, results });
+      return;
+    }
+
+    // ================= TAB 2 — APPLY TO DUPLICATE =================
+    // List the DRAFT duplicates (base SKU ends in "B") that have a matching original (same base SKU without the "B").
+    if (q.action === 'tab2-list') {
+      const map = {}; // base SKU -> [{listing_id,title,state,image}]
+      const add = (sku, listing) => {
+        const k = baseSkuEtsy(sku); if (!k) return;
+        const arr = map[k] || (map[k] = []);
+        if (!arr.some(x => String(x.listing_id) === String(listing.listing_id))) arr.push(listing);
+      };
+      for (const state of ['active', 'draft']) {
+        let offset = 0, total = Infinity;
+        for (let page = 0; page < 300 && offset < total; page++) {
+          const lr = await call('/shops/' + SHOP_ID + '/listings?state=' + state + '&limit=100&offset=' + offset + '&includes=Inventory,Images');
+          if (lr.status >= 300) break;
+          const j = lr.json || {};
+          total = (typeof j.count === 'number') ? j.count : 0;
+          const results = j.results || [];
+          if (!results.length) break;
+          results.forEach(l => {
+            const im = (l.images && l.images[0]) || {};
+            const image = im.url_570xN || im.url_fullxfull || im.url_300x300 || '';
+            const skus = [].concat(l.skus || [], ((l.inventory && l.inventory.products) || []).map(p => p.sku));
+            Array.from(new Set(skus.map(baseSkuEtsy).filter(Boolean))).forEach(k => add(k, { listing_id: String(l.listing_id), title: l.title || '', state, image }));
+          });
+          offset += 100;
+        }
+      }
+      const dups = [];
+      Object.keys(map).forEach(base => {
+        if (!/B$/.test(base) || base.length < 2) return;              // test rule: duplicate SKU = original + "B"
+        const origBase = base.slice(0, -1).trim();                    // original = same base without the trailing "B"
+        const originals = (map[origBase] || []).map(o => ({ listing_id: o.listing_id, title: o.title, state: o.state }));
+        if (!originals.length) return;                                // only show duplicates that have an original to copy
+        (map[base] || []).filter(d => d.state === 'draft').forEach(d => {
+          dups.push({ target_listing_id: d.listing_id, dup_sku: base, orig_sku: origBase, title: d.title, image: d.image, originals });
+        });
+      });
+      dups.sort((a, b) => a.dup_sku.localeCompare(b.dup_sku));
+      finish(200, { ok: true, count: dups.length, duplicates: dups });
+      return;
+    }
+
+    // Copy the ORIGINAL's content onto the DUPLICATE (target). NEVER touches inventory / variations / prices.
+    if (q.action === 'tab2-apply' && req.method === 'POST') {
+      const b = req.body || {};
+      const target = String(b.target_listing_id || '').trim();
+      const original = String(b.original_listing_id || '').trim();
+      const sku = String(b.sku || '').trim();        // original base SKU (used to pull the Shopify photos)
+      if (!target || !original) { finish(400, { ok: false, error: 'Missing target or original listing id' }); return; }
+      const steps = [];
+
+      // 1) read the ORIGINAL listing + its attributes
+      const og = await call('/listings/' + original + '?includes=Inventory');
+      if (og.status >= 300 || !og.json || !og.json.listing_id) { finish(200, { ok: false, steps, error: 'Could not read the original listing (' + og.status + ')' }); return; }
+      const o = og.json;
+      const op = await call('/shops/' + SHOP_ID + '/listings/' + original + '/properties');
+      const ogProps = (op.json && op.json.results) || [];
+
+      // 2) PATCH the duplicate with the original's TEXT fields (not price / variations)
+      const tags = [];
+      for (const raw of (o.tags || [])) { const c = clampTag(raw); if (c && !tags.some(x => x.toLowerCase() === c.toLowerCase())) tags.push(c); if (tags.length >= 13) break; }
+      const mats = [...new Set((o.materials || []).map(sanitizeMaterial).filter(Boolean))].slice(0, 13);
+      const form = new URLSearchParams();
+      if (o.title) form.set('title', String(o.title).slice(0, 140));
+      if (o.description != null) form.set('description', String(o.description));
+      if (tags.length) form.set('tags', tags.join(','));
+      if (mats.length) form.set('materials', mats.join(','));
+      if (o.shop_section_id) form.set('shop_section_id', String(o.shop_section_id));
+      const patch = await call('/shops/' + SHOP_ID + '/listings/' + target, { method: 'PATCH', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form.toString() });
+      steps.push({ step: 'text (title/description/tags/materials/section)', status: patch.status, error: patch.status >= 300 ? patch.json : undefined });
+
+      // 3) re-apply the original's attributes (skip Frame=513 / Size=514 — those are variations tied to price)
+      for (const p of ogProps) {
+        const pid = Number(p.property_id);
+        if (!pid || pid === 513 || pid === 514) continue;
+        const ids = (p.value_ids || []).map(Number).filter(n => Number.isInteger(n) && n > 0);
+        const vals = (p.values || []).map(v => String(v));
+        if (!ids.length || !vals.length) continue;
+        const f = new URLSearchParams({ value_ids: ids.join(','), values: vals.join(',') });
+        const pr = await call('/shops/' + SHOP_ID + '/listings/' + target + '/properties/' + pid, { method: 'PUT', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: f.toString() });
+        steps.push({ step: 'attribute ' + (p.property_name || pid), status: pr.status, error: pr.status >= 300 ? pr.json : undefined });
+      }
+
+      // 4) PHOTOS: pull the product images from Shopify, delete the duplicate's photos, upload the Shopify ones.
+      let warning = '';
+      let firstShopImg = '';
+      const imgStep = { step: 'photos', status: 200 };
+      try {
+        const lp = await loadProduct(sku);
+        const images = (lp && lp.product && lp.product.images) || [];
+        firstShopImg = images[0] || '';
+        if (!images.length) {
+          warning = lp && lp.noMatch ? 'No exact Shopify match for SKU "' + sku + '" — photos were NOT replaced.' : 'The Shopify product has no images — photos were NOT replaced.';
+          imgStep.skipped = true; imgStep.note = warning;
+        } else {
+          const cur = await call('/shops/' + SHOP_ID + '/listings/' + target + '/images');
+          const curImgs = (cur.json && cur.json.results) || [];
+          for (const im of curImgs) {
+            await call('/shops/' + SHOP_ID + '/listings/' + target + '/images/' + im.listing_image_id, { method: 'DELETE' });
+          }
+          const toSend = images.filter(u => /^https:\/\/cdn\.shopify\.com\//.test(String(u))).slice(0, 20);
+          let up = 0, fail = 0;
+          for (let i = 0; i < toSend.length; i++) {
+            try {
+              const ir = await fetch(toSend[i]);
+              if (!ir.ok) { fail++; continue; }
+              const buf = Buffer.from(await ir.arrayBuffer());
+              const fd = new FormData();
+              fd.append('image', new Blob([buf], { type: ir.headers.get('content-type') || 'image/jpeg' }), 'image-' + (i + 1) + '.jpg');
+              fd.append('rank', String(i + 1));
+              const r = await call('/shops/' + SHOP_ID + '/listings/' + target + '/images', { method: 'POST', body: fd });
+              if (r.status < 300) up++; else fail++;
+            } catch (e) { fail++; }
+          }
+          imgStep.deleted = curImgs.length; imgStep.uploaded = up; imgStep.failed = fail;
+          if (up === 0 && toSend.length) { imgStep.status = 500; imgStep.error = 'All photo uploads failed.'; }
+          else if (fail) warning = fail + ' of ' + toSend.length + ' photos failed to upload.';
+        }
+      } catch (e) { imgStep.status = 500; imgStep.error = String(e && e.message || e); }
+      steps.push(imgStep);
+
+      // 5) register in Sent items (+ the video registry), so it shows in the Sent tab
+      try {
+        const s = await readSent();
+        const item = { listing_id: target, sku: String(b.dup_sku || sku), title: o.title || '', section: '', image: firstShopImg || String(b.image || ''), ts: Date.now() };
+        const items = [item].concat(s.items.filter(x => String(x.listing_id) !== item.listing_id));
+        await ghPut(SENT_PATH, JSON.stringify(items, null, 2), s.sha, 'AWA ETSY: tab2 applied ' + item.sku + ' (' + target + ')');
+        try {
+          const rg = await readReg();
+          const key = baseSkuEtsy(item.sku);
+          if (key) {
+            const arr = Array.isArray(rg.map[key]) ? rg.map[key] : [];
+            if (!arr.some(x => String(x.listing_id) === item.listing_id)) arr.push({ listing_id: item.listing_id, title: item.title, state: 'draft', image: item.image || '' });
+            rg.map[key] = arr;
+            await ghPut(REG_PATH, JSON.stringify(rg.map, null, 2), rg.sha, 'AWA ETSY: registry + ' + key + ' (' + target + ')');
+          }
+        } catch (e) { /* best-effort */ }
+      } catch (e) { /* best-effort — the listing was still updated */ }
+
+      const failed = steps.filter(s => s.status >= 300);
+      finish(200, { ok: !failed.length, listing_id: target, steps, failed: failed.length, warning: warning || undefined });
       return;
     }
 
