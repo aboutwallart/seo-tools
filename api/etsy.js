@@ -1,4 +1,7 @@
-// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT + Tab 2 APPLY TO DUPLICATE)  ·  v0.36
+// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT + Tab 2 APPLY TO DUPLICATE)  ·  v0.37
+// v0.37 (2026-10-20): FIX tab2-apply attribute "Array input 5:7 (ISO ratio) is malformed" — publish already strips the
+//   trailing parenthetical from each attribute value ("5:7 (ISO ratio)" -> "5:7"); tab2-apply was sending the raw value.
+//   Now it cleans the value the exact same way as publish. (All other fields already matched publish.)
 // v0.36 (2026-10-20): REAL FIX for tab2-apply "Could not read the original listing (400)". getListing (/listings/{id})
 //   does NOT return DRAFT listings -> 400. The original is a draft, so we now read it with the shop-scoped listings
 //   endpoint (same one "Clean listings" uses, which DOES return drafts): findShopListingById scans active+draft and
@@ -1084,7 +1087,8 @@ module.exports = async (req, res) => {
         const pid = Number(p.property_id);
         if (!pid || pid === 513 || pid === 514) continue;
         const ids = (p.value_ids || []).map(Number).filter(n => Number.isInteger(n) && n > 0);
-        const vals = (p.values || []).map(v => String(v));
+        // clean the display text the SAME way publish does ("5:7 (ISO ratio)" -> "5:7"), or Etsy rejects it as malformed
+        const vals = (p.values || []).map(v => String(v).replace(/\s*\([^)]*\)\s*$/, '').trim());
         if (!ids.length || !vals.length) continue;
         const f = new URLSearchParams({ value_ids: ids.join(','), values: vals.join(',') });
         const pr = await call('/shops/' + SHOP_ID + '/listings/' + target + '/properties/' + pid, { method: 'PUT', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: f.toString() });
