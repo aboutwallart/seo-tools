@@ -62,7 +62,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">Tab 1 · NEW PRODUCT · v0.31</p>
+  <p class="ver">AWA ETSY · v0.32</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -76,6 +76,7 @@
   <div class="row" style="margin:0 0 16px">
     <button id="tabNew" onclick="switchTab('new')">New product</button>
     <button id="tabSent" class="ghost" onclick="switchTab('sent')">Sent items <span id="sentCount"></span></button>
+    <button id="tabDup" class="ghost" onclick="switchTab('dup')">Apply to duplicate</button>
     <button id="tabClean" class="ghost" onclick="switchTab('clean')">Clean listings</button>
   </div>
 
@@ -185,6 +186,16 @@
       <h2>Sent items</h2>
       <p class="sub">Drafts you've sent. Saved in GitHub (they show on any computer). Preview or delete if you discard one.</p>
       <div id="sentList"></div>
+    </div>
+  </div>
+
+  <div id="dupTab" class="hide">
+    <div class="card">
+      <h2>Apply to a duplicate</h2>
+      <p class="sub">Etsy can't set international prices by API, so you duplicate a listing on Etsy (the copy keeps those prices) and this copies everything else onto it. The duplicate's SKU must end in "B"; its original is the same SKU without the "B". It copies the title, description, tags, materials, section, attributes and the Shopify photos — and never touches prices or variations.</p>
+      <div class="reminder">⚠️ This edits a LIVE Etsy draft. Check the match before you apply.</div>
+      <div class="row" style="margin-top:12px"><button id="dupScanBtn" onclick="loadDuplicates()">Find duplicates</button><span id="dupMsg" class="fixed"></span></div>
+      <div id="dupList" style="margin-top:12px"></div>
     </div>
   </div>
 
@@ -812,9 +823,10 @@
   /* ---------- #14: Sent items ---------- */
   var SENT = [];
   function switchTab(which){
-    show('newProductTab', which === 'new'); show('sentTab', which === 'sent'); show('cleanTab', which === 'clean');
+    show('newProductTab', which === 'new'); show('sentTab', which === 'sent'); show('dupTab', which === 'dup'); show('cleanTab', which === 'clean');
     $('tabNew').className = which === 'new' ? '' : 'ghost';
     $('tabSent').className = which === 'sent' ? '' : 'ghost';
+    $('tabDup').className = which === 'dup' ? '' : 'ghost';
     $('tabClean').className = which === 'clean' ? '' : 'ghost';
     if (which === 'sent') loadSent();
   }
@@ -926,6 +938,54 @@
       else { $('applyMsg').innerHTML = '<b style="color:var(--warn)">⚠ ' + still.length + ' listings STILL have off-platform content.</b> Re-scan and Apply again.' + tail; }
     }catch(e){ $('applyMsg').textContent = 'Updated ' + done + ', failed ' + failed + '. Couldn\'t verify — re-scan to check.'; }
     $('scanBtn').disabled = false; $('applyBtn').disabled = false;
+  }
+
+  /* ---------- Tab 2: Apply to duplicate ---------- */
+  var DUPS = [];
+  async function loadDuplicates(){
+    $('dupScanBtn').disabled = true; $('dupMsg').textContent = 'Reading your Etsy drafts…'; $('dupList').innerHTML = '';
+    try{
+      var r = await fetch('/api/etsy?action=tab2-list&t=' + Date.now()); var j = await r.json();
+      if (!j.ok) throw new Error(j.error || 'Error');
+      DUPS = j.duplicates || [];
+      $('dupMsg').textContent = DUPS.length ? (DUPS.length + ' duplicate draft' + (DUPS.length === 1 ? '' : 's') + ' found.') : 'No duplicate drafts found (a duplicate SKU must end in "B" and have a matching original).';
+      renderDuplicates();
+    }catch(e){ $('dupMsg').textContent = 'Failed: ' + e.message; }
+    $('dupScanBtn').disabled = false;
+  }
+  function renderDuplicates(){
+    $('dupList').innerHTML = DUPS.map(function(d, i){
+      var orig = d.originals.length > 1
+        ? '<select id="dupOrig' + i + '">' + d.originals.map(function(o){ return '<option value="' + esc(o.listing_id) + '">' + esc(o.title || o.listing_id) + ' (' + esc(o.state) + ')</option>'; }).join('') + '</select>'
+        : '<span class="fixed">' + esc(d.originals[0].title || d.originals[0].listing_id) + ' (' + esc(d.originals[0].state) + ')</span>';
+      return '<div class="card" style="padding:10px 12px;margin:0 0 8px"><div class="row" style="gap:12px;align-items:flex-start">' +
+        (d.image ? '<img src="' + esc(d.image) + '" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--line)">' : '') +
+        '<div style="flex:1;min-width:200px"><b>' + esc(d.dup_sku) + '</b> <span class="fixed">duplicate draft</span>' +
+        '<div class="fixed">' + esc(d.title || '') + '</div>' +
+        '<div style="margin-top:6px"><span class="fixed">Copy from original <b>' + esc(d.orig_sku) + '</b>:</span> ' + orig + '</div>' +
+        '<div class="row" style="margin-top:6px"><button type="button" onclick="applyDuplicate(' + i + ', this)">Apply original to this</button><span class="msg" id="dupRes' + i + '"></span></div>' +
+        '</div></div></div>';
+    }).join('');
+  }
+  async function applyDuplicate(i, btn){
+    var d = DUPS[i];
+    var original = d.originals.length > 1 ? $('dupOrig' + i).value : d.originals[0].listing_id;
+    if (!confirm('Copy the original (' + d.orig_sku + ') onto this duplicate (' + d.dup_sku + ')?\n\nIt replaces the title, description, tags, materials, section, attributes and photos. Prices and variations stay exactly as they are.')) return;
+    btn.disabled = true; btn.textContent = 'Applying…'; var res = $('dupRes' + i); res.className = 'msg'; res.textContent = '';
+    try{
+      var r = await fetch('/api/etsy?action=tab2-apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target_listing_id: d.target_listing_id, original_listing_id: original, sku: d.orig_sku, dup_sku: d.dup_sku, image: d.image }) });
+      var j = await r.json();
+      if (j.ok){
+        res.className = 'msg good';
+        res.innerHTML = '✓ Done' + (j.warning ? ' (' + esc(j.warning) + ')' : '') + '. <a href="https://www.etsy.com/your/shops/me/tools/listings/' + esc(d.target_listing_id) + '" target="_blank">Open in Etsy</a>';
+        btn.textContent = 'Applied';
+      } else {
+        var fails = (j.steps || []).filter(function(s){ return s.status >= 300; });
+        res.className = 'msg bad';
+        res.innerHTML = '⚠ ' + (fails.length ? ('Failed: ' + esc(fails.map(function(s){ return s.step + ' (' + (s.status || '') + ')'; }).join(', '))) : esc(j.error || 'Something went wrong'));
+        btn.disabled = false; btn.textContent = 'Apply original to this';
+      }
+    }catch(e){ res.className = 'msg bad'; res.textContent = 'Failed: ' + e.message; btn.disabled = false; btn.textContent = 'Apply original to this'; }
   }
 
   if (location.search.indexOf('connected=1') >= 0) { setConnected(true); }
