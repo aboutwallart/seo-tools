@@ -1,4 +1,8 @@
-// api/keywords.js — New Product Generator backend  ·  v0.54
+// api/keywords.js — New Product Generator backend  ·  v0.55
+// v0.55 (2026-10-20): KEYWORD BANK source — new free per-product source from data/Apify Google keyword stock.csv
+//   (action bank-keywords): same topic/room/locked filter as gap/uber, ordered with proven ("already_ranks")
+//   >= 70 vol on top, then by opportunity. New action bank-discover = the on-demand Apify box (smacient expands
+//   one seed, drops anything already in the file / locked / in progress, returns only the new ones).
 // v0.54 (2026-10-18): send-to-shopify accepts allowPartialImages (old-product mode) — skips the "Missing before
 //   sending" block, guards every image gid, and any variant whose frame mockup is missing uses the product's
 //   featured (first available) image. Variants/prices are unchanged. New-product sends are unaffected.
@@ -197,6 +201,7 @@ const PRODUCTS_PATH = 'data/npg-products.json';
 const REGISTRY_PATH = 'data/keyword-locker-registry.csv';
 const GAP_PATH = 'data/competitors-gap.csv';
 const UBER_PATH = 'data/ubersuggest-keywords.csv'; // Ubersuggest keyword list (keyword,volume,difficulty,intent) — own source + "UBER" pill
+const BANK_PATH = 'data/' + encodeURIComponent('Apify Google keyword stock.csv'); // Apify/Google keyword bank (keyword,monthly_volume,competition,group,already_ranks) — free source + "GOOGLE" pill
 const ACTOR = 'santhej~dataforseo-labs-keyword-explorer';
 const SERPAPI_KEY = process.env.SERPAPI_KEY;
 const CATEGORY_SYNONYMS = ['wall art', 'art print', 'wall decor', 'wall hanging', 'canvas wall art', 'framed wall art', 'poster', 'wall pictures'];
@@ -676,6 +681,80 @@ async function uberResearch(body) {
     return { sku: p.sku || '', options };
   });
   return { results };
+}
+
+// Apify/Google keyword BANK (data/Apify Google keyword stock.csv): a reusable, pre-filtered stock of Google
+// keywords with volume — so the NPG doesn't run Apify per product. Columns: keyword, monthly_volume,
+// competition (HIGH/MEDIUM/LOW), group, already_ranks ("yes" = the store already ranks for it).
+async function readBankFile() {
+  const rows = [];
+  try {
+    const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/${BANK_PATH}?t=${Date.now()}`);
+    if (!r.ok) return rows;
+    let txt = await r.text();
+    txt = txt.replace(/^﻿/, ''); // strip BOM
+    const lines = txt.split('\n');
+    for (let i = 1; i < lines.length; i++) { // skip header
+      const line = lines[i].replace(/\r/g, '');
+      if (!line.trim()) continue;
+      const c = parseCSVLine(line);
+      const keyword = (c[0] || '').toLowerCase().trim();
+      if (!keyword) continue;
+      rows.push({ keyword, volume: normVolume(c[1]), competition: (c[2] || '').trim(), group: (c[3] || '').trim(), already_ranks: (c[4] || '').trim().toLowerCase() === 'yes' });
+    }
+  } catch { /* ignore */ }
+  return rows;
+}
+const BANK_COMP_DIFF = c => ({ HIGH: 70, MEDIUM: 40, LOW: 15 }[(c || '').toUpperCase()] != null ? ({ HIGH: 70, MEDIUM: 40, LOW: 15 })[(c || '').toUpperCase()] : 50);
+// Bank research — same topic-match + filters as gapResearch, but from the keyword BANK (no Apify cost).
+// ORDER: proven ("already_ranks") with volume >= 70 go on top (by volume); then the rest by opportunity.
+async function bankResearch(body) {
+  const products = Array.isArray(body.products) ? body.products : [];
+  if (!products.length) return { results: [] };
+  const limit = Number(body.limit) > 0 ? Math.min(Math.floor(Number(body.limit)), 120) : MAX_OPTIONS_PER_PRODUCT;
+  const [bankRows, locked, allProducts, dismissed, manualAssign] = await Promise.all([readBankFile(), lockedKeywordSet(), readProducts(), readPerformingDismissed(), readKwAssignments()]);
+  const results = products.map(p => {
+    const terms = gapTermsForProduct(p);
+    const pRooms = productRoomKeys(p);
+    const allowedColours = colourWordsOf((p.primaryColour || []).concat(p.keywordWords || []));
+    const inProgress = inProgressKeywordMap(allProducts, p.sku);
+    const opportunity = row => Math.sqrt(row.volume + 1) * (100 / (BANK_COMP_DIFF(row.competition) + 10)) + (anyWord(row.keyword, terms.colours) ? 1 : 0);
+    const qualified = bankRows
+      .filter(row => !locked.has((row.keyword || '').toLowerCase()) && !inProgress.has(row.keyword) && !dismissed.has((row.keyword || '').toLowerCase()))
+      .filter(row => colourOk(row.keyword, allowedColours))
+      .map(row => ({ ...row, cls: gapClassify(row.keyword, terms) }))
+      .filter(row => row.cls.qualifies)
+      .filter(row => !roomVeto(row.keyword, pRooms, manualAssign));
+    const priority = qualified.filter(r => r.already_ranks && r.volume >= 70).sort((a, b) => b.volume - a.volume);
+    const rest = qualified.filter(r => !(r.already_ranks && r.volume >= 70)).sort((a, b) => opportunity(b) - opportunity(a));
+    const options = [...priority, ...rest]
+      .slice(0, limit)
+      .map(row => ({ keyword: row.keyword, volume: row.volume, competition: row.competition, group: row.group, already_ranks: row.already_ranks }));
+    return { sku: p.sku || '', options };
+  });
+  return { results };
+}
+// On-demand Apify box: expand ONE seed with smacient (Google volume), then drop anything already in the
+// bank file, locked for another product, or used by an in-progress product. Returns only the NEW ones.
+async function bankDiscover(body) {
+  const seed = String(body.seed || body.keyword || '').trim();
+  if (!seed) return { options: [] };
+  const [items, bankRows, locked, allProducts] = await Promise.all([
+    callActor({ tool: 'get_keyword_ideas', keywords: seed, locations: ['United Kingdom'], languageId: '1000', resultLimit: 100, exportCsv: false }, 'smacient/google-keyword-planner-mcp').catch(() => []),
+    readBankFile(), lockedKeywordSet(), readProducts()
+  ]);
+  const inBank = new Set(bankRows.map(r => r.keyword));
+  const inProgress = inProgressKeywordMap(allProducts, (body && body.sku) || undefined);
+  const seen = new Set(); const options = [];
+  (items || []).forEach(it => {
+    const kw = (it.keyword || '').toLowerCase().trim();
+    if (!kw || seen.has(kw)) return;
+    if (inBank.has(kw) || locked.has(kw) || inProgress.has(kw)) return; // skip: already in file / locked / in progress
+    seen.add(kw);
+    options.push({ keyword: kw, volume: normVolume(it.avg_monthly_searches), competition: (it.competition || '').trim() });
+  });
+  options.sort((a, b) => b.volume - a.volume);
+  return { options, seed };
 }
 
 // GSC opportunity keywords for the New Product Generator: only the COMMERCIAL (product-intent) ones,
@@ -3093,6 +3172,19 @@ export default async function handler(req, res) {
     // Google Keyword Planner (Google Ads API) — free volume source, 3rd source in Step 2.
     if (action === 'google-keyword-ideas') {
       const out = await googleKeywordIdeas(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+
+    // Keyword BANK (data/Apify Google keyword stock.csv) — free per-product source, no Apify cost.
+    if (action === 'bank-keywords') {
+      const out = await bankResearch(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+
+    // On-demand Apify box: expand one seed with smacient, return only NEW (not in file / not locked) keywords.
+    if (action === 'bank-discover') {
+      if (!process.env.APIFY_TOKEN) return res.status(500).json({ ok: false, error: 'APIFY_TOKEN not set' });
+      const out = await bankDiscover(body);
       return res.status(200).json({ ok: true, ...out });
     }
 
