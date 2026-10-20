@@ -62,7 +62,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">AWA ETSY · v0.35</p>
+  <p class="ver">AWA ETSY · v0.37</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -171,12 +171,18 @@
   </div>
 
   <div class="card hide" id="pubCard">
-    <h2>5 · Publish DRAFT to Etsy</h2>
-    <p class="sub">Creates the draft (inactive), the priced variations, the attributes, and uploads the Shopify photos.</p>
-    <button id="pubBtn" onclick="publish()">Publish draft</button>
-    <button id="approveBtn" class="hide" onclick="approveMember()">Approve for sending</button>
+    <h2>5 · Publish to Etsy</h2>
+    <p class="sub">Two ways: create a brand-new draft from the prices above, or apply this listing to a template — a draft whose SKU contains "template" — so it keeps that template's international pricing (prices and variations are left untouched).</p>
+    <div class="row">
+      <button id="pubBtn" onclick="publish()">Publish new draft</button>
+      <button id="tplBtn" class="ghost" onclick="openTemplatePicker()">Apply to a template</button>
+      <button id="approveBtn" class="hide" onclick="approveMember()">Approve for sending</button>
+    </div>
     <div id="pubMsg" class="msg"></div>
-    <div class="reminder">⚠️ Remember to apply the +16% international pricing by hand (select the new listings → +16%).</div>
+    <div id="tplPanel" class="hide" style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px">
+      <div id="tplMsg" class="msg"></div>
+      <div id="tplList" style="margin-top:8px"></div>
+    </div>
     <div class="reminder">⚠️ By hand on Etsy (the API doesn't allow these): How it's made → <b>Made from scratch</b> · Tools → <b>Computerised tools</b> · Tariff → <b>4911.91</b> (unframed) / <b>4414.90</b> (framed) · GPSR.</div>
   </div>
   </div><!-- /newProductTab -->
@@ -820,6 +826,52 @@
     $('pubBtn').disabled = false;
   }
 
+  /* ---------- Apply this generated listing to a TEMPLATE draft (keeps its international pricing) ---------- */
+  var TEMPLATES = [], TEMPLATE_G = null;
+  async function openTemplatePicker(){
+    var g = gatherListing(); if (!g) return;    // validates title/photos and builds the same payload as publish
+    TEMPLATE_G = g;
+    show('tplPanel'); $('tplMsg').className = 'msg'; $('tplMsg').textContent = 'Reading your template drafts…'; $('tplList').innerHTML = '';
+    try{
+      var r = await fetch('/api/etsy?action=tab1-templates&t=' + Date.now()); var j = await r.json();
+      if (!j.ok) throw new Error(j.error || 'Error');
+      TEMPLATES = j.templates || [];
+      $('tplMsg').textContent = TEMPLATES.length ? 'Pick a template to apply this listing to:' : 'No template drafts found (a template SKU must contain the word "template").';
+      renderTemplates();
+    }catch(e){ $('tplMsg').className = 'msg bad'; $('tplMsg').textContent = 'Failed: ' + e.message; }
+  }
+  function renderTemplates(){
+    $('tplList').innerHTML = TEMPLATES.map(function(t, i){
+      return '<div class="card" style="padding:8px 10px;margin:0 0 6px"><div class="row" style="gap:10px;align-items:center">' +
+        (t.image ? '<img src="' + esc(t.image) + '" style="width:56px;height:56px;object-fit:cover;border-radius:6px;border:1px solid var(--line)">' : '') +
+        '<div style="flex:1;min-width:140px"><b>' + esc(t.sku || '') + '</b><div class="fixed">' + esc(t.title || '') + '</div></div>' +
+        '<button type="button" onclick="applyToTemplate(' + i + ', this)">Apply to this</button><span class="msg" id="tplRes' + i + '"></span>' +
+        '</div></div>';
+    }).join('');
+  }
+  async function applyToTemplate(i, btn){
+    var t = TEMPLATES[i], g = TEMPLATE_G;
+    if (!g){ alert('Generate the listing first.'); return; }
+    btn.disabled = true; btn.textContent = 'Applying…'; var res = $('tplRes' + i); res.className = 'msg'; res.textContent = '';
+    var body = Object.assign({}, g.payload, { target_listing_id: t.listing_id, images: g.images });
+    try{
+      var r = await fetch('/api/etsy?action=tab1-apply-template', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      var j = await r.json();
+      if (j.ok){
+        res.className = 'msg good';
+        res.innerHTML = '✓ Done. ' + (j.summary ? esc(j.summary) + ' ' : '') + (j.warning ? '<span class="bad">' + esc(j.warning) + '</span> ' : '') + '<a href="https://www.etsy.com/your/shops/me/tools/listings/' + esc(t.listing_id) + '" target="_blank">Open in Etsy</a>';
+        btn.textContent = 'Applied';
+        await loadSent();
+      } else {
+        var fails = (j.steps || []).filter(function(s){ return s.status >= 300; });
+        var detail = fails.map(function(s){ var e = s.error ? (typeof s.error === 'string' ? s.error : JSON.stringify(s.error)) : ''; return s.step + ' (' + (s.status || '') + ')' + (e ? ': ' + e.slice(0, 200) : ''); }).join(' · ');
+        res.className = 'msg bad';
+        res.innerHTML = '⚠ ' + (fails.length ? ('Failed: ' + esc(detail)) : esc(j.error || 'Something went wrong'));
+        btn.disabled = false; btn.textContent = 'Apply to this';
+      }
+    }catch(e){ res.className = 'msg bad'; res.textContent = 'Failed: ' + e.message; btn.disabled = false; btn.textContent = 'Apply to this'; }
+  }
+
   /* ---------- #14: Sent items ---------- */
   var SENT = [];
   function switchTab(which){
@@ -861,8 +913,8 @@
   function resetForNext(clearBox){
     P = null; LISTING = null; KW = []; SEEDS = []; STYLES = []; ROOMS_SEL = []; SECTION_ID = null; FIXED_ATTRS = []; ATTR_SEL = {};
     if (clearBox !== false) $('sku').value = '';
-    show('prod', false); show('kwCard', false); show('genCard', false); show('editCard', false); show('pubCard', false); show('kwBox', false);
-    $('pubMsg').textContent = ''; window.scrollTo(0, 0);
+    show('prod', false); show('kwCard', false); show('genCard', false); show('editCard', false); show('pubCard', false); show('kwBox', false); show('tplPanel', false);
+    TEMPLATE_G = null; $('pubMsg').textContent = ''; window.scrollTo(0, 0);
   }
 
   /* ---------- Clean listings (remove off-platform content from existing listings) ---------- */
@@ -960,7 +1012,7 @@
         : '<span class="fixed">' + esc(d.originals[0].title || d.originals[0].listing_id) + ' (' + esc(d.originals[0].state) + ')</span>';
       return '<div class="card" style="padding:10px 12px;margin:0 0 8px"><div class="row" style="gap:12px;align-items:flex-start">' +
         (d.image ? '<img src="' + esc(d.image) + '" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--line)">' : '') +
-        '<div style="flex:1;min-width:200px"><b>' + esc(d.dup_sku) + '</b> <span class="fixed">duplicate draft</span>' +
+        '<div style="flex:1;min-width:200px"><b>' + esc(d.dup_sku) + '</b> <span class="fixed">duplicate · ' + esc(d.state || 'draft') + '</span>' +
         '<div class="fixed">' + esc(d.title || '') + '</div>' +
         '<div style="margin-top:6px"><span class="fixed">Copy from original <b>' + esc(d.orig_sku) + '</b>:</span> ' + orig + '</div>' +
         '<div class="row" style="margin-top:6px"><button type="button" onclick="applyDuplicate(' + i + ', this)">Apply original to this</button><span class="msg" id="dupRes' + i + '"></span></div>' +
