@@ -62,7 +62,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">AWA ETSY · v0.34</p>
+  <p class="ver">AWA ETSY · v0.35</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -976,7 +976,7 @@
       var j = await r.json();
       if (j.ok){
         res.className = 'msg good';
-        res.innerHTML = '✓ Done' + (j.warning ? ' (' + esc(j.warning) + ')' : '') + '. <a href="https://www.etsy.com/your/shops/me/tools/listings/' + esc(d.target_listing_id) + '" target="_blank">Open in Etsy</a>';
+        res.innerHTML = '✓ Done. ' + (j.summary ? esc(j.summary) + ' ' : '') + (j.warning ? '<span class="bad">' + esc(j.warning) + '</span> ' : '') + '<a href="https://www.etsy.com/your/shops/me/tools/listings/' + esc(d.target_listing_id) + '" target="_blank">Open in Etsy</a>';
         btn.textContent = 'Applied';
       } else {
         var fails = (j.steps || []).filter(function(s){ return s.status >= 300; });
