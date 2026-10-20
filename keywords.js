@@ -1,4 +1,39 @@
-// api/keywords.js — New Product Generator backend  ·  v0.45
+// api/keywords.js — New Product Generator backend  ·  v0.55
+// v0.55 (2026-10-20): KEYWORD BANK source — new free per-product source from data/Apify Google keyword stock.csv
+//   (action bank-keywords): same topic/room/locked filter as gap/uber, ordered with proven ("already_ranks")
+//   >= 70 vol on top, then by opportunity. New action bank-discover = the on-demand Apify box (smacient expands
+//   one seed, drops anything already in the file / locked / in progress, returns only the new ones).
+// v0.54 (2026-10-18): send-to-shopify accepts allowPartialImages (old-product mode) — skips the "Missing before
+//   sending" block, guards every image gid, and any variant whose frame mockup is missing uses the product's
+//   featured (first available) image. Variants/prices are unchanged. New-product sends are unaffected.
+// v0.53 (2026-10-18): writes custom.trends metafield for the live "Decor Style" filter (TREND_METAFIELD_MAP maps the
+//   few differing names, only in that metafield); "Above Fireplace" now written to room_type; new action
+//   suggest-synonyms (Claude -> short 1-3 word seed terms for the keyword search, replaces the Gemini step).
+// v0.52 (2026-10-12): BATCHED WRITES — new actions shopify-upload / commit-images / save-products-batch /
+//   commit-sends, plus generate-content {commit:false} and send-to-shopify {commit:false}. SEO, images and
+//   send each write GitHub in ONE commit (kills the per-image/per-room commit flood). Code was already live
+//   under the v0.51 label (that was an un-bumped deploy); this just makes the version honest.
+// v0.51 (2026-10-11): "general" keywords in matchedProductIdeas now SKIP the topic filter (gapClassify)
+//   too, not just the room veto — so manual "general" ideas show in EVERY room (dining/hallway/office/etc).
+// v0.50 (2026-10-11): ROOM VETO on top of the topic match (gapResearch/uberResearch/matchedProductIdeas):
+//   after gapClassify keeps only artwork-relevant keywords, drop any that NAME a different room than the
+//   product's (rooms from data/kw-assignments.json when present, else synonyms). Topic match untouched.
+// v0.48 (2026-10-06): DO FIRST = 3 buckets, nothing locked shown, clean URLs. syncCaptureTasks now returns
+//   each task with a `bucket`: 🟢 green (ranks on a FREE page → lock it → Start Here; computed live), 🔴 red
+//   (ranks on a TAKEN page → needs its own product/blog; persisted + auto-fed to the NPG pool), 🟡 yellow
+//   (a red one now locked to a DIFFERENT page → paste the paragraph+link on the OLD page, then done). A
+//   keyword locked to the SAME page it ranks on is HIDDEN (it already owns that page → lives in Start Here/
+//   Optimised). Every ranking URL is run through isShitUrl (reuses keyword-locker's FOREIGN_PATTERNS + junk
+//   filter) and cleanUrl now also strips www. The green "Lock & optimise" button calls claim-to-registry.
+// v0.47 (2026-10-06): CASE-C LOOP (give a ranking keyword its OWN new page, then link the page that already
+//   ranks to it). (1) syncCaptureTasks now AUTO-ADDS every product-intent C keyword to the NPG build pool
+//   (product-keyword-ideas.json) carrying its ranking page + owner keyword + GSC stats, origin:'C'. (2) Each
+//   returned strengthen task now carries targetUrl (the keyword's NEW locked page from the registry, once
+//   built) + ready (true when that URL exists); locked C tasks are NO LONGER dropped — they become the
+//   "ready" ones. (3) generate-capture-content / -merged link to the NEW page(s) instead of a collection
+//   (collection stays only as a fallback when no new page exists yet). (4) matched-product-ideas excludes
+//   keywords already locked + passes origin through. (5) New action delete-and-ban → removes a keyword from
+//   the build pool AND bans it (never suggested again). New helper registryKeywordUrlMap (keyword -> locked URL).
 // v0.45 (2026-10-04): gap-research accepts an optional `limit` (capped 120) so the NPG keyword columns can
 //   pull a bigger pool and balance it by category in the frontend (room keywords were being cut server-side
 //   because only 10 were returned, terms-first). Default limit unchanged for any other caller.
@@ -165,6 +200,8 @@ const REPO = 'aboutwallart/seo-tools';
 const PRODUCTS_PATH = 'data/npg-products.json';
 const REGISTRY_PATH = 'data/keyword-locker-registry.csv';
 const GAP_PATH = 'data/competitors-gap.csv';
+const UBER_PATH = 'data/ubersuggest-keywords.csv'; // Ubersuggest keyword list (keyword,volume,difficulty,intent) — own source + "UBER" pill
+const BANK_PATH = 'data/' + encodeURIComponent('Apify Google keyword stock.csv'); // Apify/Google keyword bank (keyword,monthly_volume,competition,group,already_ranks) — free source + "GOOGLE" pill
 const ACTOR = 'santhej~dataforseo-labs-keyword-explorer';
 const SERPAPI_KEY = process.env.SERPAPI_KEY;
 const CATEGORY_SYNONYMS = ['wall art', 'art print', 'wall decor', 'wall hanging', 'canvas wall art', 'framed wall art', 'poster', 'wall pictures'];
@@ -334,10 +371,24 @@ async function lockedKeywordSet() {
 
 // Map of normalised URL -> the keyword it's LOCKED to (only rows with a real url + LOCKED). Used to tell,
 // for a keyword you rank for, whether the ranking page is already committed to ANOTHER keyword.
-// Strip the query string / hash: GSC reports variant URLs like ".../foo?variant=123&country=GB" but the
-// real page (and the registry) is just ".../foo". Cleaning also makes the "URL locked?" check match.
-function cleanUrl(u) { return String(u || '').split(/[?#]/)[0]; }
+// Strip the query string / hash AND the www. prefix: GSC reports variant URLs like
+// ".../foo?variant=123&country=GB" but the real page (and the registry) is just ".../foo". Cleaning also
+// makes the "URL locked?" check match.
+function cleanUrl(u) { return String(u || '').split(/[?#]/)[0].replace(/^(https?:\/\/)www\./i, '$1'); }
 function normUrl(u) { return cleanUrl(u).trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, ''); }
+// Reuse the Keyword Locker's "shit URL" filter (keyword-locker.html shouldExclude): never surface a
+// foreign-locale page (/fr/ /es/ …), a CDN asset, an encoded/emoji handle (%) or a junk slug.
+const FOREIGN_URL_PATTERNS = ['/es/', '/fr/', '/de/', '/it/', '/pt/', '/nl/', '/ru/', '/ja/', '/zh/', '/ko/', '/ar/'];
+const JUNK_URL_SLUGS = ['write-for-us', 'contact', 'about-us', 'privacy', 'terms', 'wishlist', 'loyalty', 'confirm-your-email'];
+function isShitUrl(u) {
+  const s = String(u || '');
+  if (!s) return true;
+  if (FOREIGN_URL_PATTERNS.some(p => s.includes(p))) return true;
+  if (s.includes('/cdn/')) return true;
+  if (s.includes('%')) return true;
+  if (JUNK_URL_SLUGS.some(j => s.includes(j))) return true;
+  return false;
+}
 async function registryUrlLockMap() {
   const map = {};
   try {
@@ -350,6 +401,26 @@ async function registryUrlLockMap() {
       const url = (c[1] || '').trim();
       const locked = (c[2] || '').toUpperCase();
       if (url && url !== 'N/A' && locked === 'LOCKED') { const k = normUrl(url); if (!map[k]) map[k] = c[0] || ''; }
+    });
+  } catch { /* ignore */ }
+  return map;
+}
+// Map of keyword(lower) -> the CLEAN URL it's LOCKED to (its own page). The inverse of registryUrlLockMap.
+// Case-C loop: once a C keyword is built into a new product/blog and locked, this gives us the NEW page URL
+// so the ranking page can link to it (and so the Do-first card knows the keyword is "ready").
+async function registryKeywordUrlMap() {
+  const map = {};
+  try {
+    const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/${REGISTRY_PATH}?t=${Date.now()}`);
+    if (!r.ok) return map;
+    const txt = await r.text();
+    txt.split('\n').forEach(line => {
+      if (!line.trim()) return;
+      const c = parseCSVLine(line.replace(/\r/g, ''));
+      const kw = (c[0] || '').trim().toLowerCase();
+      const url = (c[1] || '').trim();
+      const locked = (c[2] || '').toUpperCase();
+      if (kw && url && url !== 'N/A' && locked === 'LOCKED' && !map[kw]) map[kw] = cleanUrl(url);
     });
   } catch { /* ignore */ }
   return map;
@@ -428,6 +499,27 @@ async function readGapFile() {
   } catch { /* ignore */ }
   return rows;
 }
+// Ubersuggest list — same shape as the gap file (keyword · volume · difficulty), plus the search intent.
+async function readUberFile() {
+  const rows = [];
+  try {
+    const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/${UBER_PATH}?t=${Date.now()}`);
+    if (!r.ok) return rows;
+    let txt = await r.text();
+    txt = txt.replace(/^﻿/, ''); // strip BOM
+    const lines = txt.split('\n');
+    for (let i = 1; i < lines.length; i++) { // skip header
+      const line = lines[i].replace(/\r/g, '');
+      if (!line.trim()) continue;
+      const c = parseCSVLine(line);
+      const keyword = (c[0] || '').toLowerCase().trim();
+      if (!keyword) continue;
+      const difficultyRaw = c[2] != null ? c[2].trim() : '';
+      rows.push({ keyword, volume: normVolume(c[1]), difficulty: normDifficulty(c[2]), difficultyRaw: difficultyRaw || '', intent: (c[3] || '').trim() });
+    }
+  } catch { /* ignore */ }
+  return rows;
+}
 // ART_WORDS: signal that a keyword is about wall art / decor (used ONLY together with the product's own colour).
 const ART_WORDS = ['wall art', 'art print', 'print', 'prints', 'poster', 'posters', 'canvas', 'wall decor', 'artwork', 'painting', 'paintings', 'picture', 'pictures', 'wall hanging', 'wall pictures', 'art', 'decor'];
 function escRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
@@ -464,24 +556,91 @@ function gapClassify(kw, terms) {
   if (themeHit || colourArtHit) return { qualifies: true, tier: 2 };
   return { qualifies: false, tier: 0 };
 }
+
+// ── Room veto (applied ON TOP of the topic match, never instead of it) ───────────────────────────────
+// After gapClassify keeps only keywords relevant to the ARTWORK (style/colour/terms), this drops any that
+// name a DIFFERENT room than the product's — so a "living room" keyword never shows on an Office product.
+// Rooms come from Mae's manual file (data/kw-assignments.json) when present, else from the synonym table.
+// Styles/colours are NOT vetoed here — the topic match already handles those.
+const ASSIGN_ROOM_SYN = {
+  'living room': ['living room','living rooms','livingroom','lounge','lounges','sitting room','family room','snug'],
+  'bedroom': ['bedroom','above bed','over bed','master bedroom','guest bedroom'],
+  'nursery': ['nursery','baby room','baby nursery','kids','childrens',"children's",'playroom'],
+  'teens': ['teen','teens','teenage','teenager'],
+  'bathroom': ['bathroom','shower room','ensuite','en-suite','en suite','powder room','washroom','toilet','restroom','bath','spa'],
+  'kitchen': ['kitchen'],
+  'dining room': ['dining room','dining','breakfast room','breakfast nook'],
+  'hallway': ['hallway','hall','entryway','entrance','foyer','corridor','front room','entry room','staircase','stairway','landing','reception'],
+  'office': ['office','study','home office','workspace','desk'],
+  'laundry room': ['laundry','laundry room','utility room'],
+  'above fireplace': ['above fireplace','over fireplace','mantel','mantelpiece','fireplace','chimney breast'],
+  'games room': ['games room','game room','man cave']
+};
+const ASSIGN_ROOM_KEYS = new Set(Object.keys(ASSIGN_ROOM_SYN));
+function roomsNamedInKeyword(kw) {
+  const s = (kw || '').toLowerCase(); const out = [];
+  for (const key in ASSIGN_ROOM_SYN) { if (ASSIGN_ROOM_SYN[key].some(syn => wordMatch(s, syn))) out.push(key); }
+  return out;
+}
+function productRoomKeys(p) {
+  const rooms = ((p.collections || {})['By Room'] || []).map(n => String(n).toLowerCase().trim());
+  const keys = new Set();
+  rooms.forEach(n => {
+    if (ASSIGN_ROOM_KEYS.has(n)) { keys.add(n); return; }
+    for (const key in ASSIGN_ROOM_SYN) { if (key === n || ASSIGN_ROOM_SYN[key].some(syn => wordMatch(n, syn))) keys.add(key); }
+  });
+  return keys;
+}
+const KW_ASSIGN_PATH = 'data/kw-assignments.json';
+async function readKwAssignments() {
+  try {
+    const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/${KW_ASSIGN_PATH}?t=${Date.now()}`);
+    if (!r.ok) return {};
+    const j = await r.json();
+    return (j && typeof j === 'object' && !Array.isArray(j)) ? j : {};
+  } catch { return {}; }
+}
+// true → DROP: the keyword names a room the product is NOT. Mae's manual rooms win; "general" never vetoes.
+function roomVeto(keyword, productRooms, manualAssign) {
+  const kwl = (keyword || '').toLowerCase();
+  const manual = manualAssign && manualAssign[kwl];
+  let kwRooms;
+  if (manual && manual.length) {
+    const lower = manual.map(t => String(t).toLowerCase());
+    if (lower.indexOf('general') !== -1) return false;
+    kwRooms = lower.filter(t => ASSIGN_ROOM_KEYS.has(t));
+  } else {
+    kwRooms = roomsNamedInKeyword(keyword);
+  }
+  if (!kwRooms.length) return false;
+  return !kwRooms.some(r => productRooms.has(r));
+}
+// true if Mae classified this keyword as "general" in the manual file → it belongs in EVERY room,
+// so it must skip the topic filter (gapClassify) too, not only the room veto.
+function isGeneralAssign(keyword, manualAssign) {
+  const m = manualAssign && manualAssign[(keyword || '').toLowerCase()];
+  return !!(m && m.length && m.some(t => String(t).toLowerCase() === 'general'));
+}
 async function gapResearch(body) {
   const products = Array.isArray(body.products) ? body.products : [];
   if (!products.length) return { results: [] };
   // v0.45: NPG asks for a bigger pool (limit) so the frontend can balance by category (room/style/colour/
   // terms). Default stays MAX_OPTIONS_PER_PRODUCT for any other caller.
   const limit = Number(body.limit) > 0 ? Math.min(Math.floor(Number(body.limit)), 120) : MAX_OPTIONS_PER_PRODUCT;
-  const [gapRows, locked, allProducts] = await Promise.all([readGapFile(), lockedKeywordSet(), readProducts()]);
+  const [gapRows, locked, allProducts, dismissed, manualAssign] = await Promise.all([readGapFile(), lockedKeywordSet(), readProducts(), readPerformingDismissed(), readKwAssignments()]);
   const results = products.map(p => {
     const terms = gapTermsForProduct(p);
+    const pRooms = productRoomKeys(p);
     const allowedColours = colourWordsOf((p.primaryColour || []).concat(p.keywordWords || []));
     const inProgress = inProgressKeywordMap(allProducts, p.sku);
     // opportunity = high volume + low difficulty; small colour bonus as a tie-breaker
     const opportunity = row => Math.sqrt(row.volume + 1) * (100 / (row.difficulty + 10)) + (anyWord(row.keyword, terms.colours) ? 1 : 0);
     const qualified = gapRows
-      .filter(row => !locked.has((row.keyword || '').toLowerCase()) && !inProgress.has(row.keyword))
+      .filter(row => !locked.has((row.keyword || '').toLowerCase()) && !inProgress.has(row.keyword) && !dismissed.has((row.keyword || '').toLowerCase()))
       .filter(row => colourOk(row.keyword, allowedColours))
       .map(row => ({ ...row, cls: gapClassify(row.keyword, terms) }))
-      .filter(row => row.cls.qualifies);
+      .filter(row => row.cls.qualifies)
+      .filter(row => !roomVeto(row.keyword, pRooms, manualAssign));   // on top of topic: drop other-room keywords
     // tier 1 = manual/extra words first; tier 2 = the rest. Within each tier, best opportunity first.
     const byOpp = (a, b) => opportunity(b) - opportunity(a);
     const tier1 = qualified.filter(r => r.cls.tier === 1).sort(byOpp);
@@ -492,6 +651,110 @@ async function gapResearch(body) {
     return { sku: p.sku || '', options };
   });
   return { results };
+}
+
+// Ubersuggest research — same topic-match + filters as gapResearch, but from the Ubersuggest list.
+// Excludes locked, in-progress and BANNED (dismissed) keywords, so a 🚫 ban hides them here too.
+async function uberResearch(body) {
+  const products = Array.isArray(body.products) ? body.products : [];
+  if (!products.length) return { results: [] };
+  const limit = Number(body.limit) > 0 ? Math.min(Math.floor(Number(body.limit)), 120) : MAX_OPTIONS_PER_PRODUCT;
+  const [uberRows, locked, allProducts, dismissed, manualAssign] = await Promise.all([readUberFile(), lockedKeywordSet(), readProducts(), readPerformingDismissed(), readKwAssignments()]);
+  const results = products.map(p => {
+    const terms = gapTermsForProduct(p);
+    const pRooms = productRoomKeys(p);
+    const allowedColours = colourWordsOf((p.primaryColour || []).concat(p.keywordWords || []));
+    const inProgress = inProgressKeywordMap(allProducts, p.sku);
+    const opportunity = row => Math.sqrt(row.volume + 1) * (100 / (row.difficulty + 10)) + (anyWord(row.keyword, terms.colours) ? 1 : 0);
+    const qualified = uberRows
+      .filter(row => !locked.has((row.keyword || '').toLowerCase()) && !inProgress.has(row.keyword) && !dismissed.has((row.keyword || '').toLowerCase()))
+      .filter(row => colourOk(row.keyword, allowedColours))
+      .map(row => ({ ...row, cls: gapClassify(row.keyword, terms) }))
+      .filter(row => row.cls.qualifies)
+      .filter(row => !roomVeto(row.keyword, pRooms, manualAssign));   // on top of topic: drop other-room keywords
+    const byOpp = (a, b) => opportunity(b) - opportunity(a);
+    const tier1 = qualified.filter(r => r.cls.tier === 1).sort(byOpp);
+    const tier2 = qualified.filter(r => r.cls.tier === 2).sort(byOpp);
+    const options = [...tier1, ...tier2]
+      .slice(0, limit)
+      .map(row => ({ keyword: row.keyword, volume: row.volume, difficulty: row.difficulty, difficultyRaw: row.difficultyRaw, intent: row.intent }));
+    return { sku: p.sku || '', options };
+  });
+  return { results };
+}
+
+// Apify/Google keyword BANK (data/Apify Google keyword stock.csv): a reusable, pre-filtered stock of Google
+// keywords with volume — so the NPG doesn't run Apify per product. Columns: keyword, monthly_volume,
+// competition (HIGH/MEDIUM/LOW), group, already_ranks ("yes" = the store already ranks for it).
+async function readBankFile() {
+  const rows = [];
+  try {
+    const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/${BANK_PATH}?t=${Date.now()}`);
+    if (!r.ok) return rows;
+    let txt = await r.text();
+    txt = txt.replace(/^﻿/, ''); // strip BOM
+    const lines = txt.split('\n');
+    for (let i = 1; i < lines.length; i++) { // skip header
+      const line = lines[i].replace(/\r/g, '');
+      if (!line.trim()) continue;
+      const c = parseCSVLine(line);
+      const keyword = (c[0] || '').toLowerCase().trim();
+      if (!keyword) continue;
+      rows.push({ keyword, volume: normVolume(c[1]), competition: (c[2] || '').trim(), group: (c[3] || '').trim(), already_ranks: (c[4] || '').trim().toLowerCase() === 'yes' });
+    }
+  } catch { /* ignore */ }
+  return rows;
+}
+const BANK_COMP_DIFF = c => ({ HIGH: 70, MEDIUM: 40, LOW: 15 }[(c || '').toUpperCase()] != null ? ({ HIGH: 70, MEDIUM: 40, LOW: 15 })[(c || '').toUpperCase()] : 50);
+// Bank research — same topic-match + filters as gapResearch, but from the keyword BANK (no Apify cost).
+// ORDER: proven ("already_ranks") with volume >= 70 go on top (by volume); then the rest by opportunity.
+async function bankResearch(body) {
+  const products = Array.isArray(body.products) ? body.products : [];
+  if (!products.length) return { results: [] };
+  const limit = Number(body.limit) > 0 ? Math.min(Math.floor(Number(body.limit)), 120) : MAX_OPTIONS_PER_PRODUCT;
+  const [bankRows, locked, allProducts, dismissed, manualAssign] = await Promise.all([readBankFile(), lockedKeywordSet(), readProducts(), readPerformingDismissed(), readKwAssignments()]);
+  const results = products.map(p => {
+    const terms = gapTermsForProduct(p);
+    const pRooms = productRoomKeys(p);
+    const allowedColours = colourWordsOf((p.primaryColour || []).concat(p.keywordWords || []));
+    const inProgress = inProgressKeywordMap(allProducts, p.sku);
+    const opportunity = row => Math.sqrt(row.volume + 1) * (100 / (BANK_COMP_DIFF(row.competition) + 10)) + (anyWord(row.keyword, terms.colours) ? 1 : 0);
+    const qualified = bankRows
+      .filter(row => !locked.has((row.keyword || '').toLowerCase()) && !inProgress.has(row.keyword) && !dismissed.has((row.keyword || '').toLowerCase()))
+      .filter(row => colourOk(row.keyword, allowedColours))
+      .map(row => ({ ...row, cls: gapClassify(row.keyword, terms) }))
+      .filter(row => row.cls.qualifies)
+      .filter(row => !roomVeto(row.keyword, pRooms, manualAssign));
+    const priority = qualified.filter(r => r.already_ranks && r.volume >= 70).sort((a, b) => b.volume - a.volume);
+    const rest = qualified.filter(r => !(r.already_ranks && r.volume >= 70)).sort((a, b) => opportunity(b) - opportunity(a));
+    const options = [...priority, ...rest]
+      .slice(0, limit)
+      .map(row => ({ keyword: row.keyword, volume: row.volume, competition: row.competition, group: row.group, already_ranks: row.already_ranks }));
+    return { sku: p.sku || '', options };
+  });
+  return { results };
+}
+// On-demand Apify box: expand ONE seed with smacient (Google volume), then drop anything already in the
+// bank file, locked for another product, or used by an in-progress product. Returns only the NEW ones.
+async function bankDiscover(body) {
+  const seed = String(body.seed || body.keyword || '').trim();
+  if (!seed) return { options: [] };
+  const [items, bankRows, locked, allProducts] = await Promise.all([
+    callActor({ tool: 'get_keyword_ideas', keywords: seed, locations: ['United Kingdom'], languageId: '1000', resultLimit: 100, exportCsv: false }, 'smacient/google-keyword-planner-mcp').catch(() => []),
+    readBankFile(), lockedKeywordSet(), readProducts()
+  ]);
+  const inBank = new Set(bankRows.map(r => r.keyword));
+  const inProgress = inProgressKeywordMap(allProducts, (body && body.sku) || undefined);
+  const seen = new Set(); const options = [];
+  (items || []).forEach(it => {
+    const kw = (it.keyword || '').toLowerCase().trim();
+    if (!kw || seen.has(kw)) return;
+    if (inBank.has(kw) || locked.has(kw) || inProgress.has(kw)) return; // skip: already in file / locked / in progress
+    seen.add(kw);
+    options.push({ keyword: kw, volume: normVolume(it.avg_monthly_searches), competition: (it.competition || '').trim() });
+  });
+  options.sort((a, b) => b.volume - a.volume);
+  return { options, seed };
 }
 
 // GSC opportunity keywords for the New Product Generator: only the COMMERCIAL (product-intent) ones,
@@ -603,11 +866,39 @@ async function sendToProductPool(keyword, meta) {
     let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
     if (!Array.isArray(arr)) arr = [];
     if (arr.some(x => (x.keyword || '').toLowerCase() === keyword.toLowerCase())) return { ok: true, already: true, ideas: arr };
-    arr.push({ keyword, impressions: (meta && meta.impressions) || null, clicks: (meta && meta.clicks) || null, position: (meta && meta.position) || null, addedAt: new Date().toISOString() });
+    arr.push({ keyword, impressions: (meta && meta.impressions) || null, clicks: (meta && meta.clicks) || null, position: (meta && meta.position) || null,
+      pageUrl: (meta && meta.pageUrl) || null, lockedToKeyword: (meta && meta.lockedToKeyword) || null, origin: (meta && meta.origin) || null,
+      addedAt: new Date().toISOString() });
     try { await ghPut(PRODUCT_IDEAS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG product keyword idea: ${keyword}`); return { ok: true, ideas: arr }; }
     catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
   }
   throw new Error('write conflict, try again');
+}
+// Add several keyword ideas in ONE commit (used by the case-C auto-sync so N keywords don't mean N writes).
+// Each item: { keyword, impressions, clicks, position, pageUrl, lockedToKeyword, origin }. Skips ones already
+// in the pool. Returns how many were actually added.
+async function addProductIdeasBulk(items) {
+  const list = (items || []).filter(i => i && i.keyword && String(i.keyword).trim());
+  if (!list.length) return { added: 0 };
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const file = await ghGet(PRODUCT_IDEAS_PATH);
+    let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
+    if (!Array.isArray(arr)) arr = [];
+    const have = new Set(arr.map(x => (x.keyword || '').toLowerCase()));
+    let added = 0;
+    list.forEach(i => {
+      const kw = String(i.keyword).trim();
+      if (have.has(kw.toLowerCase())) return;
+      arr.push({ keyword: kw, impressions: i.impressions != null ? i.impressions : null, clicks: i.clicks != null ? i.clicks : null,
+        position: i.position != null ? i.position : null, pageUrl: i.pageUrl || null, lockedToKeyword: i.lockedToKeyword || null,
+        origin: i.origin || 'C', addedAt: new Date().toISOString() });
+      have.add(kw.toLowerCase()); added++;
+    });
+    if (!added) return { added: 0 };
+    try { await ghPut(PRODUCT_IDEAS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG case-C ideas +${added}`); return { added }; }
+    catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
+  }
+  return { added: 0 };
 }
 // The raw "already get clicks on" list (used to enrich saved ideas with their ranking page + position).
 async function readPerformingList() {
@@ -623,20 +914,24 @@ async function readPerformingList() {
 // pageUrl/urlFree/lockedToKeyword/topSix, so a saved keyword whose ranking page is locked to ANOTHER
 // keyword can offer an admin link to that page.
 async function matchedProductIdeas(sku) {
-  const [ideas, products, urlLocks, perfList] = await Promise.all([
-    readProductIdeas(), readProducts(), registryUrlLockMap(), readPerformingList()
+  const [ideas, products, urlLocks, perfList, locked, manualAssign] = await Promise.all([
+    readProductIdeas(), readProducts(), registryUrlLockMap(), readPerformingList(), lockedKeywordSet(), readKwAssignments()
   ]);
   if (!ideas.length) return [];
   const p = products.find(x => (x.sku || '').toLowerCase() === (sku || '').toLowerCase());
   const terms = p ? gapTermsForProduct(p) : null;
+  const pRooms = p ? productRoomKeys(p) : new Set();
   const perfByKw = {};
   perfList.forEach(k => { if (k && k.keyword) perfByKw[k.keyword.toLowerCase()] = k; });
   return ideas
-    .filter(i => i.keyword && (!terms || gapClassify(i.keyword, terms).qualifies))
+    .filter(i => i.keyword && !locked.has((i.keyword || '').toLowerCase()))  // a used (locked) idea is no longer buildable
+    .filter(i => isGeneralAssign(i.keyword, manualAssign) || !terms || gapClassify(i.keyword, terms).qualifies) // "general" skips the topic filter — it belongs in every room
+    .filter(i => !roomVeto(i.keyword, pRooms, manualAssign))                 // on top of topic: drop other-room keywords ("general" never vetoed)
     .map(i => {
       const perf = perfByKw[(i.keyword || '').toLowerCase()] || {};
-      const cleanRanking = perf.rankingUrl ? cleanUrl(perf.rankingUrl) : null;
-      const lockedTo = cleanRanking ? urlLocks[normUrl(cleanRanking)] : null;
+      // Prefer the stored ranking page (case-C ideas carry their own); fall back to the live performing list.
+      const cleanRanking = i.pageUrl ? cleanUrl(i.pageUrl) : (perf.rankingUrl ? cleanUrl(perf.rankingUrl) : null);
+      const lockedTo = i.lockedToKeyword || (cleanRanking ? urlLocks[normUrl(cleanRanking)] : null);
       const urlFree = !!(cleanRanking && !lockedTo);
       const position = (i.position != null ? i.position : (perf.position != null ? perf.position : null));
       return {
@@ -647,6 +942,7 @@ async function matchedProductIdeas(sku) {
         pageUrl: cleanRanking || null,
         urlFree: urlFree,
         lockedToKeyword: lockedTo || null,
+        origin: i.origin || null,               // 'C' → NPG shows the distinct-colour pill
         topSix: (position != null && position <= 6)
       };
     });
@@ -664,6 +960,18 @@ async function removeProductIdea(keyword) {
     catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
   }
   return { ok: true };
+}
+// "Borrar + banear": drop the keyword from the build pool AND ban it so it is never suggested again
+// (product panel, blog panel and the case-C auto-sync all skip the shared dismissed list). Also closes any
+// open Do-first card for it. Every step is best-effort so one failure doesn't block the others.
+async function deleteAndBan(keyword) {
+  keyword = (keyword || '').trim();
+  if (!keyword) throw new Error('keyword required');
+  let ideas;
+  try { const r = await removeProductIdea(keyword); ideas = r && r.ideas; } catch { /* keep going */ }
+  try { await dismissPerforming(keyword); } catch { /* keep going */ }
+  try { await setCaptureTaskStatus(keyword, 'dismissed'); } catch { /* keep going */ }
+  return { ok: true, banned: keyword, ideas };
 }
 
 // Resolve a storefront URL (product page or blog article) to its Shopify admin editor URL, so Mae can
@@ -746,24 +1054,32 @@ async function captureOptimise(body) {
   }
   throw new Error('write conflict, try again');
 }
-// C — auto: every keyword that ranks on a page LOCKED to another keyword becomes a "strengthen" card.
-// Built live from the performing list; new ones are persisted; done/dismissed ones are never recreated.
+// Do First — three buckets, and NOTHING already locked ever shows here (a locked keyword lives in Start
+// Here / Optimised / Winners; one keyword, one tab). URLs are always clean (no ?/variant/locale/junk).
+//   🟢 green  — ranks on a FREE page (no other keyword locked to it). Action: lock it → it moves to Start
+//               Here to be optimised. Computed live from GSC each load (nothing persisted, nothing to store).
+//   🔴 red    — ranks on a page TAKEN by another keyword. Needs its OWN new page (product/blog). Persisted
+//               as a strengthen task + auto-fed to the NPG build pool. Waits here until it's built.
+//   🟡 yellow — a red one that now HAS its own new page (locked to a DIFFERENT url than the ranking page):
+//               paste the paragraph + link on the OLD ranking page, mark done → finished.
+//   (hidden)  — keyword locked to the SAME page it ranks on → it already owns that page → not shown here.
 async function syncCaptureTasks() {
-  const [perf, urlLocks, dismissed, store, locked] = await Promise.all([
-    readPerformingList(), registryUrlLockMap(), readPerformingDismissed(), readCaptureTasksRaw(), lockedKeywordSet()
+  const [perf, urlLocks, dismissed, store, locked, kwUrlMap] = await Promise.all([
+    readPerformingList(), registryUrlLockMap(), readPerformingDismissed(), readCaptureTasksRaw(), lockedKeywordSet(), registryKeywordUrlMap()
   ]);
   let arr = store.arr; let sha = store.sha;
   const have = new Set(arr.map(t => captureKey(t.keyword)));
+  // 1) Persist a strengthen task for each NEW taken-page keyword (the red/yellow source).
   let added = 0;
   perf.forEach(k => {
     if (!k || !k.keyword) return;
     const kw = captureKey(k.keyword);
     if (have.has(kw) || dismissed.has(kw)) return;
-    if (locked.has((k.keyword || '').toLowerCase())) return;   // already locked to a page → skip (avoid cannibalisation)
+    if (locked.has((k.keyword || '').toLowerCase())) return;   // already locked → lives in another tab, not here
     const cleanRanking = k.rankingUrl ? cleanUrl(k.rankingUrl) : null;
-    if (!cleanRanking) return;                          // no page → a new-product case, not strengthen
+    if (!cleanRanking || isShitUrl(cleanRanking)) return;      // no page or a shit URL (variant/locale/junk) → skip
     const lockedTo = urlLocks[normUrl(cleanRanking)];
-    if (!lockedTo) return;                              // free page → that's an optimise (B), sent by button
+    if (!lockedTo) return;                              // free page → that's GREEN (computed live below)
     arr.push({
       keyword: k.keyword, type: 'strengthen', pageUrl: cleanRanking,
       position: (k.position != null ? k.position : null), clicks: (k.clicks != null ? k.clicks : null),
@@ -780,8 +1096,42 @@ async function syncCaptureTasks() {
       catch (e) { if (e.status === 409 && attempt < 2) { const re = await readCaptureTasksRaw(); arr = re.arr; sha = re.sha; continue; } throw e; }
     }
   }
-  // Also drop any EXISTING task whose keyword is now locked to a page (cleans the ones mis-added before this fix).
-  return { tasks: arr.filter(t => t.status !== 'dismissed' && !locked.has((t.keyword || '').toLowerCase())) };
+  // 2) Classify the persisted strengthen tasks → red (no page yet) / yellow (got a DIFFERENT page) / hidden.
+  const strengthenTasks = [];
+  arr.filter(t => t.status !== 'dismissed' && t.type === 'strengthen').forEach(t => {
+    const rankingPage = cleanUrl(t.pageUrl || '');
+    if (!rankingPage || isShitUrl(rankingPage)) return;        // safety: never surface a shit URL
+    const own = kwUrlMap[(t.keyword || '').toLowerCase()] || null;
+    if (!own) { strengthenTasks.push({ ...t, pageUrl: rankingPage, bucket: 'red', targetUrl: null, ready: false }); return; }
+    if (normUrl(own) === normUrl(rankingPage)) return;         // owns its ranking page → hide (it's in Start Here/Optimised)
+    strengthenTasks.push({ ...t, pageUrl: rankingPage, bucket: 'yellow', targetUrl: own, ready: true });
+  });
+  // 3) GREEN — free-page keywords, not locked, not dismissed. Live from GSC (not persisted; the lock is the action).
+  const greenTasks = []; const seenGreen = new Set();
+  perf.forEach(k => {
+    if (!k || !k.keyword) return;
+    const kw = captureKey(k.keyword);
+    if (dismissed.has(kw) || seenGreen.has(kw)) return;
+    if (locked.has((k.keyword || '').toLowerCase())) return;   // locked → in Start Here/Optimised, not here
+    const cleanRanking = k.rankingUrl ? cleanUrl(k.rankingUrl) : null;
+    if (!cleanRanking || isShitUrl(cleanRanking)) return;
+    if (urlLocks[normUrl(cleanRanking)]) return;               // page taken → that's red, not green
+    seenGreen.add(kw);
+    greenTasks.push({ keyword: k.keyword, type: 'optimise', pageUrl: cleanRanking,
+      position: (k.position != null ? k.position : null), clicks: (k.clicks != null ? k.clicks : null),
+      impressions: (k.impressions != null ? k.impressions : null),
+      lockedToKeyword: null, source: (k.intent === 'blog' ? 'blog' : 'product'),
+      status: 'todo', bucket: 'green', targetUrl: null, ready: false });
+  });
+  // 4) Auto-feed the NPG build pool with the RED (needs-its-own-page), product-intent keywords.
+  try {
+    const toPool = strengthenTasks
+      .filter(t => t.bucket === 'red' && (t.source || 'product') !== 'blog')
+      .map(t => ({ keyword: t.keyword, impressions: t.impressions, clicks: t.clicks, position: t.position,
+        pageUrl: t.pageUrl || null, lockedToKeyword: t.lockedToKeyword || null, origin: 'C' }));
+    if (toPool.length) await addProductIdeasBulk(toPool);
+  } catch { /* pool feed is best-effort; the cards still work */ }
+  return { tasks: [...greenTasks, ...strengthenTasks] };
 }
 async function setCaptureTaskStatus(keyword, status) {
   keyword = (keyword || '').trim();
@@ -844,8 +1194,8 @@ async function generateCaptureContent(body) {
     'NEVER say "print" or "prints" — always "wall art" or "art sets" (products are sets of 3).',
     `The page currently ranks for "${pageTopic || 'its main topic'}"${pageUrl ? ' (' + pageUrl + ')' : ''} and ALSO ranks for the extra keyword "${keyword}".`,
     `Write a short section to add to that page so it captures "${keyword}" better, WITHOUT changing the page's main focus.`,
-    'The paragraph MUST naturally contain the exact anchor phrase you return in "internalLinkAnchor" (it will become a link to a collection).',
-    'Return ONLY JSON: {"h2":"short H2 using the keyword naturally","paragraph":"4-6 sentences, natural, keyword once early, includes the anchor phrase once","internalLinkAnchor":"3-5 word anchor for a link to a relevant collection"}'
+    'The paragraph MUST naturally contain the exact anchor phrase you return in "internalLinkAnchor" (it will become a link to the matching page on our site).',
+    'Return ONLY JSON: {"h2":"short H2 using the keyword naturally","paragraph":"4-6 sentences, natural, keyword once early, includes the anchor phrase once","internalLinkAnchor":"3-5 word anchor for a link to the matching page"}'
   ].join('\n');
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -862,23 +1212,27 @@ async function generateCaptureContent(body) {
   const paragraph = String(parsed.paragraph || '').trim();
   const anchor = String(parsed.internalLinkAnchor || '').trim();
 
-  // Best-matching collection for the internal link (link points at the public storefront).
+  // Case-C loop: prefer the keyword's OWN new page (built via the NPG and now locked in the registry).
+  // Only if it has no page yet do we fall back to the best-matching collection (the old behaviour).
   let publicOrigin = 'https://aboutwallart.com';
   if (pageUrl) { const mo = pageUrl.match(/^https?:\/\/[^/]+/); if (mo) publicOrigin = mo[0]; }
-  const coll = await bestCollectionForPage(keyword, pageUrl, publicOrigin);
+  const kwUrlMap = await registryKeywordUrlMap();
+  const ownUrl = kwUrlMap[keyword.toLowerCase()] || null;
+  const coll = ownUrl ? null : await bestCollectionForPage(keyword, pageUrl, publicOrigin);
+  const linkTarget = ownUrl || (coll ? coll.url : '');
 
   // Build the paragraph HTML with the link. Wrap the anchor phrase (first occurrence); if it isn't in the
-  // text, append a short sentence with the link. A real collection was found -> a link is ALWAYS embedded.
+  // text, append a short sentence with the link. A target was found -> a link is ALWAYS embedded.
   let paraHtml = escHtml(paragraph);
-  if (coll) {
-    const linkText = anchor || coll.title || 'wall art collection';
-    const linkHtml = `<a href="${escHtml(coll.url)}">${escHtml(linkText)}</a>`;
+  if (linkTarget) {
+    const linkText = anchor || (coll && coll.title) || keyword;
+    const linkHtml = `<a href="${escHtml(linkTarget)}">${escHtml(linkText)}</a>`;
     const escAnchor = escHtml(anchor);
     if (anchor && paraHtml.indexOf(escAnchor) !== -1) paraHtml = paraHtml.replace(escAnchor, linkHtml);
-    else paraHtml += ` Browse our ${linkHtml}.`;
+    else paraHtml += ` See our ${linkHtml}.`;
   }
   const html = (h2 ? `<h2>${escHtml(h2)}</h2>\n` : '') + `<p>${paraHtml}</p>`;
-  const plainText = (h2 ? h2 + '\n\n' : '') + paragraph + (coll ? `\n\n(${anchor}: ${coll.url})` : '');
+  const plainText = (h2 ? h2 + '\n\n' : '') + paragraph + (linkTarget ? `\n\n(${anchor}: ${linkTarget})` : '');
 
   try {
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -887,13 +1241,13 @@ async function generateCaptureContent(body) {
       if (i < 0) break;
       arr[i].h2 = h2 || null;
       arr[i].paragraph = paragraph || null;
-      arr[i].internalLink = { anchor: anchor, target: coll ? coll.url : '' };
+      arr[i].internalLink = { anchor: anchor, target: linkTarget };
       arr[i].html = html;
       try { await ghPut(CAPTURE_TASKS_PATH, JSON.stringify(arr, null, 2), sha, `Capture: content for ${keyword}`); break; }
       catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
     }
   } catch { /* returning the content is enough even if persist fails */ }
-  return { ok: true, h2, paragraph, internalLinkAnchor: anchor, target: coll ? coll.url : '', html, plainText };
+  return { ok: true, h2, paragraph, internalLinkAnchor: anchor, target: linkTarget, linkIsNewPage: !!ownUrl, html, plainText };
 }
 
 // MERGE: write ONE natural section for a page that has several (often near-duplicate) strengthen keywords,
@@ -912,8 +1266,8 @@ async function generateCaptureMerged(body) {
     `The page currently ranks for "${pageTopic || 'its main topic'}"${pageUrl ? ' (' + pageUrl + ')' : ''} and ALSO ranks for these related keywords: ${keywords.map(k => '"' + k + '"').join(', ')}.`,
     'Write ONE short section to add to that page so it captures ALL of those related keywords better, WITHOUT changing the page\'s main focus.',
     'They are variants of the SAME intent — cover the shared meaning naturally in ONE paragraph. Do NOT repeat every literal variant and do NOT keyword-stuff; Google understands variants, so use the intent once, naturally.',
-    'The paragraph MUST naturally contain the exact anchor phrase you return in "internalLinkAnchor" (it will become a link to a collection).',
-    'Return ONLY JSON: {"h2":"short natural H2 for the shared topic","paragraph":"4-6 sentences, natural, covers the shared intent once, includes the anchor phrase once","internalLinkAnchor":"3-5 word anchor for a link to a relevant collection"}'
+    'The paragraph MUST naturally contain the exact anchor phrase you return in "internalLinkAnchor" (it will become a link to the matching page on our site).',
+    'Return ONLY JSON: {"h2":"short natural H2 for the shared topic","paragraph":"4-6 sentences, natural, covers the shared intent once, includes the anchor phrase once","internalLinkAnchor":"3-5 word anchor for a link to the matching page"}'
   ].join('\n');
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -932,18 +1286,31 @@ async function generateCaptureMerged(body) {
 
   let publicOrigin = 'https://aboutwallart.com';
   if (pageUrl) { const mo = pageUrl.match(/^https?:\/\/[^/]+/); if (mo) publicOrigin = mo[0]; }
-  const coll = await bestCollectionForPage(primary, pageUrl, publicOrigin);
+  // Case-C loop: each keyword may have its OWN new page now. Link the main anchor to the first one and add a
+  // short "See also" link for each other keyword that has a page. No keyword has a page yet → collection fallback.
+  const kwUrlMap = await registryKeywordUrlMap();
+  const targets = keywords.map(k => ({ keyword: k, url: kwUrlMap[k.toLowerCase()] || null })).filter(t => t.url);
+  const primaryUrl = targets.length ? targets[0].url : null;
+  const coll = primaryUrl ? null : await bestCollectionForPage(primary, pageUrl, publicOrigin);
+  const mainTarget = primaryUrl || (coll ? coll.url : '');
 
   let paraHtml = escHtml(paragraph);
-  if (coll) {
-    const linkText = anchor || coll.title || 'wall art collection';
-    const linkHtml = `<a href="${escHtml(coll.url)}">${escHtml(linkText)}</a>`;
+  if (mainTarget) {
+    const linkText = anchor || (coll && coll.title) || primary;
+    const linkHtml = `<a href="${escHtml(mainTarget)}">${escHtml(linkText)}</a>`;
     const escAnchor = escHtml(anchor);
     if (anchor && paraHtml.indexOf(escAnchor) !== -1) paraHtml = paraHtml.replace(escAnchor, linkHtml);
-    else paraHtml += ` Browse our ${linkHtml}.`;
+    else paraHtml += ` See our ${linkHtml}.`;
+  }
+  // Extra new pages (keywords 2..n that already have their own page) → one short "See also" sentence.
+  const extras = targets.slice(1);
+  if (extras.length) {
+    const extraLinks = extras.map(t => `<a href="${escHtml(t.url)}">${escHtml(t.keyword)}</a>`).join(', ');
+    paraHtml += ` See also ${extraLinks}.`;
   }
   const html = (h2 ? `<h2>${escHtml(h2)}</h2>\n` : '') + `<p>${paraHtml}</p>`;
-  const plainText = (h2 ? h2 + '\n\n' : '') + paragraph + (coll ? `\n\n(${anchor}: ${coll.url})` : '');
+  const linkNote = targets.length ? targets.map(t => `${t.keyword}: ${t.url}`).join(' | ') : (coll ? `${anchor}: ${coll.url}` : '');
+  const plainText = (h2 ? h2 + '\n\n' : '') + paragraph + (linkNote ? `\n\n(${linkNote})` : '');
 
   // Persist onto the FIRST todo strengthen task of this page (the merged section lives there; the other
   // tasks on the page are marked done together via "Mark all done").
@@ -954,7 +1321,7 @@ async function generateCaptureMerged(body) {
       if (idx < 0) break;
       arr[idx].h2 = h2 || null;
       arr[idx].paragraph = paragraph || null;
-      arr[idx].internalLink = { anchor, target: coll ? coll.url : '' };
+      arr[idx].internalLink = { anchor, target: mainTarget };
       arr[idx].html = html;
       arr[idx].merged = true;
       arr[idx].mergedKeywords = keywords;
@@ -962,7 +1329,7 @@ async function generateCaptureMerged(body) {
       catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
     }
   } catch { /* returning the content is enough even if persist fails */ }
-  return { ok: true, h2, paragraph, internalLinkAnchor: anchor, target: coll ? coll.url : '', html, plainText, keywords };
+  return { ok: true, h2, paragraph, internalLinkAnchor: anchor, target: mainTarget, linkIsNewPage: !!primaryUrl, html, plainText, keywords };
 }
 // Group A — keywords you rank for but with NO usable page → offered as suggestions when you build a
 // product (topic-matched). Replaces the old saved "product ideas" pool.
@@ -1340,6 +1707,10 @@ async function generateContent(body) {
     aiItems: Array.isArray(parsed.aiItems) ? parsed.aiItems : [],
     generatedAt: new Date().toISOString()
   };
+
+  // Batched SEO (commit:false): return the generated content WITHOUT writing it to GitHub. The tool
+  // holds it in the browser and writes every room's SEO together in ONE commit ("Save all SEO").
+  if (body.commit === false) return { content };
 
   // save onto the product (SHA-conflict retry ×1, same pattern as save-product)
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -1735,13 +2106,17 @@ function altFor(slot, product, n, setSize) {
   return base;
 }
 const FLAT_SLOTS = ['flatWhite', 'flatBlack', 'flatOak', 'flatCanvas', 'flatUnframed'];
+// Common images: shared across every room, single slot each (overwrite, like flats). Sent to Shopify
+// right after the lifestyle photos and before the individuals. commonLady = "Lady carrying a Black
+// frame"; commonUnboxing = the "_B212_V2" unboxing shot. Required before a product can be sent.
+const COMMON_SLOTS = ['commonLady', 'commonUnboxing'];
 
 async function uploadProductImage(body) {
   const { sku, slot, image, imageMediaType } = body;
   if (!sku) throw new Error('sku required');
   if (!slot) throw new Error('slot required');
   if (!image) throw new Error('image required');
-  if (slot !== 'lifestyle' && slot !== 'individual' && !FLAT_SLOTS.includes(slot)) throw new Error('invalid slot: ' + slot);
+  if (slot !== 'lifestyle' && slot !== 'individual' && !FLAT_SLOTS.includes(slot) && !COMMON_SLOTS.includes(slot)) throw new Error('invalid slot: ' + slot);
 
   for (let attempt = 0; attempt < 2; attempt++) {
     const file = await ghGet(PRODUCTS_PATH);
@@ -1750,7 +2125,7 @@ async function uploadProductImage(body) {
     const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === sku.toLowerCase());
     if (idx < 0) throw new Error('product not found: ' + sku);
     const product = arr[idx];
-    const images = product.images ? { ...product.images, lifestyle: [...(product.images.lifestyle || [])], individuals: [...(product.images.individuals || [])], flats: { ...(product.images.flats || {}) } } : { lifestyle: [], individuals: [], flats: {} };
+    const images = product.images ? { ...product.images, lifestyle: [...(product.images.lifestyle || [])], individuals: [...(product.images.individuals || [])], flats: { ...(product.images.flats || {}) }, commons: { ...(product.images.commons || {}) } } : { lifestyle: [], individuals: [], flats: {}, commons: {} };
 
     const setMatch = (product.set || '').match(/\d+/);
     const setSize = setMatch ? parseInt(setMatch[0], 10) : 1;
@@ -1768,6 +2143,7 @@ async function uploadProductImage(body) {
 
     if (slot === 'lifestyle') images.lifestyle.push(record);
     else if (slot === 'individual') images.individuals.push(record);
+    else if (COMMON_SLOTS.includes(slot)) images.commons[slot] = record;
     else images.flats[slot] = record;
 
     arr[idx] = { ...product, images, updatedAt: new Date().toISOString() };
@@ -1784,7 +2160,7 @@ async function uploadSharedImage(body) {
   if (!Array.isArray(skus) || !skus.length) throw new Error('skus required');
   if (!slot) throw new Error('slot required');
   if (!image) throw new Error('image required');
-  if (slot !== 'individual' && !FLAT_SLOTS.includes(slot)) throw new Error('shared slot must be individual or a flat: ' + slot);
+  if (slot !== 'individual' && !FLAT_SLOTS.includes(slot) && !COMMON_SLOTS.includes(slot)) throw new Error('shared slot must be individual, a flat or a common: ' + slot);
   const ext = extFromMime(imageMediaType);
   const baseName = slot === 'individual' ? 'individual' : slot.replace('flat', '').toLowerCase();
   const filename = `shared-${baseName}.${ext}`;
@@ -1799,12 +2175,13 @@ async function uploadSharedImage(body) {
       const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === String(sku).toLowerCase());
       if (idx < 0) { applied.push({ sku, skipped: 'not found' }); continue; }
       const product = arr[idx];
-      const images = product.images ? { ...product.images, lifestyle: [...(product.images.lifestyle || [])], individuals: [...(product.images.individuals || [])], flats: { ...(product.images.flats || {}) } } : { lifestyle: [], individuals: [], flats: {} };
+      const images = product.images ? { ...product.images, lifestyle: [...(product.images.lifestyle || [])], individuals: [...(product.images.individuals || [])], flats: { ...(product.images.flats || {}) }, commons: { ...(product.images.commons || {}) } } : { lifestyle: [], individuals: [], flats: {}, commons: {} };
       if (slot === 'individual') {
         const setMatch = (product.set || '').match(/\d+/); const setSize = setMatch ? parseInt(setMatch[0], 10) : 1;
         if (images.individuals.length >= setSize) { applied.push({ sku, skipped: 'set full' }); arr[idx] = { ...product, images }; continue; }
         images.individuals.push({ ...rec });
-      } else { images.flats[slot] = { ...rec }; }
+      } else if (COMMON_SLOTS.includes(slot)) { images.commons[slot] = { ...rec }; }
+      else { images.flats[slot] = { ...rec }; }
       arr[idx] = { ...product, images, updatedAt: new Date().toISOString() };
       applied.push({ sku });
     }
@@ -1864,10 +2241,11 @@ async function removeProductImage(sku, slot, index) {
     const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === sku.toLowerCase());
     if (idx < 0) throw new Error('product not found: ' + sku);
     const product = arr[idx];
-    const images = product.images ? { ...product.images, lifestyle: [...(product.images.lifestyle || [])], individuals: [...(product.images.individuals || [])], flats: { ...(product.images.flats || {}) } } : { lifestyle: [], individuals: [], flats: {} };
+    const images = product.images ? { ...product.images, lifestyle: [...(product.images.lifestyle || [])], individuals: [...(product.images.individuals || [])], flats: { ...(product.images.flats || {}) }, commons: { ...(product.images.commons || {}) } } : { lifestyle: [], individuals: [], flats: {}, commons: {} };
     if (slot === 'lifestyle') images.lifestyle.splice(index, 1);
     else if (slot === 'individual') images.individuals.splice(index, 1);
     else if (FLAT_SLOTS.includes(slot)) delete images.flats[slot];
+    else if (COMMON_SLOTS.includes(slot)) delete images.commons[slot];
     else throw new Error('invalid slot: ' + slot);
     arr[idx] = { ...product, images, updatedAt: new Date().toISOString() };
     try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG remove image: ${sku} (${slot})`); return { products: arr }; }
@@ -1986,7 +2364,19 @@ function pickCollectionTag(tags, collName, product) {
   return { tag: tags[0], fallback: true };
 }
 // Tool By Room name -> Shopify custom.room_type choice. Identity unless listed. '' = drop from the metafield.
-const ROOM_TYPE_MAP = { 'Office': 'Home Office', 'Teens Bedroom': 'Nursery', 'Above Fireplace': '' };
+const ROOM_TYPE_MAP = { 'Office': 'Home Office', 'Teens Bedroom': 'Nursery' };   // 'Above Fireplace' is now a valid Room Type filter value -> written as-is
+// Tool trend name -> the exact term the live "Decor Style" filter (custom.trends) accepts. Applied ONLY when writing
+// that metafield; everywhere else (collections, pages, checklist) the names stay unchanged. Unlisted names pass through.
+const TREND_METAFIELD_MAP = {
+  'Biophilic Design': 'Biophilic Decor',
+  'Coffee House Design': 'Coffee House Decor',
+  'Preppy Style': 'Preppy Decor',
+  'Minimalism Decor': 'Minimalist Decor',
+  'Country Cottage Decor': 'Cottage Decor',
+  'Mid Century Decor': 'Glam Decor',
+  'Masculine Decor': 'Industrial Decor',
+  'Black & White Decor': 'Minimalist Decor'
+};
 async function resolveShopifyFields(sku) {
   const products = await readProducts();
   const product = products.find(p => (p.sku || '').toLowerCase() === (sku || '').toLowerCase());
@@ -2098,6 +2488,9 @@ async function resolveShopifyFields(sku) {
   // Map the few that don't match; Above Fireplace has no equivalent -> dropped (it still joins its collection by tag).
   const roomTypes = [...new Set((col['By Room'] || []).map(r => (ROOM_TYPE_MAP[r] !== undefined ? ROOM_TYPE_MAP[r] : r)).filter(Boolean))];
   if (roomTypes.length) push('custom', 'room_type', 'list.single_line_text_field', JSON.stringify(roomTypes));
+  // Trends metafield (custom.trends) -> drives the live "Decor Style" filter. Map the few names that differ (see TREND_METAFIELD_MAP).
+  const trendVals = [...new Set((product.trends || []).map(t => (TREND_METAFIELD_MAP[t] !== undefined ? TREND_METAFIELD_MAP[t] : t)).filter(Boolean))];
+  if (trendVals.length) push('custom', 'trends', 'list.single_line_text_field', JSON.stringify(trendVals));
   push('custom', 'foxkit_stock', 'number_integer', String(foxkit));
   push('custom', 'sales_last_24_hs', 'number_integer', String(sales24));
   push('custom', 'sales_count', 'number_integer', String(salesCount));
@@ -2182,7 +2575,7 @@ async function fetchAllPublicationIds() {
   const data = await shopifyGQL(`query{ publications(first:50){ nodes{ id } } }`);
   return (data.publications.nodes || []).map(n => n.id);
 }
-async function sendToShopify(sku) {
+async function sendToShopify(sku, opts = {}) {
   if (!sku) throw new Error('sku required');
   const products = await readProducts();
   const product = products.find(p => (p.sku || '').toLowerCase() === sku.toLowerCase());
@@ -2200,7 +2593,22 @@ async function sendToShopify(sku) {
   if (!(img.lifestyle || []).length) missing.push('at least 1 lifestyle photo');
   if ((img.individuals || []).length !== setSize) missing.push(`${setSize} individual photo(s) (has ${(img.individuals || []).length})`);
   FLAT_SLOTS.forEach(slot => { if (!img.flats || !img.flats[slot]) missing.push('flat image: ' + slot.replace('flat', '')); });
-  if (missing.length) { const e = new Error('Missing before sending — ' + missing.join(', ') + '.'); e.status = 400; throw e; }
+  if (!img.commons || !img.commons.commonLady) missing.push('common image: Lady with black frame');
+  if (!img.commons || !img.commons.commonUnboxing) missing.push('common image: Unboxing');
+  if (missing.length && !opts.allowPartial) { const e = new Error('Missing before sending — ' + missing.join(', ') + '.'); e.status = 400; throw e; }
+  // Old-product mode (allowPartial): publish with whatever images exist. Any variant whose frame mockup is
+  // missing falls back to the product's featured (first available) image, so no variant is left imageless.
+  const featuredGid = [
+    img.lifestyle && img.lifestyle[0] && img.lifestyle[0].gid,
+    img.individuals && img.individuals[0] && img.individuals[0].gid,
+    img.flats && img.flats.flatUnframed && img.flats.flatUnframed.gid,
+    img.flats && img.flats.flatWhite && img.flats.flatWhite.gid,
+    img.flats && img.flats.flatOak && img.flats.flatOak.gid,
+    img.flats && img.flats.flatBlack && img.flats.flatBlack.gid,
+    img.flats && img.flats.flatCanvas && img.flats.flatCanvas.gid,
+    img.commons && img.commons.commonLady && img.commons.commonLady.gid,
+    img.commons && img.commons.commonUnboxing && img.commons.commonUnboxing.gid
+  ].find(Boolean);
 
   const col = product.collections || {};
   const rooms = col['By Room'] || [];
@@ -2239,9 +2647,10 @@ async function sendToShopify(sku) {
     const e = new Error('Fix before sending — ' + parts.join('; ') + '.'); e.status = 400; throw e;
   }
 
+  const flatGid = slot => (img.flats && img.flats[slot] && img.flats[slot].gid) || featuredGid;   // real mockup, else the featured image
   const flatFileGids = {
-    UN: img.flats.flatUnframed.gid, FB: img.flats.flatBlack.gid, FW: img.flats.flatWhite.gid,
-    FO: img.flats.flatOak.gid, CW: img.flats.flatCanvas.gid
+    UN: flatGid('flatUnframed'), FB: flatGid('flatBlack'), FW: flatGid('flatWhite'),
+    FO: flatGid('flatOak'), CW: flatGid('flatCanvas')
   };
   const variants = buildVariantMatrix(product.sku, PRICE_TABLES[setSize], flatFileGids);
 
@@ -2256,9 +2665,11 @@ async function sendToShopify(sku) {
   // the "Media ids ... do not exist" bug hit on 2026-09-22). Copying keeps the originals in Files intact.
   const files = [];
   (img.lifestyle || []).forEach(im => files.push({ id: im.gid }));
+  if (img.commons && img.commons.commonLady) files.push({ id: img.commons.commonLady.gid });
+  if (img.commons && img.commons.commonUnboxing) files.push({ id: img.commons.commonUnboxing.gid });
   (img.individuals || []).forEach(im => files.push({ id: im.gid }));
-  ['flatUnframed', 'flatWhite', 'flatOak', 'flatBlack'].forEach(slot => files.push({ id: img.flats[slot].gid }));
-  files.push({ id: img.flats.flatCanvas.gid });
+  ['flatUnframed', 'flatWhite', 'flatOak', 'flatBlack'].forEach(slot => { if (img.flats && img.flats[slot]) files.push({ id: img.flats[slot].gid }); });   // skip a flat that's missing (old-product mode)
+  if (img.flats && img.flats.flatCanvas) files.push({ id: img.flats.flatCanvas.gid });
   files.push({ originalSource: fixedData.fixed.canvasWrapped.url, alt: fixedData.fixed.canvasWrapped.alt || 'Canvas wrapped' });
   files.push({ originalSource: roomGidEntry.url, alt: `Wall art size guide — ${roomName}` });
   files.push({ originalSource: fixedData.fixed.pictureFrames.url, alt: fixedData.fixed.pictureFrames.alt || 'Picture frames' });
@@ -2310,10 +2721,18 @@ async function sendToShopify(sku) {
     }
   } catch (e) { warnings.push('Could not publish to channels: ' + String(e.message || e)); }
 
+  const productUrl = `https://aboutwallart.com/products/${created.handle}`;
+
+  // Batched send (commit:false): the Shopify product is live, but skip the per-room registry lock and
+  // the per-room products write — the caller collects every room and commits them together (ONE
+  // products commit + ONE registry commit) so a multi-room send no longer floods GitHub.
+  if (opts.commit === false) {
+    return { sku, shopifyProductId: created.id, shopifyHandle: created.handle, onlineStoreUrl: created.onlineStoreUrl || null, keyword: product.keyword, productUrl, warnings };
+  }
+
   // Mandatory: lock the keyword in the registry the moment the product is live, so it can never be
   // offered again for another product. If this fails, the product is still created — surface a warning
   // rather than losing the created product.
-  const productUrl = `https://aboutwallart.com/products/${created.handle}`;
   try { await lockKeywordInRegistry(product.keyword, product.sku, productUrl); }
   catch (e) { warnings.push('Keyword NOT locked in the registry — add it by hand. Reason: ' + String(e.message || e)); }
 
@@ -2330,6 +2749,146 @@ async function sendToShopify(sku) {
     } catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
   }
   throw new Error('write conflict, try again');
+}
+
+/* =====================================================================
+   BATCHED WRITES (v4.15) — upload/generate/send do the per-item work with
+   per-room progress, then write GitHub in ONE commit. Kills the commit flood
+   that was rate-limiting GitHub (403 / git_info_fail) and breaking Vercel.
+   ===================================================================== */
+
+// Phase A (images): upload ONE image to Shopify and return its record — NO GitHub write.
+// The browser loops this per image (showing room-by-room progress), collects the records, then calls
+// commit-images ONCE. `shared` = flats/singles/commons shared by every room (generic name, no index).
+async function shopifyUploadOnly(body) {
+  const { slot, image, imageMediaType, keyword, productTitle, set, n, shared } = body || {};
+  if (!slot) throw new Error('slot required');
+  if (!image) throw new Error('image required');
+  if (slot !== 'lifestyle' && slot !== 'individual' && !FLAT_SLOTS.includes(slot) && !COMMON_SLOTS.includes(slot)) throw new Error('invalid slot: ' + slot);
+  const ext = extFromMime(imageMediaType);
+  let filename, alt;
+  if (shared) {
+    const baseName = slot === 'individual' ? 'individual' : slot.replace('flat', '').toLowerCase();
+    filename = `shared-${baseName}.${ext}`;
+    alt = baseName;
+  } else {
+    const setMatch = String(set || '').match(/\d+/);
+    const setSize = setMatch ? parseInt(setMatch[0], 10) : 1;
+    const idx = Math.max(1, parseInt(n, 10) || 1);
+    filename = `${slugifyKeyword(keyword)}-${slot === 'individual' ? 'individual-' + idx : slot === 'lifestyle' ? 'lifestyle-' + idx : slot.replace('flat', '').toLowerCase()}.${ext}`;
+    alt = altFor(slot, { content: { productTitle }, keyword, set }, idx, setSize);
+  }
+  const uploaded = await uploadImageToShopify(image, filename, imageMediaType, alt);
+  return { record: { gid: uploaded.gid, url: uploaded.url, filename, alt } };
+}
+
+// Phase B (images): apply many already-uploaded records (from shopifyUploadOnly) to their rooms in ONE
+// commit. items: [{ sku, slot, record }]. lifestyle/individual append (respect set size); flats/commons set.
+async function commitImages(body) {
+  const items = Array.isArray(body.items) ? body.items : [];
+  if (!items.length) throw new Error('no image items');
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const file = await ghGet(PRODUCTS_PATH);
+    let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
+    if (!Array.isArray(arr)) arr = [];
+    const applied = [], skipped = [];
+    for (const it of items) {
+      const { sku, slot, record } = it || {};
+      if (!sku || !slot || !record) { skipped.push({ why: 'bad item' }); continue; }
+      const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === String(sku).toLowerCase());
+      if (idx < 0) { skipped.push({ sku, why: 'not found' }); continue; }
+      const product = arr[idx];
+      const images = product.images ? { ...product.images, lifestyle: [...(product.images.lifestyle || [])], individuals: [...(product.images.individuals || [])], flats: { ...(product.images.flats || {}) }, commons: { ...(product.images.commons || {}) } } : { lifestyle: [], individuals: [], flats: {}, commons: {} };
+      if (slot === 'lifestyle') images.lifestyle.push({ ...record });
+      else if (slot === 'individual') {
+        const m = (product.set || '').match(/\d+/); const ss = m ? parseInt(m[0], 10) : 1;
+        if (images.individuals.length >= ss) { skipped.push({ sku, slot, why: 'set full' }); arr[idx] = { ...product, images }; continue; }
+        images.individuals.push({ ...record });
+      } else if (COMMON_SLOTS.includes(slot)) images.commons[slot] = { ...record };
+      else if (FLAT_SLOTS.includes(slot)) images.flats[slot] = { ...record };
+      else { skipped.push({ sku, slot, why: 'invalid slot' }); continue; }
+      arr[idx] = { ...product, images, updatedAt: new Date().toISOString() };
+      applied.push({ sku, slot });
+    }
+    try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG upload images (batch): ${applied.length} image(s)`); return { products: arr, applied, skipped }; }
+    catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
+  }
+  throw new Error('write conflict, try again');
+}
+
+// Merge many product updates in ONE commit (same rule as save-product: never overwrites server-side
+// images). products: [{ sku, ...fields }]. Used by "Save all SEO" and any multi-room save.
+async function saveProductsBatch(body) {
+  const list = Array.isArray(body.products) ? body.products : [];
+  if (!list.length) throw new Error('no products');
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const file = await ghGet(PRODUCTS_PATH);
+    let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
+    if (!Array.isArray(arr)) arr = [];
+    const now = new Date().toISOString();
+    for (const prod of list) {
+      if (!prod || !prod.sku) continue;
+      const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === String(prod.sku).toLowerCase());
+      if (idx >= 0) { const { images: _ignoreImages, ...rest } = prod; arr[idx] = { ...arr[idx], ...rest, updatedAt: now }; }
+      else arr.push({ ...prod, sent: false, createdAt: now, updatedAt: now });
+    }
+    try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG save products (batch): ${list.length}`); return { products: arr }; }
+    catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
+  }
+  throw new Error('write conflict, try again');
+}
+
+// Lock many keywords in the registry in ONE commit (idempotent — skips ones already LOCKED COMMERCIAL).
+async function lockKeywordsInRegistryBatch(entries) {
+  entries = (entries || []).filter(e => e && (e.keyword || '').trim());
+  if (!entries.length) return { ok: true, locked: 0 };
+  const today = new Date().toISOString().slice(0, 10);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const reg = await ghGet(REGISTRY_PATH);
+    if (reg.content == null) throw new Error('registry not found');
+    const existing = reg.content.split('\n').map(l => l.replace(/\r/g, ''));
+    const lockedSet = new Set();
+    for (const line of existing) { if (!line.trim()) continue; const c = parseCSVLine(line); if ((c[2] || '').toUpperCase() === 'LOCKED' && (c[10] || '').toUpperCase() === 'COMMERCIAL') lockedSet.add((c[0] || '').toLowerCase()); }
+    const rows = []; let added = 0;
+    for (const e of entries) {
+      const kw = (e.keyword || '').trim(); if (!kw) continue;
+      if (lockedSet.has(kw.toLowerCase())) continue;
+      lockedSet.add(kw.toLowerCase());
+      const source = 'NPG' + (e.sku ? ':' + e.sku : '');
+      rows.push(`${csvField(kw)},${csvField(e.productUrl || 'N/A')},LOCKED,DONE,OPTIMIZED,N/A,N/A,N/A,N/A,${csvField(source)},COMMERCIAL,${csvField(today)}`);
+      added++;
+    }
+    if (!added) return { ok: true, locked: 0 };
+    const updated = reg.content.trimEnd() + '\n' + rows.join('\n') + '\n';
+    try { await ghPut(REGISTRY_PATH, updated, reg.sha, `NPG lock keywords (batch): ${added}`); return { ok: true, locked: added }; }
+    catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
+  }
+  throw new Error('registry write conflict, try again');
+}
+
+// Phase B (send): mark many rooms as sent (ONE products commit) and lock their keywords (ONE registry
+// commit). sent: [{ sku, shopifyProductId, shopifyHandle, keyword, productUrl }].
+async function commitSends(body) {
+  const sent = Array.isArray(body.sent) ? body.sent : [];
+  if (!sent.length) throw new Error('no sends');
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const file = await ghGet(PRODUCTS_PATH);
+    let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
+    if (!Array.isArray(arr)) arr = [];
+    const now = new Date().toISOString();
+    for (const s of sent) {
+      const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === String(s.sku).toLowerCase());
+      if (idx < 0) continue;
+      arr[idx] = { ...arr[idx], sent: true, shopifyProductId: s.shopifyProductId, shopifyHandle: s.shopifyHandle, sentAt: now, updatedAt: now };
+    }
+    try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG sent to Shopify (batch): ${sent.length} room(s)`); break; }
+    catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
+  }
+  const warnings = [];
+  try { await lockKeywordsInRegistryBatch(sent.map(s => ({ keyword: s.keyword, sku: s.sku, productUrl: s.productUrl }))); }
+  catch (e) { warnings.push('Some keywords were NOT locked in the registry — add them by hand. Reason: ' + String(e.message || e)); }
+  const products = await readProducts();
+  return { products, warnings };
 }
 
 /* ------------- Google Keyword Planner (Google Ads API v22) ------------- */
@@ -2377,7 +2936,7 @@ async function googleKeywordIdeas(body) {
   if (manager && manager !== cid) attempts.push({ via: 'manager', login: manager });
   let lastErr = 'unknown';
   const debug = [];
-  const locked = await lockedKeywordSet();   // never offer a keyword already locked to a page
+  const [locked, dismissed] = await Promise.all([lockedKeywordSet(), readPerformingDismissed()]);   // never offer a keyword already locked, or banned
   for (const a of attempts) {
     const headers = { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
     if (a.login) headers['login-customer-id'] = a.login;
@@ -2394,7 +2953,7 @@ async function googleKeywordIdeas(body) {
             competition: m.competition || null,
             competitionIndex: (m.competitionIndex != null) ? Number(m.competitionIndex) : null
           };
-        }).filter(o => o.keyword && !locked.has(o.keyword.toLowerCase()) && !EXCLUDED_PRODUCT_TYPES.test(o.keyword));
+        }).filter(o => o.keyword && !locked.has(o.keyword.toLowerCase()) && !dismissed.has(o.keyword.toLowerCase()) && !EXCLUDED_PRODUCT_TYPES.test(o.keyword));
         return { options, via: a.via, v: '0.37' };
       }
       lastErr = (data.error && data.error.message) || ('HTTP ' + r.status);
@@ -2600,6 +3159,11 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, ...out });
     }
 
+    if (action === 'ubersuggest-keywords') {
+      const out = await uberResearch(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+
     if (action === 'gsc-opportunities') {
       const out = await gscOpportunities(body);
       return res.status(200).json({ ok: true, ...out });
@@ -2608,6 +3172,19 @@ export default async function handler(req, res) {
     // Google Keyword Planner (Google Ads API) — free volume source, 3rd source in Step 2.
     if (action === 'google-keyword-ideas') {
       const out = await googleKeywordIdeas(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+
+    // Keyword BANK (data/Apify Google keyword stock.csv) — free per-product source, no Apify cost.
+    if (action === 'bank-keywords') {
+      const out = await bankResearch(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+
+    // On-demand Apify box: expand one seed with smacient, return only NEW (not in file / not locked) keywords.
+    if (action === 'bank-discover') {
+      if (!process.env.APIFY_TOKEN) return res.status(500).json({ ok: false, error: 'APIFY_TOKEN not set' });
+      const out = await bankDiscover(body);
       return res.status(200).json({ ok: true, ...out });
     }
 
@@ -2666,6 +3243,12 @@ export default async function handler(req, res) {
     if (action === 'remove-product-idea') {
       if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
       const out = await removeProductIdea(body.keyword);
+      return res.status(200).json({ ok: true, ...out });
+    }
+    // "Borrar + banear" — drop a keyword from the build pool AND ban it (never suggested again).
+    if (action === 'delete-and-ban') {
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      const out = await deleteAndBan(body.keyword);
       return res.status(200).json({ ok: true, ...out });
     }
     // B — "Send to optimise": lock kw→page + create an optimise card in MPD's Do-first tab.
@@ -2788,7 +3371,29 @@ export default async function handler(req, res) {
     if (action === 'send-to-shopify') {
       if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
       if (!process.env.SHOPIFY_STORE_DOMAIN || !process.env.SHOPIFY_ACCESS_TOKEN) return res.status(500).json({ ok: false, error: 'Shopify credentials not configured' });
-      const out = await sendToShopify(body.sku);
+      const out = await sendToShopify(body.sku, { commit: body.commit, allowPartial: body.allowPartialImages });
+      return res.status(200).json({ ok: true, ...out });
+    }
+
+    // ----- Batched writes (v4.15): per-item work with progress, then ONE commit -----
+    if (action === 'shopify-upload') {           // Phase A images: upload to Shopify, no GitHub write
+      if (!process.env.SHOPIFY_STORE_DOMAIN || !process.env.SHOPIFY_ACCESS_TOKEN) return res.status(500).json({ ok: false, error: 'Shopify credentials not configured' });
+      const out = await shopifyUploadOnly(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+    if (action === 'commit-images') {            // Phase B images: write all records in ONE commit
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      const out = await commitImages(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+    if (action === 'save-products-batch') {      // Save many rooms (e.g. all SEO) in ONE commit
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      const out = await saveProductsBatch(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+    if (action === 'commit-sends') {             // Phase B send: mark sent + lock keywords (1+1 commit)
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      const out = await commitSends(body);
       return res.status(200).json({ ok: true, ...out });
     }
 
@@ -2802,6 +3407,41 @@ export default async function handler(req, res) {
       if (!process.env.APIFY_TOKEN) return res.status(500).json({ ok: false, error: 'APIFY_TOKEN not set' });
       const items = await callActor(body.input || {}, body.actor);
       return res.status(200).json({ ok: true, count: items.length, items });
+    }
+
+    // Suggest short keyword synonyms (max 3 words) with Claude — like the Gemini step, inside the tool.
+    if (action === 'suggest-synonyms') {
+      if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ ok: false, error: 'ANTHROPIC_API_KEY not set' });
+      const p = body.product || {};
+      const ctx = [
+        (p.styles || []).length ? 'Styles: ' + p.styles.join(', ') : '',
+        (p.trends || []).length ? 'Trends: ' + p.trends.join(', ') : '',
+        (p.rooms || []).length ? 'Rooms: ' + p.rooms.join(', ') : '',
+        (p.colours || []).length ? 'Colours: ' + p.colours.join(', ') : '',
+        (p.terms || []).length ? 'Current terms: ' + p.terms.join(', ') : ''
+      ].filter(Boolean).join('\n');
+      const prompt = [
+        'You suggest SHORT keyword SYNONYMS / seed terms for About Wall Art (a UK wall-art brand) to feed a keyword search for one product.',
+        'PRODUCT:', ctx || '(no details given)',
+        'Suggest 10-14 synonyms a shopper might type to find this kind of wall art. RULES: each term is 1-3 WORDS MAXIMUM (never longer — long terms return nothing), lowercase, based on the style / subject / mood, no duplicates, no punctuation, never the words "print" or "prints".',
+        'Return ONLY JSON: {"synonyms":["term", ...]}'
+      ].join('\n');
+      try {
+        const r = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+          body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 500, messages: [{ role: 'user', content: prompt }] })
+        });
+        const d = await r.json();
+        if (!r.ok) return res.status(r.status).json({ ok: false, error: JSON.stringify(d).slice(0, 300) });
+        let t = (d.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').replace(/```json\n?/g, '').replace(/```/g, '');
+        const m = t.match(/\{[\s\S]*\}/); let parsed = {}; try { parsed = JSON.parse(m ? m[0] : t); } catch { return res.status(200).json({ ok: false, error: 'Could not parse AI output' }); }
+        const syn = (parsed.synonyms || [])
+          .map(s => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim())
+          .filter(Boolean)
+          .map(s => s.split(' ').slice(0, 3).join(' '));   // hard cap at 3 words
+        return res.status(200).json({ ok: true, synonyms: [...new Set(syn)] });
+      } catch (e) { return res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
     }
 
     if (action === 'list-products') {
@@ -2820,7 +3460,10 @@ export default async function handler(req, res) {
         if (!Array.isArray(arr)) arr = [];
         const now = new Date().toISOString();
         const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === product.sku.toLowerCase());
-        if (idx >= 0) arr[idx] = { ...arr[idx], ...product, updatedAt: now };
+        // On UPDATE, never let the client's product overwrite server-side images — flats/singles/
+        // commons uploaded after the client's last read would be wiped. Images are owned solely by
+        // upload-image / upload-shared-image / remove-product-image / reorder.
+        if (idx >= 0) { const { images: _ignoreImages, ...rest } = product; arr[idx] = { ...arr[idx], ...rest, updatedAt: now }; }
         else arr.push({ ...product, sent: false, createdAt: now, updatedAt: now });
         try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG save product: ${product.sku}`); return res.status(200).json({ ok: true, products: arr }); }
         catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
@@ -2841,6 +3484,38 @@ export default async function handler(req, res) {
           return res.status(200).json({ ok: true, products: arr, keywordFreed: freed });
         }
         catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
+      }
+    }
+
+    // Copy the shared images (flats + singles + commons, same Shopify gids) from one room onto other
+    // rooms, filling only the slots they're missing. Lifestyle is per-room and never copied. Used so a
+    // room added after the shared images were uploaded still inherits them.
+    if (action === 'inherit-shared') {
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      const fromSku = body.fromSku;
+      const toSkus = Array.isArray(body.toSkus) ? body.toSkus : [];
+      if (!fromSku || !toSkus.length) return res.status(400).json({ ok: false, error: 'fromSku and toSkus required' });
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const file = await ghGet(PRODUCTS_PATH);
+        let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
+        if (!Array.isArray(arr)) arr = [];
+        const src = arr.find(x => (x.sku || '').toLowerCase() === String(fromSku).toLowerCase());
+        if (!src || !src.images) return res.status(200).json({ ok: true, products: arr });
+        const si = src.images;
+        for (const sku of toSkus) {
+          const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === String(sku).toLowerCase());
+          if (idx < 0) continue;
+          const t = arr[idx];
+          const images = t.images
+            ? { ...t.images, lifestyle: [...(t.images.lifestyle || [])], individuals: [...(t.images.individuals || [])], flats: { ...(t.images.flats || {}) }, commons: { ...(t.images.commons || {}) } }
+            : { lifestyle: [], individuals: [], flats: {}, commons: {} };
+          Object.keys(si.flats || {}).forEach(k => { if (!images.flats[k]) images.flats[k] = si.flats[k]; });
+          Object.keys(si.commons || {}).forEach(k => { if (!images.commons[k]) images.commons[k] = si.commons[k]; });
+          if (!images.individuals.length && (si.individuals || []).length) images.individuals = si.individuals.map(r => ({ ...r }));
+          arr[idx] = { ...t, images, updatedAt: new Date().toISOString() };
+        }
+        try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG inherit shared images -> ${toSkus.length} room(s)`); return res.status(200).json({ ok: true, products: arr }); }
+        catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
       }
     }
 
