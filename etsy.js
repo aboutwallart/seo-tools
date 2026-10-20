@@ -1,4 +1,10 @@
-// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT + Tab 2 APPLY TO DUPLICATE)  ·  v0.39
+// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT + Tab 2 APPLY TO DUPLICATE)  ·  v0.40
+// v0.40 (2026-10-20): tab2-apply now copies the PHOTOS from the ORIGINAL Etsy listing (not from Shopify). The Shopify
+//   product has 30 images but Etsy caps at 20, so pulling from Shopify dropped the 3 mandatory brand images (size guide
+//   / picture frames / frame sizes) that live at the end. Mae already curated the original's 20 (with the mandatory
+//   ones), and the duplicate must match the original exactly — so photos now come from the original's own images
+//   (/listings/{id}/images, full-size). Everything else was already from the original; only photos were from Shopify.
+//   Also returns a one-line summary (photos copied / old removed / video removed) shown on success.
 // v0.39 (2026-10-20): tab2-apply photos/video — the duplicate kept the old product's VIDEO and its LAST old photo, and
 //   2 new photos didn't fit. Causes: (1) we never removed videos; (2) Etsy refuses to delete a listing's LAST image, so
 //   one old photo stuck; (3) that stuck photo + Etsy's 20-image cap blocked the last new uploads. Now: delete the old
@@ -1123,18 +1129,24 @@ module.exports = async (req, res) => {
       } catch (e) { vidStep.status = 500; vidStep.error = String(e && e.message || e); }
       steps.push(vidStep);
 
-      // 5) PHOTOS: replace the duplicate's photos with the product's Shopify images. Etsy refuses to delete a listing's
-      //    LAST image and caps at 20, so: delete every old photo except ONE anchor, upload the new ones, delete the
-      //    anchor (deletable now that new photos exist), then upload any photo that didn't fit on the first pass.
+      // 5) PHOTOS: copy the images FROM THE ORIGINAL ETSY LISTING (Mae already curated those to the right 20, incl. the
+      //    mandatory brand images). NOTHING from Shopify. Etsy refuses to delete a listing's LAST image and caps at 20,
+      //    so: delete every old photo except ONE anchor, upload the originals, delete the anchor (deletable now that new
+      //    photos exist), then upload any that didn't fit on the first pass.
       let warning = '';
-      let firstShopImg = '';
+      let firstImg = '';
       const imgStep = { step: 'photos', status: 200 };
       try {
-        const lp = await loadProduct(sku);
-        const images = (lp && lp.product && lp.product.images) || [];
-        firstShopImg = images[0] || '';
-        if (!images.length) {
-          warning = lp && lp.noMatch ? 'No exact Shopify match for SKU "' + sku + '" — photos were NOT replaced.' : 'The Shopify product has no images — photos were NOT replaced.';
+        // the original listing's images (full-size), in display order
+        const oi = await call('/listings/' + original + '/images');
+        const srcImgs = ((oi.json && oi.json.results) || [])
+          .slice()
+          .sort((a, b) => (a.rank || 0) - (b.rank || 0))
+          .map(im => im.url_fullxfull || im.url_570xN || im.url_300x300)
+          .filter(Boolean);
+        firstImg = srcImgs[0] || '';
+        if (!srcImgs.length) {
+          warning = 'The original listing has no images — photos were NOT changed.';
           imgStep.skipped = true; imgStep.note = warning;
         } else {
           // LIST the duplicate's current photos — Etsy v3 lists images at /listings/{id}/images (NOT shop-scoped).
@@ -1149,12 +1161,12 @@ module.exports = async (req, res) => {
             return false;
           };
           for (const im of oldImgs.slice(1)) await delImage(im.listing_image_id);   // delete all old photos EXCEPT the anchor
-          const toSend = images.filter(u => /^https:\/\/cdn\.shopify\.com\//.test(String(u))).slice(0, 20);
+          const toSend = srcImgs.slice(0, 20);
           let up = 0, firstErr = null;
           const uploadOne = async (i) => {
             try {
               const ir = await fetch(toSend[i]);
-              if (!ir.ok) { if (!firstErr) firstErr = { where: 'shopify-fetch', status: ir.status }; return false; }
+              if (!ir.ok) { if (!firstErr) firstErr = { where: 'etsy-image-fetch', status: ir.status }; return false; }
               const buf = Buffer.from(await ir.arrayBuffer());
               const fd = new FormData();
               fd.append('image', new Blob([buf], { type: ir.headers.get('content-type') || 'image/jpeg' }), 'image-' + (i + 1) + '.jpg');
@@ -1171,10 +1183,10 @@ module.exports = async (req, res) => {
           const stillPending = [];
           for (const i of pending) { if (await uploadOne(i)) up++; else stillPending.push(i); }   // pass 2: the ones blocked by the 20-cap
           const fail = stillPending.length;
-          imgStep.found = oldImgs.length; imgStep.deleted = del; imgStep.uploaded = up; imgStep.failed = fail;
+          imgStep.source = srcImgs.length; imgStep.found = oldImgs.length; imgStep.deleted = del; imgStep.uploaded = up; imgStep.failed = fail;
           if (up === 0 && toSend.length) {
             imgStep.status = 500;
-            imgStep.error = 'found ' + oldImgs.length + ', deleted ' + del + (delErr ? ' (delete err ' + JSON.stringify(delErr).slice(0, 150) + ')' : '') + '; upload: ' + JSON.stringify(firstErr).slice(0, 250);
+            imgStep.error = 'src ' + srcImgs.length + ', found ' + oldImgs.length + ', deleted ' + del + (delErr ? ' (delete err ' + JSON.stringify(delErr).slice(0, 150) + ')' : '') + '; upload: ' + JSON.stringify(firstErr).slice(0, 250);
           } else if (fail) warning = fail + ' of ' + toSend.length + ' photos failed to upload' + (firstErr ? ': ' + JSON.stringify(firstErr).slice(0, 200) : '') + '.';
         }
       } catch (e) { imgStep.status = 500; imgStep.error = String(e && e.message || e); }
@@ -1183,7 +1195,7 @@ module.exports = async (req, res) => {
       // 5) register in Sent items (+ the video registry), so it shows in the Sent tab
       try {
         const s = await readSent();
-        const item = { listing_id: target, sku: String(b.dup_sku || sku), title: o.title || '', section: '', image: firstShopImg || String(b.image || ''), ts: Date.now() };
+        const item = { listing_id: target, sku: String(b.dup_sku || sku), title: o.title || '', section: '', image: firstImg || String(b.image || ''), ts: Date.now() };
         const items = [item].concat(s.items.filter(x => String(x.listing_id) !== item.listing_id));
         await ghPut(SENT_PATH, JSON.stringify(items, null, 2), s.sha, 'AWA ETSY: tab2 applied ' + item.sku + ' (' + target + ')');
         try {
@@ -1199,7 +1211,11 @@ module.exports = async (req, res) => {
       } catch (e) { /* best-effort — the listing was still updated */ }
 
       const failed = steps.filter(s => s.status >= 300);
-      finish(200, { ok: !failed.length, listing_id: target, steps, failed: failed.length, warning: warning || undefined });
+      const summary = 'Photos: ' + (imgStep.uploaded || 0) + ' copied from the original'
+        + (imgStep.deleted ? ', ' + imgStep.deleted + ' old removed' : '')
+        + (imgStep.failed ? ', ' + imgStep.failed + ' failed' : '')
+        + '. Video: ' + (vidStep.found ? (vidStep.deleted + '/' + vidStep.found + ' old removed') : 'none');
+      finish(200, { ok: !failed.length, listing_id: target, steps, failed: failed.length, warning: warning || undefined, summary });
       return;
     }
 
