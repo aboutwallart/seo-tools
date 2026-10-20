@@ -1,4 +1,9 @@
-// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT + Tab 2 APPLY TO DUPLICATE)  ·  v0.37
+// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT + Tab 2 APPLY TO DUPLICATE)  ·  v0.38
+// v0.38 (2026-10-20): FIX tab2-apply "All photo uploads failed" — the GET that LISTS a listing's images is NOT
+//   shop-scoped in Etsy v3 (it is GET /listings/{id}/images), but tab2-apply listed them at
+//   /shops/{shop}/listings/{id}/images, so it got nothing back, deleted nothing, and the duplicate's old photos stayed
+//   — new uploads then failed. Now the list uses the correct /listings/{id}/images path; delete + upload stay
+//   shop-scoped (they were already correct). Photo failures now carry the exact Etsy error + found/deleted counts.
 // v0.37 (2026-10-20): FIX tab2-apply attribute "Array input 5:7 (ISO ratio) is malformed" — publish already strips the
 //   trailing parenthetical from each attribute value ("5:7 (ISO ratio)" -> "5:7"); tab2-apply was sending the raw value.
 //   Now it cleans the value the exact same way as publish. (All other fields already matched publish.)
@@ -1107,28 +1112,33 @@ module.exports = async (req, res) => {
           warning = lp && lp.noMatch ? 'No exact Shopify match for SKU "' + sku + '" — photos were NOT replaced.' : 'The Shopify product has no images — photos were NOT replaced.';
           imgStep.skipped = true; imgStep.note = warning;
         } else {
-          const cur = await call('/shops/' + SHOP_ID + '/listings/' + target + '/images');
+          // LIST the duplicate's current photos — Etsy v3 lists images at /listings/{id}/images (NOT shop-scoped).
+          const cur = await call('/listings/' + target + '/images');
           const curImgs = (cur.json && cur.json.results) || [];
+          let del = 0, delErr = null;
           for (const im of curImgs) {
-            await call('/shops/' + SHOP_ID + '/listings/' + target + '/images/' + im.listing_image_id, { method: 'DELETE' });
+            const dr = await call('/shops/' + SHOP_ID + '/listings/' + target + '/images/' + im.listing_image_id, { method: 'DELETE' });
+            if (dr.status < 300) del++; else if (!delErr) delErr = { status: dr.status, body: dr.json };
           }
           const toSend = images.filter(u => /^https:\/\/cdn\.shopify\.com\//.test(String(u))).slice(0, 20);
-          let up = 0, fail = 0;
+          let up = 0, fail = 0, firstErr = null;
           for (let i = 0; i < toSend.length; i++) {
             try {
               const ir = await fetch(toSend[i]);
-              if (!ir.ok) { fail++; continue; }
+              if (!ir.ok) { fail++; if (!firstErr) firstErr = { where: 'shopify-fetch', status: ir.status }; continue; }
               const buf = Buffer.from(await ir.arrayBuffer());
               const fd = new FormData();
               fd.append('image', new Blob([buf], { type: ir.headers.get('content-type') || 'image/jpeg' }), 'image-' + (i + 1) + '.jpg');
               fd.append('rank', String(i + 1));
               const r = await call('/shops/' + SHOP_ID + '/listings/' + target + '/images', { method: 'POST', body: fd });
-              if (r.status < 300) up++; else fail++;
-            } catch (e) { fail++; }
+              if (r.status < 300) up++; else { fail++; if (!firstErr) firstErr = { where: 'etsy-upload', status: r.status, body: r.json }; }
+            } catch (e) { fail++; if (!firstErr) firstErr = { where: 'exception', msg: String(e && e.message || e) }; }
           }
-          imgStep.deleted = curImgs.length; imgStep.uploaded = up; imgStep.failed = fail;
-          if (up === 0 && toSend.length) { imgStep.status = 500; imgStep.error = 'All photo uploads failed.'; }
-          else if (fail) warning = fail + ' of ' + toSend.length + ' photos failed to upload.';
+          imgStep.found = curImgs.length; imgStep.deleted = del; imgStep.uploaded = up; imgStep.failed = fail;
+          if (up === 0 && toSend.length) {
+            imgStep.status = 500;
+            imgStep.error = 'found ' + curImgs.length + ', deleted ' + del + (delErr ? ' (delete err ' + JSON.stringify(delErr).slice(0, 150) + ')' : '') + '; upload: ' + JSON.stringify(firstErr).slice(0, 250);
+          } else if (fail) warning = fail + ' of ' + toSend.length + ' photos failed to upload.';
         }
       } catch (e) { imgStep.status = 500; imgStep.error = String(e && e.message || e); }
       steps.push(imgStep);
