@@ -106,6 +106,9 @@
   .diff-e{color:var(--ok);font-weight:600}.diff-m{color:var(--warn);font-weight:600}.diff-h{color:var(--danger);font-weight:600}
   .intent{font-size:11px;background:var(--chip);border-radius:20px;padding:2px 8px}
   .srcpill{font-size:10px;font-weight:700;border-radius:20px;padding:2px 8px;text-transform:uppercase;letter-spacing:.3px}
+  .apfchip{display:inline-block;background:#eef4ff;border:1px solid #cfe0ff;color:#1b4f8f;border-radius:14px;padding:3px 9px;margin:2px 3px 2px 0;font-size:12px;cursor:pointer}
+  .apfchip:hover{background:#dbe8ff}
+  .apfchip b{color:#274b8f}
   .comingsoon{border:1px solid #e6d9a8;background:#fdf9ec;border-radius:10px;padding:14px 16px;margin-top:14px}
   .comingsoon .cshead{display:flex;align-items:center;gap:8px;font-weight:650;font-size:13px;color:#6b551a}
   .csbadge{font-size:10.5px;font-weight:700;color:#6b551a;background:#f3e6b8;border-radius:20px;padding:2px 9px;text-transform:uppercase;letter-spacing:.3px}
@@ -220,7 +223,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v4.21</span>
+  <span class="ver">v4.22</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -1034,7 +1037,8 @@ function keywordLegend(){ return '<div class="legend2">'+
   '<span><span class="srcpill" style="background:#f3e6b8;color:#6b551a">gap</span> competitors-gap</span>'+
   '<span><span class="srcpill" style="background:#e6ddf5;color:#5b3a8c">UBER</span> Ubersuggest</span>'+
   '<span><span class="srcpill" style="background:#d9efe6;color:#1f5f4f">GSC</span> appears, no clicks</span>'+
-  '<span><span class="srcpill" style="background:#dbe7fb;color:#274b8f">Google KP</span> free volume</span></div>'; }
+  '<span><span class="srcpill" style="background:#dbe7fb;color:#274b8f">Google KP</span> free volume</span>'+
+  '<span><span class="srcpill" style="background:#cfe3ff;color:#1b4f8f">STOCK</span> keyword bank (Google volume)</span></div>'; }
 const ROOM_COLORS=['#2f6f4f','#3a5a8c','#8a5a2b','#6b4a86','#447f86','#7a6a2a','#a0456a','#1f5f4f'];
 function renderKeywordStage(){
   const g=groupProducts();
@@ -1070,7 +1074,29 @@ function roomKeywordColumn(p,idx){
     '<div class="rcol-bd"><div class="kwt">Main keyword — pick one · top 40</div>'+body+
     '<button class="btn link" style="margin-top:8px" onclick="roomPrompt('+"'"+enc+"'"+')">Don\'t like these? Copy Ubersuggest prompt</button>'+
     '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap"><input type="text" class="maninput" placeholder="add keyword" style="flex:1 1 110px" onkeydown="if(event.key===\'Enter\'){event.preventDefault();roomAddManual(this.parentElement.querySelector(\'button\'),\''+enc+'\');}"><input type="text" class="manvol" placeholder="vol" style="width:54px"><input type="text" class="mandiff" placeholder="diff" style="width:50px"><button class="btn primary small" onclick="roomAddManual(this,\''+enc+'\')">Add</button></div>'+
+    '<div class="apfbox" style="margin-top:10px;border-top:1px dashed var(--line);padding-top:8px"><div class="kwt">Need more? Search new keywords in Apify</div>'+
+    '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px"><input type="text" class="apfseed" placeholder="seed, e.g. japandi" style="flex:1 1 140px" onkeydown="if(event.key===\'Enter\'){event.preventDefault();apifyDiscover(this,\''+enc+'\');}"><button class="btn ghost small" onclick="apifyDiscover(this.parentElement.querySelector(\'.apfseed\'),\''+enc+'\')">Search (~$0.05)</button></div>'+
+    '<div class="apfres" id="apfres-'+enc+'" style="margin-top:6px"></div></div>'+
     '</div></div>';
+}
+// On-demand Apify box: expand a seed, show only NEW keywords (not in the file, not locked). Click one to use it.
+async function apifyDiscover(inputEl, enc){
+  const sku=decodeURIComponent(enc);
+  const seed=((inputEl&&inputEl.value)||'').trim();
+  const res=document.getElementById('apfres-'+enc);
+  if(!seed){ if(res) res.innerHTML='<span class="muted">Type a seed first.</span>'; return; }
+  if(res) res.innerHTML='<span class="spin" style="width:12px;height:12px;border-color:#999;border-top-color:transparent;display:inline-block"></span> Searching Apify…';
+  try{
+    const r=await api({action:'bank-discover',seed,sku});
+    const opts=(r&&r.options)||[];
+    if(!res) return;
+    if(!opts.length){ res.innerHTML='<span class="muted">No new keywords — all already in the file or locked.</span>'; return; }
+    res.innerHTML='<div class="kwt" style="margin:4px 0">New from Apify — click one to use it:</div>'+
+      opts.slice(0,40).map(o=>'<span class="apfchip" onclick="roomUseDiscovered(\''+enc+'\',\''+encodeURIComponent(o.keyword)+'\','+(o.volume||0)+')">'+esc(o.keyword)+' <b>'+(o.volume||0)+'</b></span>').join(' ');
+  }catch(e){ if(res) res.innerHTML='<span class="err">'+esc(e.message)+'</span>'; }
+}
+async function roomUseDiscovered(enc,kwEnc,vol){
+  await applyRoomKeyword(decodeURIComponent(enc), decodeURIComponent(kwEnc), { volume: vol });
 }
 function roomKwOption(p,o,oi,pos){
   const sel=p.keyword&&p.keyword.toLowerCase()===o.keyword.toLowerCase();
@@ -1085,6 +1111,7 @@ function roomKwOption(p,o,oi,pos){
   if(s.manual) pills.push('<span class="srcpill" style="background:#e3e3e3;color:#444">manual</span>');
   if(s.gsc) pills.push('<span class="srcpill" style="background:#d9efe6;color:#1f5f4f">GSC</span>');
   if(s.gkp) pills.push('<span class="srcpill" style="background:#dbe7fb;color:#274b8f">Google KP</span>');
+  if(s.bank) pills.push('<span class="srcpill" style="background:#cfe3ff;color:#1b4f8f">STOCK</span>'+(s.bank.already_ranks?'<span class="srcpill" style="background:#cfead0;color:#1f5f1f;margin-left:3px">ranks</span>':''));
   const met=[];
   if(isC){ const b=[]; if(s.matched.position!=null)b.push('pos '+s.matched.position); if(s.matched.clicks!=null)b.push(s.matched.clicks+' clk'); met.push('ranks on a locked page'+(b.length?' · '+b.join(' · '):'')); }
   if(s.available){ const b=[]; if(s.available.position!=null)b.push('pos '+s.available.position); if(s.available.clicks!=null)b.push(s.available.clicks+' clk'); met.push('you rank'+(b.length?' · '+b.join(' · '):'')); }
@@ -1093,6 +1120,7 @@ function roomKwOption(p,o,oi,pos){
   if(s.manual){ const mp=[]; if(s.manual.volume!==''&&s.manual.volume!=null) mp.push('vol '+s.manual.volume); if(s.manual.difficulty!==''&&s.manual.difficulty!=null) mp.push('diff '+s.manual.difficulty); met.push(mp.length?mp.join(' · '):'manual'); }
   if(s.gsc) met.push('GSC '+(s.gsc.impressions!=null?s.gsc.impressions:'—')+' impr · pos '+(s.gsc.position!=null?s.gsc.position:'—'));
   if(s.gkp) met.push('Google KP vol '+(s.gkp.volume!=null?s.gkp.volume:'—')+(s.gkp.competition?' · '+compLabel(s.gkp.competition):''));
+  if(s.bank) met.push('Google vol '+(s.bank.volume!=null?s.bank.volume:'—')+(s.bank.competition?' · comp '+s.bank.competition.toLowerCase():''));
   const enc=encodeURIComponent(p.sku);
   const banBtn='<button class="btn rm small" title="Delete this keyword — remove it and never suggest it again" style="margin-left:auto;flex:0 0 auto" onclick="event.stopPropagation();kwBanKeyword(event,'+"'"+encodeURIComponent(o.keyword)+"',"+"'"+enc+"'"+')">🚫</button>';
   return '<div class="kwopt'+(sel?' sel':'')+(rec?' rec':'')+'" onclick="roomPick('+"'"+enc+"',"+oi+')">'+
@@ -1188,13 +1216,14 @@ function updateRoomColumn(sku){
 }
 async function fetchRoomKw(p){
   KWC[p.sku]={loading:true,options:[]};
-  const [gapR,gscR,availR,gkpR,matchR,uberR]=await Promise.all([
+  const [gapR,gscR,availR,gkpR,matchR,uberR,bankR]=await Promise.all([
     api({action:'gap-research',products:[p],limit:90}).catch(()=>null),
     api({action:'gsc-opportunities',sku:p.sku}).catch(()=>null),
     api({action:'available-product-keywords',sku:p.sku}).catch(()=>null),
     api({action:'google-keyword-ideas',seeds:buildGkpSeeds(p)}).catch(()=>null),
     api({action:'matched-product-ideas',sku:p.sku}).catch(()=>null),
-    api({action:'ubersuggest-keywords',products:[p],limit:90}).catch(()=>null)
+    api({action:'ubersuggest-keywords',products:[p],limit:90}).catch(()=>null),
+    api({action:'bank-keywords',products:[p],limit:90}).catch(()=>null)
   ]);
   const map=new Map();
   const slot=(kw)=>{ const k=(kw||'').toLowerCase().trim(); if(!k) return null; if(!map.has(k)) map.set(k,{keyword:kw,sources:{}}); return map.get(k); };
@@ -1207,6 +1236,8 @@ async function fetchRoomKw(p){
   (uber.options||[]).forEach(o=>{ const s=slot(o.keyword); if(s) s.sources.uber={volume:o.volume,difficulty:o.difficulty,difficultyRaw:o.difficultyRaw,intent:o.intent}; });
   ((gscR&&gscR.options)||[]).forEach(o=>{ const s=slot(o.keyword); if(s) s.sources.gsc={impressions:o.impressions,clicks:o.clicks,position:o.position}; });
   ((gkpR&&gkpR.options)||[]).forEach(o=>{ const s=slot(o.keyword); if(s) s.sources.gkp={volume:o.volume,competition:o.competition,competitionIndex:o.competitionIndex}; });
+  const bank=((bankR&&bankR.results)||[]).find(x=>x.sku===p.sku)||((bankR&&bankR.results)||[])[0]||{options:[]};
+  (bank.options||[]).forEach(o=>{ const s=slot(o.keyword); if(s) s.sources.bank={volume:o.volume,competition:o.competition,group:o.group,already_ranks:o.already_ranks}; });
   const all=[...map.values()].map(o=>{ o.pot=mergedPot(o.sources); o.cat=catOf(o.keyword,p); return o; });
   const list=selectByQuota(all);
   KWC[p.sku]={loading:false,options:list};
@@ -1845,6 +1876,7 @@ function mergedPot(s){
   if(s.uber){ const v=s.uber.volume||0,d=(s.uber.difficulty==null?50:s.uber.difficulty); best=Math.max(best,Math.sqrt(v+1)*(100/(d+10))); }
   if(s.gkp){ const v=s.gkp.volume||0,d=(s.gkp.competitionIndex==null?50:s.gkp.competitionIndex); best=Math.max(best,Math.sqrt(v+1)*(100/(d+10))); }
   if(s.gsc){ const im=s.gsc.impressions||0,ps=(s.gsc.position==null?20:s.gsc.position); best=Math.max(best,Math.sqrt(im+1)*(100/(ps+10))); }
+  if(s.bank){ const v=s.bank.volume||0; const cm={HIGH:70,MEDIUM:40,LOW:15}; const cd=cm[(s.bank.competition||'').toUpperCase()]; const d=(cd!=null?cd:50); let sc=Math.sqrt(v+1)*(100/(d+10)); if(s.bank.already_ranks && v>=70) sc+=5e8; best=Math.max(best,sc); } // proven + vol>=70 floats near the top
   return best;
 }
 function compLabel(c){ return ({LOW:'low comp',MEDIUM:'med comp',HIGH:'high comp'})[c]||''; }
