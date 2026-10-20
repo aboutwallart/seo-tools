@@ -1,4 +1,12 @@
-// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT + Tab 2 APPLY TO DUPLICATE)  ·  v0.34
+// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT + Tab 2 APPLY TO DUPLICATE)  ·  v0.36
+// v0.36 (2026-10-20): REAL FIX for tab2-apply "Could not read the original listing (400)". getListing (/listings/{id})
+//   does NOT return DRAFT listings -> 400. The original is a draft, so we now read it with the shop-scoped listings
+//   endpoint (same one "Clean listings" uses, which DOES return drafts): findShopListingById scans active+draft and
+//   returns the full listing (title/description/tags/materials/shop_section_id). Attributes still come from the
+//   shop-scoped /properties endpoint. Step failures now carry the exact Etsy error text (front shows it).
+// v0.35 (2026-10-20): FIX tab2-apply "Could not read the original listing (400)" — the original read used
+//   getListing with ?includes=Inventory, which Etsy rejects on a draft listing. We don't touch inventory here, so the
+//   read now has no includes (title/description/tags/materials/shop_section_id are all top-level fields).
 // v0.34 (2026-10-20): TAB 2 "Apply to duplicate". Etsy can't set international pricing by API, so Mae duplicates a
 //   listing in Etsy (the copy keeps the international prices) and this tab fills in the rest by API. Test rule: a
 //   duplicate's SKU = the original SKU + "B" at the end. New actions:
@@ -269,6 +277,26 @@ async function buildFixedDescription(call, sectionId, sectionTitle, excludeListi
     .replace('{RELATED}', related);
 }
 
+// Read ONE listing (any state, drafts included) via the shop-scoped listings endpoint. getListing (/listings/{id})
+// 400s on drafts; getListingsByShop returns them. Scans active+draft, returns the full listing object or null.
+async function findShopListingById(call, id) {
+  const want = String(id);
+  for (const state of ['active', 'draft']) {
+    let offset = 0, total = Infinity;
+    for (let page = 0; page < 300 && offset < total; page++) {
+      const lr = await call('/shops/' + SHOP_ID + '/listings?state=' + state + '&limit=100&offset=' + offset);
+      if (lr.status >= 300) break;
+      const j = lr.json || {};
+      total = (typeof j.count === 'number') ? j.count : 0;
+      const results = j.results || [];
+      if (!results.length) break;
+      const hit = results.find(l => String(l.listing_id) === want);
+      if (hit) return hit;
+      offset += 100;
+    }
+  }
+  return null;
+}
 function stripHtml(h) { return String(h || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim(); }
 function normT(s) { return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
 function eqSku(a, b) { return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase(); }
@@ -1032,10 +1060,9 @@ module.exports = async (req, res) => {
       if (!target || !original) { finish(400, { ok: false, error: 'Missing target or original listing id' }); return; }
       const steps = [];
 
-      // 1) read the ORIGINAL listing + its attributes
-      const og = await call('/listings/' + original + '?includes=Inventory');
-      if (og.status >= 300 || !og.json || !og.json.listing_id) { finish(200, { ok: false, steps, error: 'Could not read the original listing (' + og.status + ')' }); return; }
-      const o = og.json;
+      // 1) read the ORIGINAL listing (drafts included -> shop-scoped scan, getListing 400s on drafts) + its attributes
+      const o = await findShopListingById(call, original);
+      if (!o || !o.listing_id) { finish(200, { ok: false, steps, error: 'Could not find the original listing ' + original + ' in your shop (active/draft).' }); return; }
       const op = await call('/shops/' + SHOP_ID + '/listings/' + original + '/properties');
       const ogProps = (op.json && op.json.results) || [];
 
