@@ -62,7 +62,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">AWA ETSY · v0.32</p>
+  <p class="ver">AWA ETSY · v0.33</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -970,7 +970,6 @@
   async function applyDuplicate(i, btn){
     var d = DUPS[i];
     var original = d.originals.length > 1 ? $('dupOrig' + i).value : d.originals[0].listing_id;
-    if (!confirm('Copy the original (' + d.orig_sku + ') onto this duplicate (' + d.dup_sku + ')?\n\nIt replaces the title, description, tags, materials, section, attributes and photos. Prices and variations stay exactly as they are.')) return;
     btn.disabled = true; btn.textContent = 'Applying…'; var res = $('dupRes' + i); res.className = 'msg'; res.textContent = '';
     try{
       var r = await fetch('/api/etsy?action=tab2-apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target_listing_id: d.target_listing_id, original_listing_id: original, sku: d.orig_sku, dup_sku: d.dup_sku, image: d.image }) });
