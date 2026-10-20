@@ -62,7 +62,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">AWA ETSY · v0.33</p>
+  <p class="ver">AWA ETSY · v0.34</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -980,8 +980,9 @@
         btn.textContent = 'Applied';
       } else {
         var fails = (j.steps || []).filter(function(s){ return s.status >= 300; });
+        var detail = fails.map(function(s){ var e = s.error ? (typeof s.error === 'string' ? s.error : JSON.stringify(s.error)) : ''; return s.step + ' (' + (s.status || '') + ')' + (e ? ': ' + e.slice(0, 200) : ''); }).join(' · ');
         res.className = 'msg bad';
-        res.innerHTML = '⚠ ' + (fails.length ? ('Failed: ' + esc(fails.map(function(s){ return s.step + ' (' + (s.status || '') + ')'; }).join(', '))) : esc(j.error || 'Something went wrong'));
+        res.innerHTML = '⚠ ' + (fails.length ? ('Failed: ' + esc(detail)) : esc(j.error || 'Something went wrong'));
         btn.disabled = false; btn.textContent = 'Apply original to this';
       }
     }catch(e){ res.className = 'msg bad'; res.textContent = 'Failed: ' + e.message; btn.disabled = false; btn.textContent = 'Apply original to this'; }
