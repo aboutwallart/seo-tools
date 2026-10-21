@@ -1,4 +1,7 @@
-// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT + Tab 2 APPLY TO DUPLICATE)  ·  v0.43
+// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT + Tab 2 APPLY TO DUPLICATE)  ·  v0.44
+// v0.44 (2026-10-21): FIX the sku step "All offerings need readiness state" (400) — Etsy requires readiness_state_id on
+//   every offering when writing inventory. The sku round-trip now preserves each offering's readiness_state_id (falls
+//   back to the shop's standard when the GET doesn't return one).
 // v0.43 (2026-10-21): tab1-apply-template now sets the REAL product SKU on the listing (before it kept the template's
 //   SKU). The SKU lives inside the inventory (next to prices), so there is no listing-level SKU field to write — we read
 //   the template's inventory and write it back changing ONLY each variant's sku, preserving its price / quantity /
@@ -1354,7 +1357,8 @@ module.exports = async (req, res) => {
               offerings: (p.offerings || []).filter(o => !o.is_deleted).map(o => ({
                 price: (o.price && typeof o.price.amount === 'number' && o.price.divisor) ? (o.price.amount / o.price.divisor) : o.price,
                 quantity: o.quantity,
-                is_enabled: !!o.is_enabled
+                is_enabled: !!o.is_enabled,
+                readiness_state_id: (o.readiness_state_id != null ? o.readiness_state_id : Number(READINESS)) // Etsy: "All offerings need readiness state"
               }))
             }));
             const invBody = {
