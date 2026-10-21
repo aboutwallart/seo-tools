@@ -1,14 +1,8 @@
-// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT + Tab 2 APPLY TO DUPLICATE)  ·  v0.44
-// v0.44 (2026-10-21): FIX the sku step "All offerings need readiness state" (400) — Etsy requires readiness_state_id on
-//   every offering when writing inventory. The sku round-trip now preserves each offering's readiness_state_id (falls
-//   back to the shop's standard when the GET doesn't return one).
-// v0.43 (2026-10-21): tab1-apply-template now sets the REAL product SKU on the listing (before it kept the template's
-//   SKU). The SKU lives inside the inventory (next to prices), so there is no listing-level SKU field to write — we read
-//   the template's inventory and write it back changing ONLY each variant's sku, preserving its price / quantity /
-//   is_enabled / frame-size exactly. WARNING: the Etsy API cannot read international (per-country) prices, so this PUT
-//   MAY reset the template's per-country pricing; the UK price is preserved exactly (read then written back unchanged).
-//   New step "sku" in the result reports whether it succeeded. Used by the single "Apply to a template" and the family
-//   "Apply all to templates" flow (same action).
+// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT + Tab 2 APPLY TO DUPLICATE)  ·  v0.45
+// v0.45 (2026-10-21): REVERTED the v0.43/v0.44 "set the real SKU" work. Writing the template inventory to change the
+//   SKU wiped the international (per-country) prices — Etsy reset them to the UK price (tested live). Behaviour is back
+//   to v0.42: apply-to-template leaves the template SKU and never touches the inventory. SATURDAY: try Mae plan B (SKU
+//   at the start of the title to copy-paste by hand). Do NOT retry the inventory PUT.
 // v0.42 (2026-10-20): Tab 2 now also finds duplicates among INACTIVE listings (Mae published many, never got the
 //   prices applied, and deactivated them — she wants to recover those). tab2-list scans active+inactive+draft and
 //   accepts a duplicate target in draft OR inactive; findShopListingById (the original read) also scans inactive. Each
@@ -1333,45 +1327,6 @@ module.exports = async (req, res) => {
       if (b.section_id) form.set('shop_section_id', String(b.section_id));
       const patch = await call('/shops/' + SHOP_ID + '/listings/' + target, { method: 'PATCH', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form.toString() });
       steps.push({ step: 'text (title/description/tags/materials/section)', status: patch.status, error: patch.status >= 300 ? patch.json : undefined });
-      // 1b) SKU: put the REAL product SKU on the listing. Etsy keeps the SKU INSIDE the inventory (next to the prices),
-      //     so we read the template's inventory and write it back changing ONLY each variant's sku — preserving its
-      //     price / quantity / is_enabled / Frame-Size exactly. WARNING: the API can't read international prices, so this
-      //     PUT may reset per-country pricing (the UK price is preserved exactly). Reported as its own "sku" step.
-      const wantSku = String(b.sku || '').trim();
-      if (wantSku) {
-        try {
-          const ig = await call('/listings/' + target + '/inventory');
-          if (ig.status >= 300 || !ig.json || !Array.isArray(ig.json.products)) {
-            steps.push({ step: 'sku', status: ig.status || 500, error: (ig.json || 'could not read inventory') });
-          } else {
-            const inv = ig.json;
-            const products = inv.products.filter(p => !p.is_deleted).map(p => ({
-              sku: wantSku,
-              property_values: (p.property_values || []).map(pv => ({
-                property_id: pv.property_id,
-                property_name: pv.property_name,
-                scale_id: pv.scale_id != null ? pv.scale_id : null,
-                value_ids: pv.value_ids || [],
-                values: pv.values || []
-              })),
-              offerings: (p.offerings || []).filter(o => !o.is_deleted).map(o => ({
-                price: (o.price && typeof o.price.amount === 'number' && o.price.divisor) ? (o.price.amount / o.price.divisor) : o.price,
-                quantity: o.quantity,
-                is_enabled: !!o.is_enabled,
-                readiness_state_id: (o.readiness_state_id != null ? o.readiness_state_id : Number(READINESS)) // Etsy: "All offerings need readiness state"
-              }))
-            }));
-            const invBody = {
-              products,
-              price_on_property: inv.price_on_property || [],
-              quantity_on_property: inv.quantity_on_property || [],
-              sku_on_property: inv.sku_on_property || []
-            };
-            const ip = await call('/listings/' + target + '/inventory', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(invBody) });
-            steps.push({ step: 'sku', status: ip.status, sku: wantSku, variants: products.length, error: ip.status >= 300 ? ip.json : undefined });
-          }
-        } catch (e) { steps.push({ step: 'sku', status: 500, error: String(e && e.message || e) }); }
-      }
       // 2) attributes (clean value text the same way as publish)
       const attrs = Array.isArray(b.attributes) ? b.attributes : [];
       for (const a of attrs) {
@@ -1393,7 +1348,7 @@ module.exports = async (req, res) => {
       const photosFailed = media.photos.uploaded === 0 && (b.images || []).length;
       steps.push({ step: 'photos', status: photosFailed ? 500 : 200, found: media.photos.found, deleted: media.photos.deleted, uploaded: media.photos.uploaded, failed: media.photos.failed, error: photosFailed ? (media.warning || 'all photos failed') : undefined });
       steps.push({ step: 'old video', status: 200, found: media.video.found, deleted: media.video.deleted });
-      // 5) register in Sent items (store the REAL product SKU for display; the listing's SKU is now set to it above)
+      // 5) register in Sent items (store the REAL product SKU for display; the Etsy listing keeps the template SKU)
       try {
         const s = await readSent();
         const item = { listing_id: target, sku: String(b.sku || ''), title, section: String(b.section_title || ''), image: (b.images && b.images[0]) || '', ts: Date.now() };
@@ -1401,9 +1356,7 @@ module.exports = async (req, res) => {
         await ghPut(SENT_PATH, JSON.stringify(items, null, 2), s.sha, 'AWA ETSY: tab1 applied-to-template ' + item.sku + ' (' + target + ')');
       } catch (e) { /* best-effort */ }
       const failed = steps.filter(s => s.status >= 300);
-      const skuStep = steps.filter(s => s.step === 'sku')[0];
-      const skuNote = skuStep ? (skuStep.status < 300 ? 'SKU set to ' + wantSku + '. ' : 'SKU NOT set (check international price). ') : '';
-      const summary = skuNote + 'Photos: ' + media.photos.uploaded + ' uploaded' + (media.photos.deleted ? ', ' + media.photos.deleted + ' old removed' : '') + (media.photos.failed ? ', ' + media.photos.failed + ' failed' : '') + '. Video: ' + (media.video.found ? (media.video.deleted + '/' + media.video.found + ' old removed') : 'none');
+      const summary = 'Photos: ' + media.photos.uploaded + ' uploaded' + (media.photos.deleted ? ', ' + media.photos.deleted + ' old removed' : '') + (media.photos.failed ? ', ' + media.photos.failed + ' failed' : '') + '. Video: ' + (media.video.found ? (media.video.deleted + '/' + media.video.found + ' old removed') : 'none');
       finish(200, { ok: !failed.length, listing_id: target, steps, failed: failed.length, warning: media.warning || undefined, summary });
       return;
     }
