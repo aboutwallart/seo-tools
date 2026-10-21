@@ -62,7 +62,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">AWA ETSY · v0.37</p>
+  <p class="ver">AWA ETSY · v0.38</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -99,6 +99,7 @@
       <div class="row" style="margin:0 0 6px"><button type="button" class="ghost" id="groupBtn" onclick="groupFamily()">Group ticked as a family</button></div>
       <div id="queueList" style="margin-top:4px"></div>
       <div id="familySend" style="margin-top:8px"></div>
+      <div id="famTplPanel" style="margin-top:8px"></div>
       <div id="sendStatus" class="msg"></div>
     </div>
     <div id="prod" class="hide">
@@ -455,8 +456,9 @@
       if (pending <= 0) return '<div class="fixed" style="padding:4px 0">Family ' + famLetter(f) + ': all sent ✓</div>';
       var ready = c.approved === pending;
       var status = 'Family ' + famLetter(f) + ': ' + c.approved + '/' + pending + ' approved' + (c.sent ? (' · ' + c.sent + ' sent') : '');
-      var btn = ready ? ' <button type="button" id="sendFam' + f + '" onclick="sendAllFamily(' + f + ')">Send all drafts (Family ' + famLetter(f) + ')</button>' : '';
-      return '<div class="row" style="justify-content:space-between;padding:4px 0"><span class="fixed">' + status + '</span>' + btn + '</div>';
+      var btn = ready ? ' <button type="button" id="sendFam' + f + '" onclick="sendAllFamily(' + f + ')">Send all drafts (Family ' + famLetter(f) + ')</button>' +
+        ' <button type="button" class="ghost" id="tplFam' + f + '" onclick="openFamilyTemplates(' + f + ')">Apply all to templates (Family ' + famLetter(f) + ')</button>' : '';
+      return '<div class="row" style="justify-content:space-between;padding:4px 0"><span class="fixed">' + status + '</span><span>' + btn + '</span></div>';
     }).join('');
     // "Start a new list" once there is nothing left to do (end reached, or every family fully sent) and nothing is sending
     var sending = keys.some(function(f){ return SENDING[f]; });
@@ -468,6 +470,7 @@
     QUEUE = []; QIDX = 0; FAMID = []; STATE = []; FAMILIES = {}; FAM_SEQ = 0; QEND = false; SENDING = {};
     show('queuePanel', false); resetForNext(true);
     if ($('sendStatus')) $('sendStatus').textContent = '';
+    if ($('famTplPanel')) $('famTplPanel').innerHTML = '';
     $('loadMsg').className = 'msg'; $('loadMsg').textContent = 'Paste a new list to start another batch.';
     window.scrollTo(0, 0);
   }
@@ -493,6 +496,81 @@
     await loadSent();
     renderQueue();
     setStatus('Family ' + famLetter(f) + ': sent ' + done + ' of ' + items.length + '.' + (failed.length ? ' Check these: ' + failed.join(' · ') : ' All done.'), failed.length ? 'bad' : 'good');
+  }
+
+  /* ---------- Apply a whole FAMILY to templates (each member -> its own TEMPLATE draft, keeping that template's international pricing) ---------- */
+  // Open the per-member template picker for a family: one dropdown per approved member, each picks a TEMPLATE draft.
+  async function openFamilyTemplates(f){
+    if (SENDING[f]) return;
+    var items = (FAMILIES[f] && FAMILIES[f].approved ? FAMILIES[f].approved : []).filter(function(a){ return STATE[a.qidx] === 'approved'; });
+    if (!items.length) return;
+    var panel = $('famTplPanel');
+    panel.innerHTML = '<div class="card" style="padding:10px;margin:6px 0"><b>Family ' + famLetter(f) + ' → templates</b>' +
+      '<div class="msg" id="famTplMsg" style="margin:4px 0">Reading your TEMPLATE drafts…</div><div id="famTplRows"></div></div>';
+    try{
+      var r = await fetch('/api/etsy?action=tab1-templates&t=' + Date.now()); var j = await r.json();
+      if (!j.ok) throw new Error(j.error || 'Error');
+      TEMPLATES = j.templates || [];
+      if (!TEMPLATES.length){ $('famTplMsg').className = 'msg bad'; $('famTplMsg').textContent = 'No template drafts found (a template SKU must contain the word "template").'; return; }
+      $('famTplMsg').className = 'msg';
+      $('famTplMsg').textContent = 'Pick a template for each one (each must use a different template), then Apply all. Prices and variations stay as the template has them.';
+      renderFamilyTemplateRows(f, items);
+    }catch(e){ $('famTplMsg').className = 'msg bad'; $('famTplMsg').textContent = 'Failed: ' + e.message; }
+  }
+  function renderFamilyTemplateRows(f, items){
+    var opts = TEMPLATES.map(function(t){ return '<option value="' + esc(t.listing_id) + '">' + esc((t.sku || '') + (t.title ? ' — ' + t.title : '')) + '</option>'; }).join('');
+    $('famTplRows').innerHTML = items.map(function(a){
+      return '<div class="row" style="gap:8px;align-items:center;padding:3px 0">' +
+        '<span class="fixed" style="flex:1;min-width:120px">' + esc(a.g.sku) + ' — ' + esc(a.g.title) + '</span>' +
+        '<select class="famTplSel" data-qidx="' + a.qidx + '" style="flex:1;min-width:160px"><option value="">— pick a template —</option>' + opts + '</select>' +
+        '<span class="msg" id="famTplRes' + a.qidx + '"></span></div>';
+    }).join('') + '<div class="row" style="margin-top:8px"><button type="button" id="famTplApply" onclick="applyAllFamilyToTemplates(' + f + ')">Apply all to templates</button></div>';
+  }
+  async function applyAllFamilyToTemplates(f){
+    if (SENDING[f]) return;                                 // never start a second run (no double apply)
+    var items = (FAMILIES[f] && FAMILIES[f].approved ? FAMILIES[f].approved : []).filter(function(a){ return STATE[a.qidx] === 'approved'; });
+    if (!items.length) return;
+    var choice = {};                                        // qidx -> template listing_id
+    Array.prototype.forEach.call(document.querySelectorAll('.famTplSel'), function(s){ choice[s.getAttribute('data-qidx')] = s.value; });
+    var used = {}, missing = 0, dup = 0;
+    items.forEach(function(a){ var tid = choice[a.qidx] || ''; if (!tid){ missing++; return; } if (used[tid]) dup++; used[tid] = 1; });
+    var msg = $('famTplMsg');
+    if (missing){ if (msg){ msg.className = 'msg bad'; msg.textContent = 'Pick a template for every item (' + missing + ' still empty).'; } return; }
+    if (dup){ if (msg){ msg.className = 'msg bad'; msg.textContent = 'Two items share the same template — give each a different one (they would overwrite each other).'; } return; }
+    SENDING[f] = true; renderQueue();                       // lock the family buttons straight away
+    var applyBtn = $('famTplApply'); if (applyBtn) applyBtn.disabled = true;
+    function setStatus(txt, cls){ var e = $('sendStatus'); if (e){ e.className = 'msg' + (cls ? ' ' + cls : ''); e.textContent = txt; } }
+    var done = 0, failed = [];
+    for (var k = 0; k < items.length; k++){
+      var a = items[k], tid = choice[a.qidx];
+      STATE[a.qidx] = 'sending'; renderQueue();
+      var head = 'Family ' + famLetter(f) + ' → templates — ' + (k + 1) + ' of ' + items.length + ' (' + a.g.sku + ')';
+      setStatus(head + '…');
+      var res = $('famTplRes' + a.qidx); if (res){ res.className = 'msg'; res.textContent = 'applying…'; }
+      try{
+        var body = Object.assign({}, a.g.payload, { target_listing_id: tid, images: a.g.images });
+        var r = await fetch('/api/etsy?action=tab1-apply-template', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        var j = await r.json();
+        if (j.ok){
+          STATE[a.qidx] = 'sent'; done++;
+          if (res){ res.className = 'msg good'; res.innerHTML = '✓ ' + (j.summary ? esc(j.summary) + ' ' : '') + '<a href="https://www.etsy.com/your/shops/me/tools/listings/' + esc(tid) + '" target="_blank">Open</a>'; }
+        } else {
+          STATE[a.qidx] = 'approved';
+          var fails = (j.steps || []).filter(function(s){ return s.status >= 300; });
+          var detail = fails.map(function(s){ var e = s.error ? (typeof s.error === 'string' ? s.error : JSON.stringify(s.error)) : ''; return s.step + ' (' + (s.status || '') + ')' + (e ? ': ' + e.slice(0, 160) : ''); }).join(' · ');
+          failed.push(a.g.sku);
+          if (res){ res.className = 'msg bad'; res.textContent = '⚠ ' + (fails.length ? detail : (j.error || 'failed')); }
+        }
+      }catch(e){ STATE[a.qidx] = 'approved'; failed.push(a.g.sku + ' (' + (e && e.message || e) + ')'); if (res){ res.className = 'msg bad'; res.textContent = '⚠ ' + (e && e.message || e); } }
+      renderQueue();
+    }
+    SENDING[f] = false;
+    FAMILIES[f].approved = FAMILIES[f].approved.filter(function(a){ return STATE[a.qidx] !== 'sent'; });
+    await loadSent();
+    renderQueue();
+    if (applyBtn) applyBtn.disabled = false;
+    setStatus('Family ' + famLetter(f) + ' → templates: applied ' + done + ' of ' + items.length + '.' + (failed.length ? ' Check these: ' + failed.join(' · ') : ' All done.'), failed.length ? 'bad' : 'good');
+    if (!failed.length){ var panel = $('famTplPanel'); if (panel) panel.innerHTML = ''; }
   }
   function renderProduct(){
     show('prod'); show('kwCard'); show('genCard'); show('editCard', false); show('pubCard', false);
