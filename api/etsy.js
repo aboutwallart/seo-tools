@@ -1,4 +1,8 @@
-// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT + Tab 2 APPLY TO DUPLICATE)  ·  v0.45
+// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT + Tab 2 APPLY TO DUPLICATE)  ·  v0.46
+// v0.46 (2026-10-21): FIX "Generate listing" error "Unexpected non-whitespace character after JSON" — the AI sometimes
+//   adds text (or a 2nd block) after the JSON, and the greedy /{...}/ grabbed first "{" to LAST "}", swallowing it.
+//   claudeJSON now extracts the FIRST complete JSON object (brace-count, string-aware) via firstJsonObject and parses
+//   only that. Affects every generate/suggest call.
 // v0.45 (2026-10-21): REVERTED the v0.43/v0.44 "set the real SKU" work. Writing the template inventory to change the
 //   SKU wiped the international (per-country) prices — Etsy reset them to the UK price (tested live). Behaviour is back
 //   to v0.42: apply-to-template leaves the template SKU and never touches the inventory. SATURDAY: try Mae plan B (SKU
@@ -503,6 +507,25 @@ async function runApify(seeds) {
   if (!Array.isArray(items)) throw new Error('Apify respondió: ' + JSON.stringify(items).slice(0, 300));
   return { items, took_s: Math.round((Date.now() - t0) / 1000), status: rr.status };
 }
+// Pull the FIRST complete JSON object out of the model's text (brace-count, string-aware), ignoring anything the AI
+// adds after it. A greedy /{...}/ would span from the first "{" to the LAST "}", swallowing a trailing 2nd block or
+// note and breaking JSON.parse ("Unexpected non-whitespace character after JSON").
+function firstJsonObject(s) {
+  const start = s.indexOf('{');
+  if (start < 0) return null;
+  let depth = 0, inStr = false, esc = false;
+  for (let i = start; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === '"') inStr = false;
+    } else if (c === '"') inStr = true;
+    else if (c === '{') depth++;
+    else if (c === '}') { depth--; if (depth === 0) return s.slice(start, i + 1); }
+  }
+  return null;
+}
 async function claudeJSON(content, maxTokens) {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) throw new Error('ANTHROPIC_API_KEY no está configurado en Vercel');
@@ -513,9 +536,9 @@ async function claudeJSON(content, maxTokens) {
   const d = await r.json();
   if (!r.ok) throw new Error('Claude API: ' + JSON.stringify(d).slice(0, 400));
   const txt = (d.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').replace(/```json\n?/g, '').replace(/```/g, '');
-  const m = txt.match(/\{[\s\S]*\}/);
-  if (!m) throw new Error('Claude no devolvió JSON');
-  return JSON.parse(m[0]);
+  const jsonStr = firstJsonObject(txt);
+  if (!jsonStr) throw new Error('Claude no devolvió JSON');
+  return JSON.parse(jsonStr);
 }
 
 function b64url(buf) { return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
