@@ -62,7 +62,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">AWA ETSY · v0.39</p>
+  <p class="ver">AWA ETSY · v0.41</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -522,9 +522,21 @@
     $('famTplRows').innerHTML = items.map(function(a){
       return '<div class="row" style="gap:8px;align-items:center;padding:3px 0">' +
         '<span class="fixed" style="flex:1;min-width:120px">' + esc(a.g.sku) + ' — ' + esc(a.g.title) + '</span>' +
-        '<select class="famTplSel" data-qidx="' + a.qidx + '" style="flex:1;min-width:160px"><option value="">— pick a template —</option>' + opts + '</select>' +
+        '<select class="famTplSel" data-qidx="' + a.qidx + '" onchange="famTplRefresh()" style="flex:1;min-width:160px"><option value="">— pick a template —</option>' + opts + '</select>' +
         '<span class="msg" id="famTplRes' + a.qidx + '"></span></div>';
     }).join('') + '<div class="row" style="margin-top:8px"><button type="button" id="famTplApply" onclick="applyAllFamilyToTemplates(' + f + ')">Apply all to templates</button></div>';
+    famTplRefresh();
+  }
+  // grey out, in every dropdown, templates already chosen by another member — so the same one can never be picked twice
+  function famTplRefresh(){
+    var sels = Array.prototype.slice.call(document.querySelectorAll('.famTplSel'));
+    var used = {};
+    sels.forEach(function(s){ if (s.value){ used[s.value] = 1; } });
+    sels.forEach(function(s){
+      Array.prototype.forEach.call(s.options, function(o){ if (o.value){ o.disabled = !!(used[o.value] && o.value !== s.value); } });
+    });
+    var msg = $('famTplMsg');
+    if (msg){ msg.className = 'msg'; msg.textContent = 'Pick a template for each one (already-used ones are greyed out). Prices and variations stay as the template has them.'; }
   }
   async function applyAllFamilyToTemplates(f){
     if (SENDING[f]) return;                                 // never start a second run (no double apply)
@@ -849,14 +861,15 @@
   // Read the whole edited listing (title, tags, photos, variants, attributes, section) into one plain object,
   // so it can be sent now (single) or stored and sent later (family). Returns null if invalid.
   function gatherListing(){
-    if (!SECTION_ID){ var sn = $('secNote'); sn.className = 'msg bad'; sn.textContent = 'Pick a shop section before you publish.'; sn.scrollIntoView({ block: 'center' }); return null; }
+    function fail(msg){ var pm = $('pubMsg'); if (pm){ pm.className = 'msg bad'; pm.textContent = '⚠ ' + msg; pm.scrollIntoView({ block: 'center' }); } return null; }
+    if (!SECTION_ID){ var sn = $('secNote'); if (sn){ sn.className = 'msg bad'; sn.textContent = 'Pick a shop section before you publish.'; } return fail('Pick a shop section before you continue (up in the Shop section box).'); }
     var title = $('fTitle').value.trim();
     function clampTag(s){ var t = String(s||'').replace(/\s+/g,' ').trim(); if (t.length <= 20) return t; var cut = t.slice(0,20); var sp = cut.lastIndexOf(' '); return (sp >= 10 ? cut.slice(0,sp) : cut).trim(); }
     var tags = [];
     Array.prototype.forEach.call(document.querySelectorAll('.tagIn'), function(i){ var c = clampTag(i.value); if (c && !tags.some(function(x){ return norm(x) === norm(c); })) tags.push(c); });
-    if (!title || title.length > 140){ alert('The title is empty or over 140 characters.'); return null; }
+    if (!title || title.length > 140){ return fail('The title is empty or over 140 characters.'); }
     var images = selectedImages();
-    if (images.length > 20){ alert('More than 20 photos selected — untick down to 20.'); return null; }
+    if (images.length > 20){ return fail('More than 20 photos selected — untick down to 20.'); }
     var variants = P.variants.map(function(v, i){ var inp = document.querySelector('.varPrice[data-i="' + i + '"]'); return { frame: v.frame, size: v.size, price: parseFloat(inp.value) }; });
     var attributes = [];
     Object.keys(ATTR_SEL).forEach(function(pid){
