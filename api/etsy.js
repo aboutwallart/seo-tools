@@ -1,4 +1,15 @@
-// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT + Tab 2 APPLY TO DUPLICATE)  ·  v0.40
+// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT + Tab 2 APPLY TO DUPLICATE)  ·  v0.42
+// v0.42 (2026-10-20): Tab 2 now also finds duplicates among INACTIVE listings (Mae published many, never got the
+//   prices applied, and deactivated them — she wants to recover those). tab2-list scans active+inactive+draft and
+//   accepts a duplicate target in draft OR inactive; findShopListingById (the original read) also scans inactive. Each
+//   duplicate now carries its real state (draft/inactive) for the UI.
+// v0.41 (2026-10-20): Tab 1 can now publish a NEW product INTO a TEMPLATE draft (to inherit its international pricing,
+//   which the API can't set). Etsy has no "duplicate" endpoint, so Mae keeps template drafts (SKU contains "template")
+//   that already carry the international pricing. New actions: tab1-templates (lists draft listings whose SKU contains
+//   "template"); tab1-apply-template (PATCHes the generated title/description+footer/tags/materials/section, sets
+//   is_personalizable + personalisation, PUTs attributes, and replaces the media — removes the old video + photos and
+//   uploads the picked Shopify photos — NEVER touching variations/prices). New shared helper replaceListingMedia.
+//   NOTE: the applied listing keeps the template's SKU (the SKU lives with the price, which we must not touch).
 // v0.40 (2026-10-20): tab2-apply now copies the PHOTOS from the ORIGINAL Etsy listing (not from Shopify). The Shopify
 //   product has 30 images but Etsy caps at 20, so pulling from Shopify dropped the 3 mandatory brand images (size guide
 //   / picture frames / frame sizes) that live at the end. Mae already curated the original's 20 (with the mandatory
@@ -301,7 +312,7 @@ async function buildFixedDescription(call, sectionId, sectionTitle, excludeListi
 // 400s on drafts; getListingsByShop returns them. Scans active+draft, returns the full listing object or null.
 async function findShopListingById(call, id) {
   const want = String(id);
-  for (const state of ['active', 'draft']) {
+  for (const state of ['active', 'inactive', 'draft']) {
     let offset = 0, total = Infinity;
     for (let page = 0; page < 300 && offset < total; page++) {
       const lr = await call('/shops/' + SHOP_ID + '/listings?state=' + state + '&limit=100&offset=' + offset);
@@ -316,6 +327,54 @@ async function findShopListingById(call, id) {
     }
   }
   return null;
+}
+// Replace a listing's media: delete its video(s) and photos, then upload the given image URLs (any http(s) source).
+// Etsy refuses to delete a listing's LAST image and caps at 20, so keep one anchor, upload, delete the anchor, then
+// retry any that were blocked by the cap. Returns counts + a one-line warning. Used by tab1-apply-template.
+async function replaceListingMedia(call, target, imageUrls) {
+  const out = { video: { found: 0, deleted: 0 }, photos: { found: 0, deleted: 0, uploaded: 0, failed: 0 }, warning: '', firstImg: '' };
+  // --- video ---
+  try {
+    const lv = await call('/listings/' + target + '/videos');
+    const vids = (lv.json && (lv.json.results || lv.json.videos)) || [];
+    out.video.found = vids.length;
+    for (const v of vids) { const dv = await call('/shops/' + SHOP_ID + '/listings/' + target + '/videos/' + v.video_id, { method: 'DELETE' }); if (dv.status < 300) out.video.deleted++; }
+  } catch (e) { /* best-effort */ }
+  // --- photos ---
+  const urls = (imageUrls || []).filter(Boolean).slice(0, 20);
+  out.firstImg = urls[0] || '';
+  try {
+    const cur = await call('/listings/' + target + '/images');
+    const oldImgs = (cur.json && cur.json.results) || [];
+    out.photos.found = oldImgs.length;
+    const anchor = oldImgs.length ? oldImgs[0] : null;   // keep one so deleting the others never hits "the last image"
+    const delImage = async (id) => { const dr = await call('/shops/' + SHOP_ID + '/listings/' + target + '/images/' + id, { method: 'DELETE' }); if (dr.status < 300) { out.photos.deleted++; return true; } return false; };
+    for (const im of oldImgs.slice(1)) await delImage(im.listing_image_id);
+    let firstErr = null;
+    const uploadOne = async (i) => {
+      try {
+        const ir = await fetch(urls[i]);
+        if (!ir.ok) { if (!firstErr) firstErr = 'image fetch ' + ir.status; return false; }
+        const buf = Buffer.from(await ir.arrayBuffer());
+        const fd = new FormData();
+        fd.append('image', new Blob([buf], { type: ir.headers.get('content-type') || 'image/jpeg' }), 'image-' + (i + 1) + '.jpg');
+        fd.append('rank', String(i + 1));
+        const r = await call('/shops/' + SHOP_ID + '/listings/' + target + '/images', { method: 'POST', body: fd });
+        if (r.status < 300) return true;
+        if (!firstErr) firstErr = 'etsy upload ' + r.status + ' ' + JSON.stringify(r.json).slice(0, 150);
+        return false;
+      } catch (e) { if (!firstErr) firstErr = String(e && e.message || e); return false; }
+    };
+    const pending = [];
+    for (let i = 0; i < urls.length; i++) { if (await uploadOne(i)) out.photos.uploaded++; else pending.push(i); }  // pass 1 (anchor still there)
+    if (anchor && out.photos.uploaded > 0) await delImage(anchor.listing_image_id);  // now new photos exist -> anchor deletable
+    const still = [];
+    for (const i of pending) { if (await uploadOne(i)) out.photos.uploaded++; else still.push(i); }  // pass 2: blocked by the 20-cap
+    out.photos.failed = still.length;
+    if (out.photos.failed && firstErr) out.warning = out.photos.failed + ' of ' + urls.length + ' photos failed: ' + firstErr;
+    else if (out.photos.uploaded === 0 && urls.length && firstErr) out.warning = 'all photos failed: ' + firstErr;
+  } catch (e) { out.warning = 'photos error: ' + String(e && e.message || e); }
+  return out;
 }
 function stripHtml(h) { return String(h || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim(); }
 function normT(s) { return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
@@ -1038,7 +1097,7 @@ module.exports = async (req, res) => {
         const arr = map[k] || (map[k] = []);
         if (!arr.some(x => String(x.listing_id) === String(listing.listing_id))) arr.push(listing);
       };
-      for (const state of ['active', 'draft']) {
+      for (const state of ['active', 'inactive', 'draft']) {
         let offset = 0, total = Infinity;
         for (let page = 0; page < 300 && offset < total; page++) {
           const lr = await call('/shops/' + SHOP_ID + '/listings?state=' + state + '&limit=100&offset=' + offset + '&includes=Inventory,Images');
@@ -1062,8 +1121,9 @@ module.exports = async (req, res) => {
         const origBase = base.slice(0, -1).trim();                    // original = same base without the trailing "B"
         const originals = (map[origBase] || []).map(o => ({ listing_id: o.listing_id, title: o.title, state: o.state }));
         if (!originals.length) return;                                // only show duplicates that have an original to copy
-        (map[base] || []).filter(d => d.state === 'draft').forEach(d => {
-          dups.push({ target_listing_id: d.listing_id, dup_sku: base, orig_sku: origBase, title: d.title, image: d.image, originals });
+        // a duplicate target can be a DRAFT or an INACTIVE listing (Mae deactivated many after publishing without prices)
+        (map[base] || []).filter(d => d.state === 'draft' || d.state === 'inactive').forEach(d => {
+          dups.push({ target_listing_id: d.listing_id, dup_sku: base, orig_sku: origBase, title: d.title, image: d.image, state: d.state, originals });
         });
       });
       dups.sort((a, b) => a.dup_sku.localeCompare(b.dup_sku));
@@ -1216,6 +1276,84 @@ module.exports = async (req, res) => {
         + (imgStep.failed ? ', ' + imgStep.failed + ' failed' : '')
         + '. Video: ' + (vidStep.found ? (vidStep.deleted + '/' + vidStep.found + ' old removed') : 'none');
       finish(200, { ok: !failed.length, listing_id: target, steps, failed: failed.length, warning: warning || undefined, summary });
+      return;
+    }
+
+    // ================= TAB 1 — APPLY A NEW PRODUCT TO A TEMPLATE =================
+    // List the draft "templates" (SKU contains "template") — they already carry the international pricing.
+    if (q.action === 'tab1-templates') {
+      const out = [];
+      let offset = 0, total = Infinity;
+      for (let page = 0; page < 300 && offset < total; page++) {
+        const lr = await call('/shops/' + SHOP_ID + '/listings?state=draft&limit=100&offset=' + offset + '&includes=Inventory,Images');
+        if (lr.status >= 300) break;
+        const j = lr.json || {};
+        total = (typeof j.count === 'number') ? j.count : 0;
+        const results = j.results || [];
+        if (!results.length) break;
+        results.forEach(l => {
+          const skus = [].concat(l.skus || [], ((l.inventory && l.inventory.products) || []).map(p => p.sku));
+          const tpl = skus.find(s => /template/i.test(String(s || '')));
+          if (tpl) { const im = (l.images && l.images[0]) || {}; out.push({ listing_id: String(l.listing_id), title: l.title || '', image: im.url_570xN || im.url_fullxfull || im.url_300x300 || '', sku: baseSkuEtsy(tpl) }); }
+        });
+        offset += 100;
+      }
+      out.sort((a, b) => a.sku.localeCompare(b.sku));
+      finish(200, { ok: true, count: out.length, templates: out });
+      return;
+    }
+
+    // Apply a NEW product (generated in Tab 1) to a chosen TEMPLATE draft. NEVER touches variations / prices.
+    if (q.action === 'tab1-apply-template' && req.method === 'POST') {
+      const b = req.body || {};
+      const target = String(b.target_listing_id || '').trim();
+      if (!target) { finish(400, { ok: false, error: 'Missing target template listing id' }); return; }
+      const title = String(b.title || '').trim();
+      if (!title || title.length > 140) { finish(400, { ok: false, error: 'Title empty or over 140 characters' }); return; }
+      const steps = [];
+      // 1) text: title, description (+ fixed footer), tags, materials, section + personalisation ON
+      const tags = [];
+      for (const raw of (b.tags || [])) { const c = clampTag(raw); if (c && !tags.some(x => x.toLowerCase() === c.toLowerCase())) tags.push(c); if (tags.length >= 13) break; }
+      const mats = [...new Set((b.materials || []).map(sanitizeMaterial).filter(Boolean))].slice(0, 13);
+      const fixedFooter = await buildFixedDescription(call, b.section_id, b.section_title, target);
+      const description = (String(b.description || '').trim() + '\n\n' + fixedFooter).trim();
+      const form = new URLSearchParams({ title, description, is_personalizable: 'true' });
+      if (tags.length) form.set('tags', tags.join(','));
+      if (mats.length) form.set('materials', mats.join(','));
+      if (b.section_id) form.set('shop_section_id', String(b.section_id));
+      const patch = await call('/shops/' + SHOP_ID + '/listings/' + target, { method: 'PATCH', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form.toString() });
+      steps.push({ step: 'text (title/description/tags/materials/section)', status: patch.status, error: patch.status >= 300 ? patch.json : undefined });
+      // 2) attributes (clean value text the same way as publish)
+      const attrs = Array.isArray(b.attributes) ? b.attributes : [];
+      for (const a of attrs) {
+        const ids = (a.value_ids || []).map(Number).filter(n => Number.isInteger(n) && n > 0);
+        if (!a.property_id || !ids.length) continue;
+        const vals = (a.values || []).map(v => String(v).replace(/\s*\([^)]*\)\s*$/, '').trim());
+        const f = new URLSearchParams({ value_ids: ids.join(','), values: vals.join(',') });
+        const pr = await call('/shops/' + SHOP_ID + '/listings/' + target + '/properties/' + a.property_id, { method: 'PUT', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: f.toString() });
+        steps.push({ step: 'attribute ' + (a.name || a.property_id), status: pr.status, error: pr.status >= 300 ? pr.json : undefined });
+      }
+      // 3) personalisation (parity with publish) — best effort
+      try {
+        const persoBody = { personalization_questions: [{ question_text: 'Personalise your item', instructions: 'Tell us a custom size or a quote to add. Leave blank when no customisation is required', question_type: 'text_input', required: false, add_on_price: 5.00, max_allowed_characters: 256 }] };
+        const perso = await call('/shops/' + SHOP_ID + '/listings/' + target + '/personalization?supports_multiple_personalization_questions=true', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(persoBody) });
+        steps.push({ step: 'personalisation', status: perso.status, error: perso.status >= 300 ? perso.json : undefined });
+      } catch (e) { /* best-effort */ }
+      // 4) media: remove the template's old video + photos, upload the picked Shopify photos
+      const media = await replaceListingMedia(call, target, (b.images || []));
+      const photosFailed = media.photos.uploaded === 0 && (b.images || []).length;
+      steps.push({ step: 'photos', status: photosFailed ? 500 : 200, found: media.photos.found, deleted: media.photos.deleted, uploaded: media.photos.uploaded, failed: media.photos.failed, error: photosFailed ? (media.warning || 'all photos failed') : undefined });
+      steps.push({ step: 'old video', status: 200, found: media.video.found, deleted: media.video.deleted });
+      // 5) register in Sent items (store the REAL product SKU for display; the Etsy listing keeps the template SKU)
+      try {
+        const s = await readSent();
+        const item = { listing_id: target, sku: String(b.sku || ''), title, section: String(b.section_title || ''), image: (b.images && b.images[0]) || '', ts: Date.now() };
+        const items = [item].concat(s.items.filter(x => String(x.listing_id) !== item.listing_id));
+        await ghPut(SENT_PATH, JSON.stringify(items, null, 2), s.sha, 'AWA ETSY: tab1 applied-to-template ' + item.sku + ' (' + target + ')');
+      } catch (e) { /* best-effort */ }
+      const failed = steps.filter(s => s.status >= 300);
+      const summary = 'Photos: ' + media.photos.uploaded + ' uploaded' + (media.photos.deleted ? ', ' + media.photos.deleted + ' old removed' : '') + (media.photos.failed ? ', ' + media.photos.failed + ' failed' : '') + '. Video: ' + (media.video.found ? (media.video.deleted + '/' + media.video.found + ' old removed') : 'none');
+      finish(200, { ok: !failed.length, listing_id: target, steps, failed: failed.length, warning: media.warning || undefined, summary });
       return;
     }
 
