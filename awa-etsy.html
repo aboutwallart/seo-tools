@@ -62,7 +62,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">AWA ETSY · v0.38</p>
+  <p class="ver">AWA ETSY · v0.39</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -940,6 +940,9 @@
         res.innerHTML = '✓ Done. ' + (j.summary ? esc(j.summary) + ' ' : '') + (j.warning ? '<span class="bad">' + esc(j.warning) + '</span> ' : '') + '<a href="https://www.etsy.com/your/shops/me/tools/listings/' + esc(t.listing_id) + '" target="_blank">Open in Etsy</a>';
         btn.textContent = 'Applied';
         await loadSent();
+        // let Mae move on to the next product in the list (same advance as the normal send)
+        $('tplMsg').className = 'msg good';
+        $('tplMsg').innerHTML = '✓ Applied. <button type="button" onclick="advanceAfterPublish()">Next product →</button>';
       } else {
         var fails = (j.steps || []).filter(function(s){ return s.status >= 300; });
         var detail = fails.map(function(s){ var e = s.error ? (typeof s.error === 'string' ? s.error : JSON.stringify(s.error)) : ''; return s.step + ' (' + (s.status || '') + ')' + (e ? ': ' + e.slice(0, 200) : ''); }).join(' · ');
