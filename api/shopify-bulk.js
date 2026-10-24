@@ -1,4 +1,5 @@
-// shopify-bulk.js — v3.9 (24 Oct 2026)
+// shopify-bulk.js — v3.10 (24 Oct 2026)
+// v3.10: cdt-options now splits collections into collectionsByRoom + collectionsByProduct (two sub-columns in the UI).
 // v3.9: NEW "Update Collective items data" tab. cdt-options (pick-lists: product types, live room choices, trends from
 //   config, collections+their smart-collection tag + linked-trend pages, both from the New Main Menu), cdt-vendors
 //   (Collective vendors with drafts + applied counts), cdt-products (draft rows w/ photo + current values; SKU search),
@@ -2106,25 +2107,30 @@ module.exports = async function handler(req, res) {
       let roomChoices = [];
       try { const d = await shopify(`query{ metafieldDefinitions(first:1, ownerType: PRODUCT, namespace:"custom", key:"room_type"){ nodes{ validations{ name value } } } }`); const n = d.metafieldDefinitions && d.metafieldDefinitions.nodes && d.metafieldDefinitions.nodes[0]; const v = n && (n.validations || []).find(x => x.name === 'choices'); if (v && v.value) roomChoices = JSON.parse(v.value); } catch (e) {}
       const trends = cfg.trendValues || [];
-      let collections = [], linkedPages = [];
+      let collectionsByRoom = [], collectionsByProduct = [], linkedPages = [];
       try {
         const md = await shopify(`query($id:ID!){ menu(id:$id){ items{ title items{ title items{ title type resourceId } } } } }`, { id: cfg.menuId });
         const top = (md.menu && md.menu.items) || [];
         const home = top.find(i => /home decor/i.test(i.title || ''));
         const subs = (home && home.items) || [];
-        const collItems = [];
-        subs.forEach(s => { if (/by room|by product/i.test(s.title || '')) (s.items || []).forEach(x => { if (x.type === 'COLLECTION' && x.resourceId) collItems.push({ id: x.resourceId, title: x.title }); }); });
-        subs.forEach(s => { if (/by trend/i.test(s.title || '')) (s.items || []).forEach(x => { if (x.type === 'PAGE' && x.resourceId) linkedPages.push({ id: x.resourceId, title: x.title }); }); });
-        for (let i = 0; i < collItems.length; i += 20) {
-          const chunk = collItems.slice(i, i + 20);
+        const collRoom = [], collProd = [];
+        subs.forEach(s => {
+          if (/by room/i.test(s.title || '')) (s.items || []).forEach(x => { if (x.type === 'COLLECTION' && x.resourceId) collRoom.push({ id: x.resourceId, title: x.title }); });
+          if (/by product/i.test(s.title || '')) (s.items || []).forEach(x => { if (x.type === 'COLLECTION' && x.resourceId) collProd.push({ id: x.resourceId, title: x.title }); });
+          if (/by trend/i.test(s.title || '')) (s.items || []).forEach(x => { if (x.type === 'PAGE' && x.resourceId) linkedPages.push({ id: x.resourceId, title: x.title }); });
+        });
+        const all = collRoom.concat(collProd); const tagMap = {};
+        for (let i = 0; i < all.length; i += 20) {
+          const chunk = all.slice(i, i + 20);
           const q = 'query{ ' + chunk.map((c, j) => `c${j}: collection(id:"${c.id}"){ ruleSet{ rules{ column condition } } }`).join(' ') + ' }';
           const d = await shopify(q);
-          chunk.forEach((c, j) => { const n = d[`c${j}`]; const rules = (n && n.ruleSet && n.ruleSet.rules) ? n.ruleSet.rules : []; const tags = rules.filter(r => r.column === 'TAG').map(r => r.condition); collections.push({ id: c.id, title: c.title, tags }); });
+          chunk.forEach((c, j) => { const n = d[`c${j}`]; const rules = (n && n.ruleSet && n.ruleSet.rules) ? n.ruleSet.rules : []; tagMap[c.id] = rules.filter(r => r.column === 'TAG').map(r => r.condition); });
         }
-        collections.sort((a, b) => a.title.localeCompare(b.title));
+        const withTags = arr => arr.map(c => ({ id: c.id, title: c.title, tags: tagMap[c.id] || [] })).sort((a, b) => a.title.localeCompare(b.title));
+        collectionsByRoom = withTags(collRoom); collectionsByProduct = withTags(collProd);
         linkedPages.sort((a, b) => a.title.localeCompare(b.title));
       } catch (e) {}
-      return res.status(200).json({ ok: true, productTypes, roomChoices, trends, collections, linkedPages });
+      return res.status(200).json({ ok: true, productTypes, roomChoices, trends, collectionsByRoom, collectionsByProduct, linkedPages });
     }
 
     // ---- cdt-vendors: Collective vendors (not About Wall Art) that have drafts, with draft / already-applied counts ----
