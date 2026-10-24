@@ -1,4 +1,10 @@
-// shopify-bulk.js — v3.8 (24 Oct 2026)
+// shopify-bulk.js — v3.9 (24 Oct 2026)
+// v3.9: NEW "Update Collective items data" tab. cdt-options (pick-lists: product types, live room choices, trends from
+//   config, collections+their smart-collection tag + linked-trend pages, both from the New Main Menu), cdt-vendors
+//   (Collective vendors with drafts + applied counts), cdt-products (draft rows w/ photo + current values; SKU search),
+//   cdt-apply (BACKS UP first — aborts if it can't — then writes category/productType/tags(from collections)/room_type/
+//   trends/linked_trends + applies the 25% margin [floor_cost 25, same as Collective Prices], moves to "applied"),
+//   cdt-moveback, cdt-undo-list/cdt-undo. Added mf.linked_trends to MF_DEFS for the backup gate.
 // v3.8: csv-apply now backs up the OLD values (per-product Category/Product Type/Room Type) to GitHub BEFORE writing
 //       anything, and ABORTS without touching the store if that backup can't be saved — so you never write without undo.
 // v3.7: NEW "Apply data via CSV" tab — per-product Category + Product Type + Room Type from a CSV, by Handle, via API.
@@ -97,8 +103,9 @@ const FIELD_UNDO_DIR = 'data/bulk-field-undo';          // other-fields undo sna
 // Product metafields the Metafields tab can bulk-edit. Field id in the API = 'mf.<short>'. All reuse the
 // field backup / apply / undo plumbing (one more branch in each). List types store a JSON-array string.
 const MF_DEFS = {
-  'mf.room_type': { namespace: 'custom', key: 'room_type', type: 'list.single_line_text_field', list: true },
-  'mf.trends':    { namespace: 'custom', key: 'trends',    type: 'list.single_line_text_field', list: true }
+  'mf.room_type':     { namespace: 'custom', key: 'room_type',     type: 'list.single_line_text_field', list: true },
+  'mf.trends':        { namespace: 'custom', key: 'trends',        type: 'list.single_line_text_field', list: true },
+  'mf.linked_trends': { namespace: 'custom', key: 'linked_trends', type: 'list.page_reference',          list: true }
 };
 function mfDef(field) { return MF_DEFS[field] || null; }
 function mfParse(raw) { if (raw == null || raw === '') return []; try { const a = JSON.parse(raw); return Array.isArray(a) ? a : [String(a)]; } catch (e) { return String(raw).split(',').map(s => s.trim()).filter(Boolean); } }
@@ -2082,6 +2089,148 @@ module.exports = async function handler(req, res) {
       }
       const total = snap.snapshot.length, nextOffset = offset + work.length, hasMore = nextOffset < total;
       if (!hasMore) { try { const idx = (await ghGet('data/csvapply-undos.json')).json || []; const hit = idx.find(x => x.id === undoId); if (hit) hit.reverted = true; await ghPut('data/csvapply-undos.json', idx, `csv reverted ${undoId}`); } catch (e) {} }
+      return res.status(200).json({ ok: true, restored, total, nextOffset, hasMore, errors: errors.slice(0, 20) });
+    }
+
+    // ================= UPDATE COLLECTIVE ITEMS DATA =================
+    const CDT_CONFIG = 'data/collective-data-config.json';
+    const CDT_APPLIED = 'data/collective-applied.json';
+    const CDT_UNDO_DIR = 'data/collective-undo', CDT_UNDO_IDX = 'data/collective-undos.json';
+    const CDT_MARGIN = { mode: 'floor_cost', value: 25, rounding: 'none' };   // reuses Collective Prices rule: at least cost + 25%
+
+    // ---- cdt-options: the pick-lists for every field (product types, room choices, trends, collections+their tag, linked-trend pages) ----
+    if (action === 'cdt-options') {
+      const cfg = (await ghGet(CDT_CONFIG)).json || {};
+      const ptCfg = (await ghGet('data/csv-apply-config.json')).json || {};
+      const productTypes = ptCfg.productTypeValues || [];
+      let roomChoices = [];
+      try { const d = await shopify(`query{ metafieldDefinitions(first:1, ownerType: PRODUCT, namespace:"custom", key:"room_type"){ nodes{ validations{ name value } } } }`); const n = d.metafieldDefinitions && d.metafieldDefinitions.nodes && d.metafieldDefinitions.nodes[0]; const v = n && (n.validations || []).find(x => x.name === 'choices'); if (v && v.value) roomChoices = JSON.parse(v.value); } catch (e) {}
+      const trends = cfg.trendValues || [];
+      let collections = [], linkedPages = [];
+      try {
+        const md = await shopify(`query($id:ID!){ menu(id:$id){ items{ title items{ title items{ title type resourceId } } } } }`, { id: cfg.menuId });
+        const top = (md.menu && md.menu.items) || [];
+        const home = top.find(i => /home decor/i.test(i.title || ''));
+        const subs = (home && home.items) || [];
+        const collItems = [];
+        subs.forEach(s => { if (/by room|by product/i.test(s.title || '')) (s.items || []).forEach(x => { if (x.type === 'COLLECTION' && x.resourceId) collItems.push({ id: x.resourceId, title: x.title }); }); });
+        subs.forEach(s => { if (/by trend/i.test(s.title || '')) (s.items || []).forEach(x => { if (x.type === 'PAGE' && x.resourceId) linkedPages.push({ id: x.resourceId, title: x.title }); }); });
+        for (let i = 0; i < collItems.length; i += 20) {
+          const chunk = collItems.slice(i, i + 20);
+          const q = 'query{ ' + chunk.map((c, j) => `c${j}: collection(id:"${c.id}"){ ruleSet{ rules{ column condition } } }`).join(' ') + ' }';
+          const d = await shopify(q);
+          chunk.forEach((c, j) => { const n = d[`c${j}`]; const rules = (n && n.ruleSet && n.ruleSet.rules) ? n.ruleSet.rules : []; const tags = rules.filter(r => r.column === 'TAG').map(r => r.condition); collections.push({ id: c.id, title: c.title, tags }); });
+        }
+        collections.sort((a, b) => a.title.localeCompare(b.title));
+        linkedPages.sort((a, b) => a.title.localeCompare(b.title));
+      } catch (e) {}
+      return res.status(200).json({ ok: true, productTypes, roomChoices, trends, collections, linkedPages });
+    }
+
+    // ---- cdt-vendors: Collective vendors (not About Wall Art) that have drafts, with draft / already-applied counts ----
+    if (action === 'cdt-vendors') {
+      const appliedSet = new Set((await ghGet(CDT_APPLIED)).json || []);
+      const counts = {}; let cursor = null, pages = 0;
+      while (pages < 400) {
+        const d = await shopify(`query($c:String){ products(first:100, query:"status:draft", after:$c){ pageInfo{ hasNextPage endCursor } nodes{ id vendor } } }`, { c: cursor });
+        (d.products.nodes || []).forEach(p => { if ((p.vendor || '') === AWA_VENDOR) return; const v = p.vendor || '(no vendor)'; if (!counts[v]) counts[v] = { drafts: 0, applied: 0 }; if (appliedSet.has(p.id)) counts[v].applied++; else counts[v].drafts++; });
+        pages++; if (!d.products.pageInfo.hasNextPage) break; cursor = d.products.pageInfo.endCursor;
+      }
+      const vendors = Object.keys(counts).map(v => ({ vendor: v, drafts: counts[v].drafts, applied: counts[v].applied })).filter(v => v.drafts > 0 || v.applied > 0).sort((a, b) => a.vendor.localeCompare(b.vendor));
+      return res.status(200).json({ ok: true, vendors });
+    }
+
+    // ---- cdt-products: draft rows for a vendor (or a SKU search across vendors), with photo + current field values ----
+    if (action === 'cdt-products') {
+      const vendor = String(body.vendor || '').trim(), sku = String(body.sku || '').trim();
+      const applied = new Set((await ghGet(CDT_APPLIED)).json || []);
+      let q = 'status:draft';
+      if (sku) q += ` sku:${JSON.stringify(sku)}`; else if (vendor) q += ` vendor:'${vendor.replace(/'/g, "\\'")}'`;
+      const sel = 'id handle title vendor featuredImage{ url } productType category{ id fullName } tags rt: metafield(namespace:"custom",key:"room_type"){ value } tr: metafield(namespace:"custom",key:"trends"){ value } lt: metafield(namespace:"custom",key:"linked_trends"){ value }';
+      const rows = []; let cursor = null, pages = 0;
+      while (pages < 60) {
+        const d = await shopify(`query($q:String,$c:String){ products(first:50, query:$q, after:$c){ pageInfo{ hasNextPage endCursor } nodes{ ${sel} } } }`, { q, c: cursor });
+        (d.products.nodes || []).forEach(p => { if ((p.vendor || '') === AWA_VENDOR) return; rows.push({ id: p.id, handle: p.handle, title: p.title, vendor: p.vendor, image: p.featuredImage ? p.featuredImage.url : '', productType: p.productType || '', categoryId: p.category ? p.category.id : null, categoryName: p.category ? p.category.fullName : '', tags: p.tags || [], rooms: mfParse(p.rt ? p.rt.value : null), trends: mfParse(p.tr ? p.tr.value : null), linked: mfParse(p.lt ? p.lt.value : null), applied: applied.has(p.id) }); });
+        pages++; if (!d.products.pageInfo.hasNextPage || sku) break; cursor = d.products.pageInfo.endCursor;
+      }
+      return res.status(200).json({ ok: true, rows });
+    }
+
+    // ---- cdt-apply: back up FIRST (abort if it can't save), then write the fields + collection tags + 25% margin, move to "applied" ----
+    if (action === 'cdt-apply') {
+      const items = Array.isArray(body.items) ? body.items : [];
+      if (!items.length) return res.status(200).json({ ok: true, applied: 0 });
+      const now = new Date().toISOString(); const isFirst = !body.undoId; const undoId = body.undoId || ('cdtundo-' + now.replace(/[:.]/g, '-'));
+      const ids = items.map(it => it.productId);
+      const cur = {};
+      for (let i = 0; i < ids.length; i += 15) {
+        const chunk = ids.slice(i, i + 15);
+        const q = 'query{ ' + chunk.map((id, j) => `p${j}: product(id:"${id}"){ id tags productType category{ id } rt: metafield(namespace:"custom",key:"room_type"){ value } tr: metafield(namespace:"custom",key:"trends"){ value } lt: metafield(namespace:"custom",key:"linked_trends"){ value } variants(first:100){ nodes{ id price inventoryItem{ unitCost{ amount } } } } }`).join(' ') + ' }';
+        const d = await shopify(q); chunk.forEach((id, j) => { if (d[`p${j}`]) cur[id] = d[`p${j}`]; });
+      }
+      const snapshot = [];
+      for (const it of items) { const p = cur[it.productId]; if (!p) continue; snapshot.push({ productId: it.productId, tags: p.tags || [], productType: p.productType || '', categoryId: p.category ? p.category.id : null, rooms: mfParse(p.rt ? p.rt.value : null), trends: mfParse(p.tr ? p.tr.value : null), linked: mfParse(p.lt ? p.lt.value : null), prices: (p.variants ? p.variants.nodes : []).map(v => ({ id: v.id, price: v.price })) }); }
+      try {
+        if (isFirst) { await ghPut(`${CDT_UNDO_DIR}/${undoId}.json`, { id: undoId, createdAt: now, snapshot }, `cdt backup ${undoId}`); const idx = (await ghGet(CDT_UNDO_IDX)).json || []; idx.unshift({ id: undoId, createdAt: now, count: snapshot.length, reverted: false }); await ghPut(CDT_UNDO_IDX, idx.slice(0, 100), `cdt idx ${undoId}`); await pruneUndos(CDT_UNDO_IDX, CDT_UNDO_DIR, UNDO_KEEP); }
+        else { const ex = (await ghGet(`${CDT_UNDO_DIR}/${undoId}.json`)).json || { id: undoId, snapshot: [] }; ex.snapshot = (ex.snapshot || []).concat(snapshot); await ghPut(`${CDT_UNDO_DIR}/${undoId}.json`, ex, `cdt backup append ${undoId}`); const idx = (await ghGet(CDT_UNDO_IDX)).json || []; const h = idx.find(x => x.id === undoId); if (h) h.count = (h.count || 0) + snapshot.length; else idx.unshift({ id: undoId, createdAt: now, count: snapshot.length, reverted: false }); await ghPut(CDT_UNDO_IDX, idx, `cdt idx ${undoId}`); }
+      } catch (e) { return res.status(500).json({ ok: false, error: 'Backup could not be saved — nothing was changed. ' + String(e.message || e) }); }
+      const errors = []; let applied = 0; const doneIds = [];
+      for (const it of items) {
+        const p = cur[it.productId]; if (!p) continue; const pid = it.productId;
+        try {
+          const newTags = Array.from(new Set([...(p.tags || []), ...((it.addTags || []))]));
+          let input = `id:"${pid}", tags:[${newTags.map(t => JSON.stringify(t)).join(',')}]`;
+          if (it.categoryId) input += `, category:"${it.categoryId}"`;
+          if (it.productType) input += `, productType:${JSON.stringify(it.productType)}`;
+          const d1 = await shopify(`mutation{ productUpdate(input:{${input}}){ userErrors{ message } } }`); const ue1 = d1.productUpdate ? d1.productUpdate.userErrors : []; if (ue1 && ue1.length) ue1.forEach(e => errors.push(`${pid}: ${e.message}`));
+          const mfs = [];
+          if (Array.isArray(it.rooms) && it.rooms.length) mfs.push(`{ownerId:"${pid}",namespace:"custom",key:"room_type",type:"list.single_line_text_field",value:${JSON.stringify(JSON.stringify(it.rooms))}}`);
+          if (Array.isArray(it.trends) && it.trends.length) mfs.push(`{ownerId:"${pid}",namespace:"custom",key:"trends",type:"list.single_line_text_field",value:${JSON.stringify(JSON.stringify(it.trends))}}`);
+          if (Array.isArray(it.linkedIds) && it.linkedIds.length) mfs.push(`{ownerId:"${pid}",namespace:"custom",key:"linked_trends",type:"list.page_reference",value:${JSON.stringify(JSON.stringify(it.linkedIds))}}`);
+          if (mfs.length) { const d2 = await shopify(`mutation{ metafieldsSet(metafields:[${mfs.join(',')}]){ userErrors{ message } } }`); const ue2 = d2.metafieldsSet ? d2.metafieldsSet.userErrors : []; if (ue2 && ue2.length) ue2.forEach(e => errors.push(`${pid}: ${e.message}`)); }
+          const variants = [];
+          (p.variants ? p.variants.nodes : []).forEach(v => { const cost = v.inventoryItem && v.inventoryItem.unitCost ? v.inventoryItem.unitCost.amount : null; const r = computeNew(v.price, cost, CDT_MARGIN); if (r.changed && r.newPrice != null) variants.push({ id: v.id, price: String(r.newPrice) }); });
+          if (variants.length) { const d3 = await shopify(`mutation($productId:ID!,$variants:[ProductVariantsBulkInput!]!){ productVariantsBulkUpdate(productId:$productId,variants:$variants){ userErrors{ message } } }`, { productId: pid, variants }); const ue3 = d3.productVariantsBulkUpdate ? d3.productVariantsBulkUpdate.userErrors : []; if (ue3 && ue3.length) ue3.forEach(e => errors.push(`${pid}: ${e.message}`)); }
+          applied++; doneIds.push(pid);
+        } catch (e) { errors.push(`${pid}: ${String(e.message || e)}`); }
+      }
+      try { const list = (await ghGet(CDT_APPLIED)).json || []; const set = new Set(list); doneIds.forEach(id => set.add(id)); await ghPut(CDT_APPLIED, Array.from(set), `cdt applied +${doneIds.length}`); } catch (e) {}
+      return res.status(200).json({ ok: true, applied, moved: doneIds.length, errors: errors.slice(0, 30), undoId });
+    }
+
+    // ---- cdt-moveback: move products from "Data applied" back to Drafts (does NOT undo the data — just lets you edit again) ----
+    if (action === 'cdt-moveback') {
+      const ids = Array.isArray(body.productIds) ? body.productIds : [];
+      const list = (await ghGet(CDT_APPLIED)).json || []; const set = new Set(list); ids.forEach(id => set.delete(id));
+      await ghPut(CDT_APPLIED, Array.from(set), `cdt moveback ${ids.length}`);
+      return res.status(200).json({ ok: true, moved: ids.length });
+    }
+
+    // ---- cdt-undo-list / cdt-undo: put back the exact prior values (tags, category, type, metafields, prices) of a run ----
+    if (action === 'cdt-undo-list') { return res.status(200).json({ ok: true, undos: (await ghGet(CDT_UNDO_IDX)).json || [] }); }
+    if (action === 'cdt-undo') {
+      const undoId = body.undoId; if (!undoId) return res.status(400).json({ ok: false, error: 'undoId required' });
+      const snap = (await ghGet(`${CDT_UNDO_DIR}/${undoId}.json`)).json; if (!snap || !Array.isArray(snap.snapshot)) return res.status(404).json({ ok: false, error: 'Snapshot not found' });
+      const offset = Number(body.offset) || 0, limit = Number(body.limit) || 30; const work = snap.snapshot.slice(offset, offset + limit);
+      const errors = []; let restored = 0;
+      for (const s of work) {
+        const pid = s.productId;
+        try {
+          let input = `id:"${pid}", tags:[${(s.tags || []).map(t => JSON.stringify(t)).join(',')}]`;
+          input += s.categoryId ? `, category:"${s.categoryId}"` : `, category:null`;
+          if (s.productType != null) input += `, productType:${JSON.stringify(s.productType)}`;
+          await shopify(`mutation{ productUpdate(input:{${input}}){ userErrors{ message } } }`);
+          const mfPairs = [['room_type', 'list.single_line_text_field', s.rooms || []], ['trends', 'list.single_line_text_field', s.trends || []], ['linked_trends', 'list.page_reference', s.linked || []]];
+          for (const [key, type, arr] of mfPairs) {
+            if (arr && arr.length) await shopify(`mutation{ metafieldsSet(metafields:[{ownerId:"${pid}",namespace:"custom",key:"${key}",type:"${type}",value:${JSON.stringify(JSON.stringify(arr))}}]){ userErrors{ message } } }`);
+            else await shopify(`mutation{ metafieldsDelete(metafields:[{ownerId:"${pid}",namespace:"custom",key:"${key}"}]){ userErrors{ message } } }`);
+          }
+          if (s.prices && s.prices.length) await shopify(`mutation($productId:ID!,$variants:[ProductVariantsBulkInput!]!){ productVariantsBulkUpdate(productId:$productId,variants:$variants){ userErrors{ message } } }`, { productId: pid, variants: s.prices.map(v => ({ id: v.id, price: String(v.price) })) });
+          restored++;
+        } catch (e) { errors.push(String(e.message || e)); }
+      }
+      const total = snap.snapshot.length, nextOffset = offset + work.length, hasMore = nextOffset < total;
+      if (!hasMore) { try { const idx = (await ghGet(CDT_UNDO_IDX)).json || []; const h = idx.find(x => x.id === undoId); if (h) h.reverted = true; await ghPut(CDT_UNDO_IDX, idx, `cdt reverted ${undoId}`); } catch (e) {} }
       return res.status(200).json({ ok: true, restored, total, nextOffset, hasMore, errors: errors.slice(0, 20) });
     }
 
