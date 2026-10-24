@@ -1,4 +1,6 @@
-// shopify-bulk.js — v3.7 (24 Oct 2026)
+// shopify-bulk.js — v3.8 (24 Oct 2026)
+// v3.8: csv-apply now backs up the OLD values (per-product Category/Product Type/Room Type) to GitHub BEFORE writing
+//       anything, and ABORTS without touching the store if that backup can't be saved — so you never write without undo.
 // v3.7: NEW "Apply data via CSV" tab — per-product Category + Product Type + Room Type from a CSV, by Handle, via API.
 //       Actions: csv-config / csv-config-save (editable Product Type valid list + maps, e.g. Mirrors->Wall Mirrors),
 //       csv-apply (dryRun = per-product report: resolves category paths against the live taxonomy, validates Product
@@ -2031,26 +2033,37 @@ module.exports = async function handler(req, res) {
         allOk: report.filter(x => x.found && !x.hasIssue && Object.values(x.fields).length > 0 && Object.values(x.fields).every(f => f.status === 'ok')).length,
         nonDraft: report.filter(x => x.found && x.productStatus && x.productStatus !== 'DRAFT').length };
       if (dryRun) return res.status(200).json({ ok: true, report, summary, roomChoicesCount: rtValues.length, ptValuesCount: ptValues.length });
-      // ---- APPLY (only found rows with no blocking issue; only changed fields) ----
+      // ---- APPLY: back up the OLD values FIRST; only write if the backup saved. If it can't save, abort — nothing changes. ----
       const now = new Date().toISOString(); const isFirst = !body.undoId; const undoId = body.undoId || ('csvundo-' + now.replace(/[:.]/g, '-'));
-      const snapshot = []; const errors = []; let applied = 0, skipped = 0;
+      const errors = []; let applied = 0, skipped = 0;
+      // 1) plan every change + snapshot the OLD values (NO writes yet)
+      const plan = []; const snapshot = [];
       for (const row of report) {
         if (!row.found || row.hasIssue) { skipped++; continue; }
-        const prod = byHandle[row.handle]; const fc = row.fields; const changes = []; let input = `id:"${prod.id}"`; let doProd = false;
+        const prod = byHandle[row.handle]; const fc = row.fields; const changes = []; let input = `id:"${prod.id}"`; let doProd = false; let roomNew = null;
         if (fc.category && fc.category.status === 'change') { input += `, category:"${fc.category.newId}"`; doProd = true; changes.push({ field: 'category', old: fc.category.oldId || '', new: fc.category.newId }); }
         if (fc.productType && fc.productType.status === 'change') { input += `, productType:${JSON.stringify(fc.productType.new)}`; doProd = true; changes.push({ field: 'productType', old: fc.productType.old, new: fc.productType.new }); }
-        try {
-          if (doProd) { const d3 = await shopify(`mutation { productUpdate(input:{${input}}){ userErrors{ field message } } }`); const ue = d3.productUpdate ? d3.productUpdate.userErrors : []; if (ue && ue.length) ue.forEach(e => errors.push(`${row.handle}: ${e.message}`)); else applied += changes.length; }
-          if (fc.roomType && fc.roomType.status === 'change') { const arr = fc.roomType.newList || []; const d4 = await shopify(`mutation { metafieldsSet(metafields:[{ownerId:"${prod.id}", namespace:"custom", key:"room_type", type:"list.single_line_text_field", value:${JSON.stringify(JSON.stringify(arr))}}]){ userErrors{ message } } }`); const ue = d4.metafieldsSet ? d4.metafieldsSet.userErrors : []; if (ue && ue.length) ue.forEach(e => errors.push(`${row.handle}: ${e.message}`)); else applied++; changes.push({ field: 'roomType', old: fc.roomType.old, new: fc.roomType.new }); }
-        } catch (e) { errors.push(`${row.handle}: ${String(e.message || e)}`); }
-        if (changes.length) snapshot.push({ handle: row.handle, id: prod.id, changes });
+        if (fc.roomType && fc.roomType.status === 'change') { roomNew = fc.roomType.newList || []; changes.push({ field: 'roomType', old: fc.roomType.old, new: fc.roomType.new }); }
+        if (changes.length) { plan.push({ id: prod.id, handle: row.handle, input, doProd, roomNew }); snapshot.push({ handle: row.handle, id: prod.id, changes }); }
       }
-      try {
-        const DIR = 'data/csvapply-undo', IDX = 'data/csvapply-undos.json';
-        if (isFirst) { await ghPut(`${DIR}/${undoId}.json`, { id: undoId, createdAt: now, snapshot }, `csv-apply undo ${undoId}`); const idx = (await ghGet(IDX)).json || []; idx.unshift({ id: undoId, createdAt: now, count: snapshot.length, reverted: false }); await ghPut(IDX, idx.slice(0, 100), `csv-apply index ${undoId}`); await pruneUndos(IDX, DIR, UNDO_KEEP); }
-        else { const ex = (await ghGet(`${DIR}/${undoId}.json`)).json || { id: undoId, snapshot: [] }; ex.snapshot = (ex.snapshot || []).concat(snapshot); await ghPut(`${DIR}/${undoId}.json`, ex, `csv-apply undo append ${undoId}`); const idx = (await ghGet(IDX)).json || []; const hit = idx.find(x => x.id === undoId); if (hit) hit.count = (hit.count || 0) + snapshot.length; await ghPut(IDX, idx, `csv-apply index count ${undoId}`); }
-      } catch (e) {}
-      return res.status(200).json({ ok: true, applied, skipped, errors: errors.slice(0, 30), undoId });
+      // 2) SAVE THE BACKUP BEFORE WRITING. If GitHub can't store it, abort — nothing is touched.
+      const DIR = 'data/csvapply-undo', IDX = 'data/csvapply-undos.json';
+      if (snapshot.length) {
+        try {
+          if (isFirst) { await ghPut(`${DIR}/${undoId}.json`, { id: undoId, createdAt: now, snapshot }, `csv-apply backup ${undoId}`); const idx = (await ghGet(IDX)).json || []; idx.unshift({ id: undoId, createdAt: now, count: snapshot.length, reverted: false }); await ghPut(IDX, idx.slice(0, 100), `csv-apply index ${undoId}`); await pruneUndos(IDX, DIR, UNDO_KEEP); }
+          else { const ex = (await ghGet(`${DIR}/${undoId}.json`)).json || { id: undoId, snapshot: [] }; ex.snapshot = (ex.snapshot || []).concat(snapshot); await ghPut(`${DIR}/${undoId}.json`, ex, `csv-apply backup append ${undoId}`); const idx = (await ghGet(IDX)).json || []; const hit = idx.find(x => x.id === undoId); if (hit) hit.count = (hit.count || 0) + snapshot.length; else idx.unshift({ id: undoId, createdAt: now, count: snapshot.length, reverted: false }); await ghPut(IDX, idx, `csv-apply index count ${undoId}`); }
+        } catch (e) {
+          return res.status(500).json({ ok: false, error: 'Backup could not be saved — nothing was changed. ' + String(e.message || e), undoId });
+        }
+      }
+      // 3) now write (the backup is safely stored, so every change can be undone)
+      for (const it of plan) {
+        try {
+          if (it.doProd) { const d3 = await shopify(`mutation { productUpdate(input:{${it.input}}){ userErrors{ field message } } }`); const ue = d3.productUpdate ? d3.productUpdate.userErrors : []; if (ue && ue.length) ue.forEach(e => errors.push(`${it.handle}: ${e.message}`)); else applied++; }
+          if (it.roomNew) { const d4 = await shopify(`mutation { metafieldsSet(metafields:[{ownerId:"${it.id}", namespace:"custom", key:"room_type", type:"list.single_line_text_field", value:${JSON.stringify(JSON.stringify(it.roomNew))}}]){ userErrors{ message } } }`); const ue = d4.metafieldsSet ? d4.metafieldsSet.userErrors : []; if (ue && ue.length) ue.forEach(e => errors.push(`${it.handle}: ${e.message}`)); else applied++; }
+        } catch (e) { errors.push(`${it.handle}: ${String(e.message || e)}`); }
+      }
+      return res.status(200).json({ ok: true, applied, skipped, backedUp: snapshot.length, errors: errors.slice(0, 30), undoId });
     }
     // ---- csv-undo-list / csv-undo: put back the exact prior category / productType / room_type ----
     if (action === 'csv-undo-list') { return res.status(200).json({ ok: true, undos: (await ghGet('data/csvapply-undos.json')).json || [] }); }
