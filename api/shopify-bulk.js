@@ -1,4 +1,11 @@
-// shopify-bulk.js — v3.5 (19 Oct 2026)
+// shopify-bulk.js — v3.7 (24 Oct 2026)
+// v3.7: NEW "Apply data via CSV" tab — per-product Category + Product Type + Room Type from a CSV, by Handle, via API.
+//       Actions: csv-config / csv-config-save (editable Product Type valid list + maps, e.g. Mirrors->Wall Mirrors),
+//       csv-apply (dryRun = per-product report: resolves category paths against the live taxonomy, validates Product
+//       Type against the config list + maps, validates Room Type against the LIVE custom.room_type choices, flags
+//       invalid values with the correct options + closest suggestions, nbsp-safe), apply writes only changed fields
+//       (productUpdate category+type, metafieldsSet room_type), skips already-correct, never touches anything else,
+//       saves undo. csv-undo-list / csv-undo restore the exact prior 3 values.
 // v3.5: fix — the Metafields "filter by Collection" preview failed (collection.products takes no query arg); now
 //       it fetches the collection's products and filters vendor/status/tag/title in code.
 // v3.4: Metafields support — Room Type (live from the metafield definition) + Trends bulk-edited by group
@@ -1938,6 +1945,130 @@ module.exports = async function handler(req, res) {
       }
       const total = snap.snapshot.length, nextOffset = offset + work.length, hasMore = nextOffset < total;
       if (!hasMore) { try { const idx = (await ghGet('data/xlsx-undos.json')).json || []; const hit = idx.find(x => x.id === undoId); if (hit) hit.reverted = true; await ghPut('data/xlsx-undos.json', idx, `xlsx reverted ${undoId}`); } catch (e) {} }
+      return res.status(200).json({ ok: true, restored, total, nextOffset, hasMore, errors: errors.slice(0, 20) });
+    }
+
+    // ================= APPLY DATA VIA CSV (Category · Product Type · Room Type) =================
+    const CSVAPPLY_CONFIG = 'data/csv-apply-config.json';
+    const csvNorm = s => String(s == null ? '' : s).replace(/ /g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+    async function csvRoomChoices() {
+      try {
+        const data = await shopify(`query{ metafieldDefinitions(first:1, ownerType: PRODUCT, namespace:"custom", key:"room_type"){ nodes{ validations{ name value } } } }`);
+        const node = data.metafieldDefinitions && data.metafieldDefinitions.nodes && data.metafieldDefinitions.nodes[0];
+        if (node) { const v = (node.validations || []).find(x => x.name === 'choices'); if (v && v.value) return JSON.parse(v.value); }
+      } catch (e) {}
+      return [];
+    }
+    // ---- csv-config: the saved Product Type valid list + maps, plus the LIVE room_type choices ----
+    if (action === 'csv-config') {
+      const cfg = (await ghGet(CSVAPPLY_CONFIG)).json || {};
+      return res.status(200).json({ ok: true, productTypeValues: cfg.productTypeValues || [], productTypeMap: cfg.productTypeMap || {}, roomTypeMap: cfg.roomTypeMap || {}, roomChoices: await csvRoomChoices() });
+    }
+    // ---- csv-config-save: store the Product Type valid list + maps ----
+    if (action === 'csv-config-save') {
+      const cfg = {
+        productTypeValues: Array.isArray(body.productTypeValues) ? [...new Set(body.productTypeValues.map(s => String(s).trim()).filter(Boolean))] : [],
+        productTypeMap: (body.productTypeMap && typeof body.productTypeMap === 'object') ? body.productTypeMap : {},
+        roomTypeMap: (body.roomTypeMap && typeof body.roomTypeMap === 'object') ? body.roomTypeMap : {}
+      };
+      await ghPut(CSVAPPLY_CONFIG, cfg, 'csv-apply config');
+      return res.status(200).json({ ok: true, saved: true, count: cfg.productTypeValues.length });
+    }
+    // ---- csv-apply: validate CSV rows vs live Shopify + config; dryRun returns the report, else writes the 3 fields + saves undo ----
+    if (action === 'csv-apply') {
+      const rows = Array.isArray(body.rows) ? body.rows : [];           // [{handle, category, productType, rooms:[...]}]
+      const fields = Array.isArray(body.fields) ? body.fields : [];      // subset of ['category','productType','roomType']
+      const dryRun = !!body.dryRun;
+      const lev = (a, b) => { a = csvNorm(a); b = csvNorm(b); const m = a.length, n = b.length; if (!m) return n; if (!n) return m; const dp = Array.from({ length: m + 1 }, (_, i) => [i].concat(Array(n).fill(0))); for (let j = 0; j <= n; j++) dp[0][j] = j; for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++) dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); return dp[m][n]; };
+      const closest = (val, list, k) => (list || []).map(v => ({ v, d: lev(val, v) })).sort((a, b) => a.d - b.d).slice(0, k || 3).map(x => x.v);
+      const cfg = (await ghGet(CSVAPPLY_CONFIG)).json || {};
+      const ptValues = cfg.productTypeValues || []; const ptMap = cfg.productTypeMap || {}; const rtMap = cfg.roomTypeMap || {};
+      const ptLookup = {}; ptValues.forEach(v => { ptLookup[csvNorm(v)] = v; });
+      const rtValues = await csvRoomChoices(); const rtLookup = {}; rtValues.forEach(v => { rtLookup[csvNorm(v)] = v; });
+      // resolve category paths -> GID (cached, matched by exact fullName)
+      const catCache = {};
+      async function resolveCat(path) {
+        const p = String(path || '').trim(); if (!p) return null;
+        if (catCache[p] !== undefined) return catCache[p];
+        const leaf = p.split('>').pop().trim(); let found = null;
+        try { const d = await shopify(`query($s:String!){ taxonomy{ categories(search:$s, first:25){ nodes{ id fullName } } } }`, { s: leaf }); const nodes = (d.taxonomy && d.taxonomy.categories && d.taxonomy.categories.nodes) || []; found = nodes.find(n => csvNorm(n.fullName) === csvNorm(p)) || null; } catch (e) {}
+        catCache[p] = found; return found;
+      }
+      // resolve handles -> current product values (chunked)
+      const handles = Array.from(new Set(rows.map(r => String(r.handle || '').trim()).filter(Boolean)));
+      const byHandle = {};
+      for (let i = 0; i < handles.length; i += 25) {
+        const chunk = handles.slice(i, i + 25);
+        const qf = chunk.map(h => `handle:'${h.replace(/'/g, "\\'")}'`).join(' OR ');
+        try { const d = await shopify(`query($q:String){ products(first:25, query:$q){ nodes{ id handle title status productType category{ id fullName } rt: metafield(namespace:"custom", key:"room_type"){ value } } } }`, { q: qf }); (d.products.nodes || []).forEach(p => { byHandle[p.handle] = p; }); } catch (e) {}
+      }
+      const report = [];
+      for (const r of rows) {
+        const h = String(r.handle || '').trim(); const prod = byHandle[h];
+        const row = { handle: h, title: prod ? prod.title : '', productStatus: prod ? prod.status : null, found: !!prod, fields: {}, hasIssue: false };
+        if (!prod) { row.hasIssue = true; report.push(row); continue; }
+        if (fields.indexOf('category') !== -1 && r.category != null && String(r.category).trim()) {
+          const resolved = await resolveCat(r.category); const curId = prod.category ? prod.category.id : null;
+          if (!resolved) { row.fields.category = { status: 'invalid', value: r.category, reason: 'Category path not found in Shopify taxonomy' }; row.hasIssue = true; }
+          else row.fields.category = { status: resolved.id === curId ? 'ok' : 'change', old: prod.category ? prod.category.fullName : '', oldId: curId, new: resolved.fullName, newId: resolved.id };
+        }
+        if (fields.indexOf('productType') !== -1 && r.productType != null && String(r.productType).trim()) {
+          const raw = String(r.productType).trim(); const mapped = ptMap[raw] != null ? ptMap[raw] : null; const cand = mapped != null ? mapped : raw; const canon = ptLookup[csvNorm(cand)];
+          if (!canon) { row.fields.productType = { status: 'invalid', value: raw, reason: ptValues.length ? 'Not in the Product Type filter values' : 'No Product Type valid list set in config', suggestions: closest(cand, ptValues, 3) }; row.hasIssue = true; }
+          else row.fields.productType = { status: canon === prod.productType ? 'ok' : 'change', old: prod.productType || '', new: canon, note: mapped != null ? ('mapped from "' + raw + '"') : (canon !== cand ? 'normalized' : null) };
+        }
+        if (fields.indexOf('roomType') !== -1 && Array.isArray(r.rooms) && r.rooms.length) {
+          const out = []; const bad = [];
+          r.rooms.forEach(rm => { const raw = String(rm).trim(); if (!raw) return; const mapped = rtMap[raw] != null ? rtMap[raw] : null; const cand = mapped != null ? mapped : raw; const canon = rtLookup[csvNorm(cand)]; if (canon) out.push(canon); else bad.push({ value: raw, suggestions: closest(cand, rtValues, 3) }); });
+          const curRooms = mfParse(prod.rt ? prod.rt.value : null);
+          if (bad.length) { row.fields.roomType = { status: 'invalid', value: r.rooms, bad, old: curRooms.join(', ') }; row.hasIssue = true; }
+          else row.fields.roomType = { status: JSON.stringify(curRooms) === JSON.stringify(out) ? 'ok' : 'change', old: curRooms.join(', '), new: out.join(', '), newList: out };
+        }
+        report.push(row);
+      }
+      const summary = { total: report.length, notFound: report.filter(x => !x.found).length, withIssues: report.filter(x => x.hasIssue).length,
+        readyChange: report.filter(x => x.found && !x.hasIssue && Object.values(x.fields).some(f => f.status === 'change')).length,
+        allOk: report.filter(x => x.found && !x.hasIssue && Object.values(x.fields).length > 0 && Object.values(x.fields).every(f => f.status === 'ok')).length,
+        nonDraft: report.filter(x => x.found && x.productStatus && x.productStatus !== 'DRAFT').length };
+      if (dryRun) return res.status(200).json({ ok: true, report, summary, roomChoicesCount: rtValues.length, ptValuesCount: ptValues.length });
+      // ---- APPLY (only found rows with no blocking issue; only changed fields) ----
+      const now = new Date().toISOString(); const isFirst = !body.undoId; const undoId = body.undoId || ('csvundo-' + now.replace(/[:.]/g, '-'));
+      const snapshot = []; const errors = []; let applied = 0, skipped = 0;
+      for (const row of report) {
+        if (!row.found || row.hasIssue) { skipped++; continue; }
+        const prod = byHandle[row.handle]; const fc = row.fields; const changes = []; let input = `id:"${prod.id}"`; let doProd = false;
+        if (fc.category && fc.category.status === 'change') { input += `, category:"${fc.category.newId}"`; doProd = true; changes.push({ field: 'category', old: fc.category.oldId || '', new: fc.category.newId }); }
+        if (fc.productType && fc.productType.status === 'change') { input += `, productType:${JSON.stringify(fc.productType.new)}`; doProd = true; changes.push({ field: 'productType', old: fc.productType.old, new: fc.productType.new }); }
+        try {
+          if (doProd) { const d3 = await shopify(`mutation { productUpdate(input:{${input}}){ userErrors{ field message } } }`); const ue = d3.productUpdate ? d3.productUpdate.userErrors : []; if (ue && ue.length) ue.forEach(e => errors.push(`${row.handle}: ${e.message}`)); else applied += changes.length; }
+          if (fc.roomType && fc.roomType.status === 'change') { const arr = fc.roomType.newList || []; const d4 = await shopify(`mutation { metafieldsSet(metafields:[{ownerId:"${prod.id}", namespace:"custom", key:"room_type", type:"list.single_line_text_field", value:${JSON.stringify(JSON.stringify(arr))}}]){ userErrors{ message } } }`); const ue = d4.metafieldsSet ? d4.metafieldsSet.userErrors : []; if (ue && ue.length) ue.forEach(e => errors.push(`${row.handle}: ${e.message}`)); else applied++; changes.push({ field: 'roomType', old: fc.roomType.old, new: fc.roomType.new }); }
+        } catch (e) { errors.push(`${row.handle}: ${String(e.message || e)}`); }
+        if (changes.length) snapshot.push({ handle: row.handle, id: prod.id, changes });
+      }
+      try {
+        const DIR = 'data/csvapply-undo', IDX = 'data/csvapply-undos.json';
+        if (isFirst) { await ghPut(`${DIR}/${undoId}.json`, { id: undoId, createdAt: now, snapshot }, `csv-apply undo ${undoId}`); const idx = (await ghGet(IDX)).json || []; idx.unshift({ id: undoId, createdAt: now, count: snapshot.length, reverted: false }); await ghPut(IDX, idx.slice(0, 100), `csv-apply index ${undoId}`); await pruneUndos(IDX, DIR, UNDO_KEEP); }
+        else { const ex = (await ghGet(`${DIR}/${undoId}.json`)).json || { id: undoId, snapshot: [] }; ex.snapshot = (ex.snapshot || []).concat(snapshot); await ghPut(`${DIR}/${undoId}.json`, ex, `csv-apply undo append ${undoId}`); const idx = (await ghGet(IDX)).json || []; const hit = idx.find(x => x.id === undoId); if (hit) hit.count = (hit.count || 0) + snapshot.length; await ghPut(IDX, idx, `csv-apply index count ${undoId}`); }
+      } catch (e) {}
+      return res.status(200).json({ ok: true, applied, skipped, errors: errors.slice(0, 30), undoId });
+    }
+    // ---- csv-undo-list / csv-undo: put back the exact prior category / productType / room_type ----
+    if (action === 'csv-undo-list') { return res.status(200).json({ ok: true, undos: (await ghGet('data/csvapply-undos.json')).json || [] }); }
+    if (action === 'csv-undo') {
+      const undoId = body.undoId; if (!undoId) return res.status(400).json({ ok: false, error: 'undoId required' });
+      const snap = (await ghGet(`data/csvapply-undo/${undoId}.json`)).json; if (!snap || !Array.isArray(snap.snapshot)) return res.status(404).json({ ok: false, error: 'Snapshot not found' });
+      const offset = Number(body.offset) || 0, limit = Number(body.limit) || 60; const work = snap.snapshot.slice(offset, offset + limit);
+      const errors = []; let restored = 0;
+      for (const ent of work) {
+        let input = `id:"${ent.id}"`; let doProd = false; const roomChange = (ent.changes || []).find(c => c.field === 'roomType');
+        (ent.changes || []).forEach(c => { if (c.field === 'category') { input += `, category:${c.old ? `"${c.old}"` : 'null'}`; doProd = true; } else if (c.field === 'productType') { input += `, productType:${JSON.stringify(c.old || '')}`; doProd = true; } });
+        try {
+          if (doProd) { const d = await shopify(`mutation { productUpdate(input:{${input}}){ userErrors{ message } } }`); const ue = d.productUpdate ? d.productUpdate.userErrors : []; if (ue && ue.length) ue.forEach(e => errors.push(e.message)); else restored++; }
+          if (roomChange) { const arr = roomChange.old ? String(roomChange.old).split(',').map(t => t.trim()).filter(Boolean) : []; if (arr.length) await shopify(`mutation { metafieldsSet(metafields:[{ownerId:"${ent.id}", namespace:"custom", key:"room_type", type:"list.single_line_text_field", value:${JSON.stringify(JSON.stringify(arr))}}]){ userErrors{ message } } }`); else await shopify(`mutation { metafieldsDelete(metafields:[{ownerId:"${ent.id}", namespace:"custom", key:"room_type"}]){ userErrors{ message } } }`); restored++; }
+        } catch (e) { errors.push(String(e.message || e)); }
+      }
+      const total = snap.snapshot.length, nextOffset = offset + work.length, hasMore = nextOffset < total;
+      if (!hasMore) { try { const idx = (await ghGet('data/csvapply-undos.json')).json || []; const hit = idx.find(x => x.id === undoId); if (hit) hit.reverted = true; await ghPut('data/csvapply-undos.json', idx, `csv reverted ${undoId}`); } catch (e) {} }
       return res.status(200).json({ ok: true, restored, total, nextOffset, hasMore, errors: errors.slice(0, 20) });
     }
 
