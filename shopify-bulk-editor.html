@@ -148,7 +148,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v3.9 · NEW "Collective items data" tab — per-product Category · Product type · Room type · Trends · Collections (auto-tags) · Linked trends with pills, by vendor/SKU, drafts only. Save &amp; apply writes it + the 25% margin + moves to Data applied. Backup gate + per-run undo · 8 tabs</div>
+            <div class="subtitle">v3.10 · NEW "Collective items data" tab — per-product Category · Product type · Room type · Trends · Collections (auto-tags) · Linked trends with pills, by vendor/SKU, drafts only. Save &amp; apply writes it + the 25% margin + moves to Data applied. Backup gate + per-run undo · 8 tabs</div>
         </div>
 
         <!-- TABS (always visible) -->
@@ -819,7 +819,7 @@
                         <button class="btn btn-light" id="cdtMoveBtn" onclick="cdtMoveBack()" style="display:none;">↩ Move back to Drafts</button>
                     </div>
                     <div id="cdtStatus" class="muted" style="margin-bottom:8px;"></div>
-                    <div style="overflow-x:auto;"><div id="cdtTable"></div></div>
+                    <div class="cdt-wide" style="overflow-x:auto;"><div id="cdtTable"></div></div>
                 </div>
 
                 <div class="panel">
@@ -2414,7 +2414,7 @@ var cdtState={ opt:null, products:[], vendor:'', sub:'drafts', loaded:false };
 function cdtStyle(){
   if (document.getElementById('cdtStyle')) return;
   var s=document.createElement('style'); s.id='cdtStyle';
-  s.textContent='#cdtTable table{border-collapse:collapse;font-size:13px}#cdtTable th,#cdtTable td{border:1px solid var(--border-strong);padding:7px 8px;text-align:left;vertical-align:top}#cdtTable th{background:var(--surface-1);font-weight:500;white-space:nowrap}.cdtgroup{display:grid;grid-template-columns:1fr 1fr;gap:4px;min-width:150px}.cchip{display:block;width:100%;box-sizing:border-box;text-align:left;font-size:11px;padding:2px 8px;border-radius:var(--radius);cursor:pointer;line-height:1.4;background:#F1EFE8;color:#5F5E5A;border:none;user-select:none}.cchip.on{background:#EAF3DE;color:#27500A}.cchip.locked{opacity:.35;pointer-events:none}';
+  s.textContent='#cdtTable table{border-collapse:collapse;font-size:13px;width:100%}#cdtTable th,#cdtTable td{border:1.5px solid #111;padding:7px 8px;text-align:left;vertical-align:top}#cdtTable th{background:#eceae2;font-weight:600;white-space:nowrap}.cdtgroup{display:grid;grid-template-columns:1fr 1fr;gap:4px;min-width:140px}.cchip{display:block;width:100%;box-sizing:border-box;text-align:left;font-size:11px;padding:2px 8px;border-radius:var(--radius);cursor:pointer;line-height:1.4;background:#F1EFE8;color:#5F5E5A;border:none;user-select:none}.cchip.on{background:#C0DD97;color:#173404}.cchip.locked{opacity:.35;pointer-events:none}.cdtdone{background:#efeee8}.donepill{display:inline-block;background:#185FA5;color:#fff;font-size:11px;padding:2px 10px;border-radius:var(--radius)}.cdt-wide{width:98vw;position:relative;left:50%;margin-left:-49vw}.cdtcollwrap{display:flex;gap:8px}.cdtcollwrap>div{flex:1}.cdtcolllbl{font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:3px}';
   document.head.appendChild(s);
 }
 async function cdtInit(){
@@ -2460,12 +2460,14 @@ async function cdtLoadProducts(q){
 }
 function cdtSwitchSub(s){ cdtState.sub=s; document.getElementById('cdtSubDrafts').classList.toggle('active',s==='drafts'); document.getElementById('cdtSubApplied').classList.toggle('active',s==='applied'); document.getElementById('cdtMoveBtn').style.display=s==='applied'?'':'none'; document.getElementById('cdtSaveBtn').style.display=s==='applied'?'none':''; cdtRenderTable(); }
 function cdtPillCell(field,multi,options,current,extraAttr){
-  return '<div class="cdtgroup" data-field="'+field+'" data-multi="'+(multi?1:0)+'">'+options.map(o=>{
+  var opts=options.slice().sort(function(a,b){ var ao=current(a)?0:1, bo=current(b)?0:1; if(ao!==bo)return ao-bo; return String(a.label).localeCompare(String(b.label)); });
+  return '<div class="cdtgroup" data-field="'+field+'" data-multi="'+(multi?1:0)+'">'+opts.map(o=>{
     var label=o.label, val=o.value, on=current(o);
     var at=extraAttr?extraAttr(o):'';
     return '<span class="cchip'+(on?' on':'')+'" data-value="'+esc(val)+'"'+at+'>'+esc(label)+'</span>';
   }).join('')+'</div>';
 }
+function cdtDoneCell(val){ return '<td class="cdtdone" style="min-width:120px"><div style="font-size:11px;color:var(--text-muted);margin-bottom:5px">'+esc(val||'')+'</div><span class="donepill">done</span></td>'; }
 function cdtRenderTable(){
   const o=cdtState.opt; if(!o){ return; }
   const list=cdtState.products.filter(p=> cdtState.sub==='applied' ? p.applied : !p.applied);
@@ -2473,20 +2475,26 @@ function cdtRenderTable(){
   const ptOpts=(o.productTypes||[]).map(v=>({label:v,value:v}));
   const roomOpts=(o.roomChoices||[]).map(v=>({label:v,value:v}));
   const trendOpts=(o.trends||[]).map(v=>({label:v,value:v}));
-  const collOpts=(o.collections||[]).map(c=>({label:c.title,value:c.id,tags:c.tags||[]}));
+  const collRoomOpts=(o.collectionsByRoom||[]).map(c=>({label:c.title,value:c.id,tags:c.tags||[]}));
+  const collProdOpts=(o.collectionsByProduct||[]).map(c=>({label:c.title,value:c.id,tags:c.tags||[]}));
   const linkOpts=(o.linkedPages||[]).map(p=>({label:p.title,value:p.id}));
-  var head='<table><thead><tr><th></th><th>Photo</th><th>Product</th><th>Category</th><th>Product type · one</th><th>Room type</th><th>Trends</th><th>Collections</th><th>Linked trends</th></tr></thead><tbody>';
+  const collTagAttr=function(x){return ' data-tags="'+esc(JSON.stringify(x.tags||[]))+'"';};
+  const collOn=function(p){return function(x){return (x.tags||[]).some(function(t){return p.tags.indexOf(t)>=0;});};};
+  var head='<table><thead><tr><th></th><th>Photo</th><th>Product</th><th>Category</th><th>Product type · one</th><th>Room type</th><th>Decor style (filter)</th><th>Collections</th><th>Trend pages</th></tr></thead><tbody>';
   var body=list.map(function(p){
     var img=p.image?'<img src="'+esc(p.image)+'" style="width:110px;height:110px;object-fit:cover;border-radius:6px;border:0.5px solid var(--border)">':'<div style="width:110px;height:110px;border-radius:6px;background:var(--surface-1);border:0.5px solid var(--border)"></div>';
-    var cat='<div class="cdtcat" data-id="'+esc(p.id)+'" data-catid="'+esc(p.categoryId||'')+'"><div class="catname" style="font-size:12px;margin-bottom:5px;">'+(p.categoryName?esc(p.categoryName):'<span class="muted">— none —</span>')+'</div><input class="cdtcatq" placeholder="Search to change" style="width:100%;height:26px;font-size:12px"><div class="cdtcatres" style="margin-top:4px;"></div></div>';
-    var pt=cdtPillCell('productType',false,ptOpts,function(x){return x.value===p.productType;});
-    var rm=cdtPillCell('rooms',true,roomOpts,function(x){return p.rooms.indexOf(x.value)>=0;});
+    // Category · Product type · Room type: done (grey + blue pill) when already set, else editable
+    var catCell = p.categoryId
+      ? cdtDoneCell(p.categoryName)
+      : '<td style="min-width:150px"><div class="cdtcat" data-id="'+esc(p.id)+'" data-catid=""><div class="catname" style="font-size:12px;margin-bottom:5px;"><span class="muted">— none —</span></div><input class="cdtcatq" placeholder="Search to set" style="width:100%;height:26px;font-size:12px"><div class="cdtcatres" style="margin-top:4px;"></div></div></td>';
+    var ptCell = p.productType ? cdtDoneCell(p.productType) : '<td>'+cdtPillCell('productType',false,ptOpts,function(x){return x.value===p.productType;})+'</td>';
+    var rmCell = (p.rooms && p.rooms.length) ? cdtDoneCell(p.rooms.join(' · ')) : '<td>'+cdtPillCell('rooms',true,roomOpts,function(x){return p.rooms.indexOf(x.value)>=0;})+'</td>';
     var tr=cdtPillCell('trends',true,trendOpts,function(x){return p.trends.indexOf(x.value)>=0;});
-    var co=cdtPillCell('collections',true,collOpts,function(x){return (x.tags||[]).some(function(t){return p.tags.indexOf(t)>=0;});},function(x){return ' data-tags="'+esc(JSON.stringify(x.tags||[]))+'"';});
+    var co='<div class="cdtcollwrap"><div><div class="cdtcolllbl">By room</div>'+cdtPillCell('collections',true,collRoomOpts,collOn(p),collTagAttr)+'</div><div><div class="cdtcolllbl">By product</div>'+cdtPillCell('collections',true,collProdOpts,collOn(p),collTagAttr)+'</div></div>';
     var li=cdtPillCell('linked',true,linkOpts,function(x){return p.linked.indexOf(x.value)>=0;});
     return '<tr data-id="'+esc(p.id)+'"><td><input type="checkbox" class="cdtck" onchange="cdtUpdateSel()"></td><td>'+img+'</td>'+
       '<td style="min-width:150px"><div style="font-weight:500">'+esc(p.title)+'</div><div class="muted" style="font-size:11px;font-family:var(--font-mono)">'+esc(p.handle)+'</div><span style="font-size:11px;padding:2px 7px;background:var(--bg-warning);color:var(--text-warning);border-radius:var(--radius)">draft</span></td>'+
-      '<td style="min-width:150px">'+cat+'</td><td>'+pt+'</td><td>'+rm+'</td><td>'+tr+'</td><td>'+co+'</td><td>'+li+'</td></tr>';
+      catCell+ptCell+rmCell+'<td>'+tr+'</td><td style="min-width:260px">'+co+'</td><td>'+li+'</td></tr>';
   }).join('');
   document.getElementById('cdtTable').innerHTML=head+body+'</tbody></table>';
   cdtUpdateSel();
