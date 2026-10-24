@@ -1,4 +1,5 @@
-// shopify-bulk.js — v3.10 (24 Oct 2026)
+// shopify-bulk.js — v3.11 (24 Oct 2026)
+// v3.11: cdt — exclude 0-stock drafts (totalInventory>0) from vendors + products; vendor list drops fully-done vendors.
 // v3.10: cdt-options now splits collections into collectionsByRoom + collectionsByProduct (two sub-columns in the UI).
 // v3.9: NEW "Update Collective items data" tab. cdt-options (pick-lists: product types, live room choices, trends from
 //   config, collections+their smart-collection tag + linked-trend pages, both from the New Main Menu), cdt-vendors
@@ -2138,11 +2139,11 @@ module.exports = async function handler(req, res) {
       const appliedSet = new Set((await ghGet(CDT_APPLIED)).json || []);
       const counts = {}; let cursor = null, pages = 0;
       while (pages < 400) {
-        const d = await shopify(`query($c:String){ products(first:100, query:"status:draft", after:$c){ pageInfo{ hasNextPage endCursor } nodes{ id vendor } } }`, { c: cursor });
-        (d.products.nodes || []).forEach(p => { if ((p.vendor || '') === AWA_VENDOR) return; const v = p.vendor || '(no vendor)'; if (!counts[v]) counts[v] = { drafts: 0, applied: 0 }; if (appliedSet.has(p.id)) counts[v].applied++; else counts[v].drafts++; });
+        const d = await shopify(`query($c:String){ products(first:100, query:"status:draft", after:$c){ pageInfo{ hasNextPage endCursor } nodes{ id vendor totalInventory } } }`, { c: cursor });
+        (d.products.nodes || []).forEach(p => { if ((p.vendor || '') === AWA_VENDOR) return; if ((p.totalInventory || 0) <= 0) return; const v = p.vendor || '(no vendor)'; if (!counts[v]) counts[v] = { drafts: 0, applied: 0 }; if (appliedSet.has(p.id)) counts[v].applied++; else counts[v].drafts++; });
         pages++; if (!d.products.pageInfo.hasNextPage) break; cursor = d.products.pageInfo.endCursor;
       }
-      const vendors = Object.keys(counts).map(v => ({ vendor: v, drafts: counts[v].drafts, applied: counts[v].applied })).filter(v => v.drafts > 0 || v.applied > 0).sort((a, b) => a.vendor.localeCompare(b.vendor));
+      const vendors = Object.keys(counts).map(v => ({ vendor: v, drafts: counts[v].drafts, applied: counts[v].applied })).filter(v => v.drafts > 0).sort((a, b) => a.vendor.localeCompare(b.vendor));
       return res.status(200).json({ ok: true, vendors });
     }
 
@@ -2152,11 +2153,11 @@ module.exports = async function handler(req, res) {
       const applied = new Set((await ghGet(CDT_APPLIED)).json || []);
       let q = 'status:draft';
       if (sku) q += ` sku:${JSON.stringify(sku)}`; else if (vendor) q += ` vendor:'${vendor.replace(/'/g, "\\'")}'`;
-      const sel = 'id handle title vendor featuredImage{ url } productType category{ id fullName } tags rt: metafield(namespace:"custom",key:"room_type"){ value } tr: metafield(namespace:"custom",key:"trends"){ value } lt: metafield(namespace:"custom",key:"linked_trends"){ value }';
+      const sel = 'id handle title vendor totalInventory featuredImage{ url } productType category{ id fullName } tags rt: metafield(namespace:"custom",key:"room_type"){ value } tr: metafield(namespace:"custom",key:"trends"){ value } lt: metafield(namespace:"custom",key:"linked_trends"){ value }';
       const rows = []; let cursor = null, pages = 0;
       while (pages < 60) {
         const d = await shopify(`query($q:String,$c:String){ products(first:50, query:$q, after:$c){ pageInfo{ hasNextPage endCursor } nodes{ ${sel} } } }`, { q, c: cursor });
-        (d.products.nodes || []).forEach(p => { if ((p.vendor || '') === AWA_VENDOR) return; rows.push({ id: p.id, handle: p.handle, title: p.title, vendor: p.vendor, image: p.featuredImage ? p.featuredImage.url : '', productType: p.productType || '', categoryId: p.category ? p.category.id : null, categoryName: p.category ? p.category.fullName : '', tags: p.tags || [], rooms: mfParse(p.rt ? p.rt.value : null), trends: mfParse(p.tr ? p.tr.value : null), linked: mfParse(p.lt ? p.lt.value : null), applied: applied.has(p.id) }); });
+        (d.products.nodes || []).forEach(p => { if ((p.vendor || '') === AWA_VENDOR) return; if ((p.totalInventory || 0) <= 0) return; rows.push({ id: p.id, handle: p.handle, title: p.title, vendor: p.vendor, image: p.featuredImage ? p.featuredImage.url : '', productType: p.productType || '', categoryId: p.category ? p.category.id : null, categoryName: p.category ? p.category.fullName : '', tags: p.tags || [], rooms: mfParse(p.rt ? p.rt.value : null), trends: mfParse(p.tr ? p.tr.value : null), linked: mfParse(p.lt ? p.lt.value : null), applied: applied.has(p.id) }); });
         pages++; if (!d.products.pageInfo.hasNextPage || sku) break; cursor = d.products.pageInfo.endCursor;
       }
       return res.status(200).json({ ok: true, rows });
