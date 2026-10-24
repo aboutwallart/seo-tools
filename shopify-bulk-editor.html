@@ -148,7 +148,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v3.7 · NEW "Apply data via CSV" tab — per-product Category + Product Type + Room Type from a CSV by Handle, via API, with preview + validation (shows exactly what changes and flags invalid values with the right ones) + undo · 7 tabs · batches + backup + undo</div>
+            <div class="subtitle">v3.8 · "Apply data via CSV" tab — per-product Category + Product Type + Room Type from a CSV by Handle, via API. Locked behind a backup gate (same as the other tabs) + preview/validation + per-run backup + undo · 7 tabs</div>
         </div>
 
         <!-- TABS (always visible) -->
@@ -722,6 +722,14 @@
                 <div class="hint">Paste or upload a CSV with a <b>Handle</b> column plus any of: <b>Product Category</b>, <b>Type</b>, <b>Room Type</b>. Each product is matched by its Handle and only those fields are updated via the API — nothing else is touched, and products stay as they are. Always <b>Preview</b> first: it tells you exactly what will change and flags anything invalid with the correct values.</div>
             </div>
 
+            <div class="panel backup-panel red" id="csvBackupPanel" style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+                <div style="flex:1; min-width:220px;">
+                    <div class="backup-title" id="csvBackupTitle">🛟 First, back up Category, Product Type &amp; Room Type</div>
+                    <div class="backup-note">Same as the other tabs — this tab stays locked until today's backup of these 3 fields is saved to GitHub (used to restore). Every Apply also backs up each run on top of this.</div>
+                </div>
+                <button class="btn btn-light" id="csvBackupBtn" onclick="csvBackup()">↓ Back up all 3 fields</button>
+            </div>
+
             <div class="panel">
                 <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
                     <b>Valid values (used to check the CSV)</b>
@@ -740,6 +748,7 @@
                 </div>
             </div>
 
+            <div id="csvBody" class="locked-wrap">
             <div class="panel">
                 <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
                     <b>Fields to apply:</b>
@@ -761,6 +770,7 @@
                 <div id="csvColMap" style="margin-top:12px;"></div>
                 <div class="tbl-wrap" id="csvReport" style="margin-top:12px;"></div>
             </div>
+            </div><!-- /csvBody -->
 
             <div class="panel">
                 <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
@@ -2216,6 +2226,24 @@ async function csvInit(){
             document.getElementById('csvRoomLive').textContent='('+(d.roomChoices||[]).length+' room values live: '+(d.roomChoices||[]).join(', ')+')'; }
     }catch(e){}
     csvLoadUndos();
+    csvCheckBackup();
+}
+const CSV_BACKUP_FIELDS=['category','ptype','mf.room_type'];
+async function csvCheckBackup(){
+    paintGate('csvBackupPanel','csvBackupTitle','red','🛟 First, back up Category, Product Type & Room Type','✅ Backup done');
+    lockBody('csvBody');
+    try{
+        const res=await Promise.all(CSV_BACKUP_FIELDS.map(f=> fetch(API+'?action=last-field-backup&field='+encodeURIComponent(f)).then(r=>r.json())));
+        if (res.every(d=> d && d.latest)){ paintGate('csvBackupPanel','csvBackupTitle','green','','✅ Backup done (Category · Product Type · Room Type)'); unlockBody('csvBody'); }
+    }catch(e){}
+}
+async function csvBackup(){
+    const btn=document.getElementById('csvBackupBtn'); btn.disabled=true; let ok=true;
+    try{
+        for (const f of CSV_BACKUP_FIELDS){ btn.innerHTML='<span class="spinner"></span> Backing up '+f+'…'; const d=await (await fetch(API+'?action=backup-field&field='+encodeURIComponent(f))).json(); if (!d||!d.ok){ ok=false; alert('Backup failed for '+f+': '+((d&&d.error)||'')); break; } }
+        if (ok){ paintGate('csvBackupPanel','csvBackupTitle','green','','✅ Backup done (Category · Product Type · Room Type)'); unlockBody('csvBody'); showReady('Category, Product Type &amp; Room Type backed up across the store. You can apply now.'); }
+    }catch(e){ alert('Backup failed: '+e.message); }
+    btn.disabled=false; btn.innerHTML='↓ Back up all 3 fields';
 }
 function csvToggleCfg(){ const b=document.getElementById('csvCfgBox'); b.hidden=!b.hidden; }
 function csvParseMap(text){ const m={}; String(text||'').split('\n').forEach(l=>{ const i=l.indexOf('=>'); if(i>0){ const a=l.slice(0,i).trim(), b=l.slice(i+2).trim(); if(a&&b)m[a]=b; } }); return m; }
