@@ -148,7 +148,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v3.8 · "Apply data via CSV" tab — per-product Category + Product Type + Room Type from a CSV by Handle, via API. Locked behind a backup gate (same as the other tabs) + preview/validation + per-run backup + undo · 7 tabs</div>
+            <div class="subtitle">v3.9 · NEW "Collective items data" tab — per-product Category · Product type · Room type · Trends · Collections (auto-tags) · Linked trends with pills, by vendor/SKU, drafts only. Save &amp; apply writes it + the 25% margin + moves to Data applied. Backup gate + per-run undo · 8 tabs</div>
         </div>
 
         <!-- TABS (always visible) -->
@@ -160,6 +160,7 @@
             <button class="tab" id="tabBtnXl" onclick="switchTab('xl')">📊 Excel</button>
             <button class="tab" id="tabBtnMf" onclick="switchTab('mf')">🏷️ Metafields</button>
             <button class="tab" id="tabBtnCsv" onclick="switchTab('csv')">📥 Apply data via CSV</button>
+            <button class="tab" id="tabBtnCdt" onclick="switchTab('cdt')">🛋️ Collective items data</button>
         </div>
 
         <!-- ============ TAB 1: PRICES ============ -->
@@ -780,6 +781,56 @@
                 <div id="csvUndoList" class="muted">—</div>
             </div>
         </div><!-- /tabCsv -->
+
+        <!-- ===================== UPDATE COLLECTIVE ITEMS DATA ===================== -->
+        <div class="tabpanel" id="tabCdt" hidden>
+            <div class="panel">
+                <h3 style="margin:0 0 6px;">🛋️ Update Collective items data</h3>
+                <div class="hint">Pick a Collective vendor (or search a SKU), then set each draft's <b>Category · Product type · Room type · Trends · Collections · Linked trends</b> with the pills. Tick the ones you want and press <b>Save &amp; apply</b> — it writes the data, adds the collection tags, applies the <b>25% margin</b>, and moves them to <b>Data applied</b> so they're ready to activate. Collective only, drafts only.</div>
+            </div>
+
+            <div class="panel backup-panel red" id="cdtBackupPanel" style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+                <div style="flex:1; min-width:220px;">
+                    <div class="backup-title" id="cdtBackupTitle">🛟 First, back up everything this tab changes</div>
+                    <div class="backup-note">Same as the other tabs — locked until today's backup of category, product type, tags, Room Type, Trends, Linked Trends and prices is saved to GitHub. Every Save also backs up each run on top of this.</div>
+                </div>
+                <button class="btn btn-light" id="cdtBackupBtn" onclick="cdtBackup()">↓ Back up all</button>
+            </div>
+
+            <div id="cdtBody" class="locked-wrap">
+                <div class="panel">
+                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                        <label style="font-size:13px; color:var(--text-secondary);">Vendor</label>
+                        <select id="cdtVendor" onchange="cdtOnVendor()" style="min-width:200px;"><option value="">— pick a vendor —</option></select>
+                        <span style="color:var(--text-muted);">or</span>
+                        <input type="text" id="cdtSku" placeholder="Search by SKU (any vendor)" style="min-width:220px;" onkeydown="if(event.key==='Enter')cdtSearchSku()">
+                        <button class="btn btn-light" onclick="cdtSearchSku()">Search</button>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div style="display:flex; gap:6px; margin-bottom:10px;">
+                        <button class="tab active" id="cdtSubDrafts" onclick="cdtSwitchSub('drafts')">Drafts <span id="cdtCntDrafts" class="muted"></span></button>
+                        <button class="tab" id="cdtSubApplied" onclick="cdtSwitchSub('applied')">Data applied <span id="cdtCntApplied" class="muted"></span></button>
+                    </div>
+                    <div id="cdtBulkBar" style="display:none; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:10px; padding:10px 12px; background:var(--bg-accent); border-radius:var(--radius);">
+                        <span id="cdtSelCount" style="font-size:13px; color:var(--text-accent); font-weight:500;">0 selected</span>
+                        <button class="btn btn-green" id="cdtSaveBtn" style="margin-left:auto;" onclick="cdtSave()">✅ Save &amp; apply — data + 25% margin</button>
+                        <button class="btn btn-light" id="cdtMoveBtn" onclick="cdtMoveBack()" style="display:none;">↩ Move back to Drafts</button>
+                    </div>
+                    <div id="cdtStatus" class="muted" style="margin-bottom:8px;"></div>
+                    <div style="overflow-x:auto;"><div id="cdtTable"></div></div>
+                </div>
+
+                <div class="panel">
+                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+                        <b>Recent runs</b><span class="muted">tap "Undo" to put the old values back</span>
+                        <button class="btn btn-light" style="margin-left:auto;" onclick="cdtLoadUndos()">↻ Refresh</button>
+                    </div>
+                    <div id="cdtUndoList" class="muted">—</div>
+                </div>
+            </div>
+        </div><!-- /tabCdt -->
     </div>
 
     <datalist id="allTagsList"></datalist>
@@ -823,6 +874,7 @@ function switchTab(w){
     document.getElementById('tabXl').hidden = w!=='xl';
     document.getElementById('tabMf').hidden = w!=='mf';
     document.getElementById('tabCsv').hidden = w!=='csv';
+    document.getElementById('tabCdt').hidden = w!=='cdt';
     document.getElementById('tabBtn1').classList.toggle('active', w===1);
     document.getElementById('tabBtnAwa').classList.toggle('active', w==='awa');
     document.getElementById('tabBtn2').classList.toggle('active', w===2);
@@ -830,11 +882,13 @@ function switchTab(w){
     document.getElementById('tabBtnXl').classList.toggle('active', w==='xl');
     document.getElementById('tabBtnMf').classList.toggle('active', w==='mf');
     document.getElementById('tabBtnCsv').classList.toggle('active', w==='csv');
+    document.getElementById('tabBtnCdt').classList.toggle('active', w==='cdt');
     if (w===2) loadFieldMeta(); // fresh from Shopify every time you open Other fields
     if (w==='av') { avOnGroup(); avLoadAdded(); } // Add variants tab
     if (w==='xl') { xlRenderChecks(); xlLoadUndos(); } // Excel tab
     if (w==='mf') mfInit(); // Metafields tab
     if (w==='csv') csvInit(); // Apply data via CSV tab
+    if (w==='cdt') cdtInit(); // Update Collective items data tab
 }
 
 /* ===================== METAFIELDS TAB ===================== */
@@ -2352,6 +2406,159 @@ async function csvUndo(id){
     const st=document.getElementById('csvStatus'); st.textContent='Undoing…';
     try{ const { restored, errors } = await runBatchedUndo('csv-undo', id); st.innerHTML='✅ Undone: '+restored+' values put back.'+(errors.length?(' <span style="color:#b35;">('+errors.length+' errors)</span>'):''); csvLoadUndos(); }
     catch(e){ st.textContent='⚠️ '+e.message; }
+}
+
+/* ===================== UPDATE COLLECTIVE ITEMS DATA ===================== */
+const CDT_BACKUP_FIELDS=['category','ptype','tags','mf.room_type','mf.trends','mf.linked_trends','unitprice'];
+var cdtState={ opt:null, products:[], vendor:'', sub:'drafts', loaded:false };
+function cdtStyle(){
+  if (document.getElementById('cdtStyle')) return;
+  var s=document.createElement('style'); s.id='cdtStyle';
+  s.textContent='#cdtTable table{border-collapse:collapse;font-size:13px}#cdtTable th,#cdtTable td{border:1px solid var(--border-strong);padding:7px 8px;text-align:left;vertical-align:top}#cdtTable th{background:var(--surface-1);font-weight:500;white-space:nowrap}.cdtgroup{display:grid;grid-template-columns:1fr 1fr;gap:4px;min-width:150px}.cchip{display:block;width:100%;box-sizing:border-box;text-align:left;font-size:11px;padding:2px 8px;border-radius:var(--radius);cursor:pointer;line-height:1.4;background:#F1EFE8;color:#5F5E5A;border:none;user-select:none}.cchip.on{background:#EAF3DE;color:#27500A}.cchip.locked{opacity:.35;pointer-events:none}';
+  document.head.appendChild(s);
+}
+async function cdtInit(){
+  cdtStyle();
+  if(cdtState.loaded){ cdtCheckBackup(); return; }
+  document.getElementById('cdtStatus').textContent='Loading options…';
+  try{
+    const o=await (await fetch(API+'?action=cdt-options')).json();
+    if(o.ok) cdtState.opt=o;
+    const v=await (await fetch(API+'?action=cdt-vendors')).json();
+    if(v.ok){ const sel=document.getElementById('cdtVendor'); sel.innerHTML='<option value="">— pick a vendor —</option>'+(v.vendors||[]).map(x=>'<option value="'+esc(x.vendor)+'">'+esc(x.vendor)+' ('+x.drafts+' drafts'+(x.applied?(', '+x.applied+' done'):'')+')</option>').join(''); }
+    cdtState.loaded=true;
+    document.getElementById('cdtStatus').textContent='';
+  }catch(e){ document.getElementById('cdtStatus').textContent='⚠️ '+e.message; }
+  cdtCheckBackup();
+}
+async function cdtCheckBackup(){
+  paintGate('cdtBackupPanel','cdtBackupTitle','red','🛟 First, back up everything this tab changes','✅ Backup done');
+  lockBody('cdtBody');
+  try{
+    const res=await Promise.all(CDT_BACKUP_FIELDS.map(f=> fetch(API+'?action=last-field-backup&field='+encodeURIComponent(f)).then(r=>r.json())));
+    if(res.every(d=> d && d.latest)){ paintGate('cdtBackupPanel','cdtBackupTitle','green','','✅ Backup done (category, type, tags, rooms, trends, linked, prices)'); unlockBody('cdtBody'); }
+  }catch(e){}
+}
+async function cdtBackup(){
+  const btn=document.getElementById('cdtBackupBtn'); btn.disabled=true; let ok=true;
+  try{ for(const f of CDT_BACKUP_FIELDS){ btn.innerHTML='<span class="spinner"></span> Backing up '+f+'…'; const d=await (await fetch(API+'?action=backup-field&field='+encodeURIComponent(f))).json(); if(!d||!d.ok){ ok=false; alert('Backup failed for '+f+': '+((d&&d.error)||'')); break; } }
+    if(ok){ paintGate('cdtBackupPanel','cdtBackupTitle','green','','✅ Backup done (category, type, tags, rooms, trends, linked, prices)'); unlockBody('cdtBody'); showReady('Everything this tab can change is backed up across the store. You can start.'); }
+  }catch(e){ alert('Backup failed: '+e.message); }
+  btn.disabled=false; btn.innerHTML='↓ Back up all';
+}
+async function cdtOnVendor(){ cdtState.vendor=document.getElementById('cdtVendor').value; document.getElementById('cdtSku').value=''; if(cdtState.vendor) cdtLoadProducts({vendor:cdtState.vendor}); }
+async function cdtSearchSku(){ const sku=document.getElementById('cdtSku').value.trim(); if(!sku)return; document.getElementById('cdtVendor').value=''; cdtState.vendor=''; cdtLoadProducts({sku}); }
+async function cdtLoadProducts(q){
+  const st=document.getElementById('cdtStatus'); st.textContent='Loading products…'; document.getElementById('cdtTable').innerHTML='';
+  try{ const d=await (await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({action:'cdt-products'},q))})).json();
+    if(!d.ok){ st.textContent='⚠️ '+(d.error||'error'); return; }
+    cdtState.products=d.rows||[]; st.textContent='';
+    const drafts=cdtState.products.filter(p=>!p.applied).length, applied=cdtState.products.filter(p=>p.applied).length;
+    document.getElementById('cdtCntDrafts').textContent='('+drafts+')'; document.getElementById('cdtCntApplied').textContent='('+applied+')';
+    cdtRenderTable();
+  }catch(e){ st.textContent='⚠️ '+e.message; }
+}
+function cdtSwitchSub(s){ cdtState.sub=s; document.getElementById('cdtSubDrafts').classList.toggle('active',s==='drafts'); document.getElementById('cdtSubApplied').classList.toggle('active',s==='applied'); document.getElementById('cdtMoveBtn').style.display=s==='applied'?'':'none'; document.getElementById('cdtSaveBtn').style.display=s==='applied'?'none':''; cdtRenderTable(); }
+function cdtPillCell(field,multi,options,current,extraAttr){
+  return '<div class="cdtgroup" data-field="'+field+'" data-multi="'+(multi?1:0)+'">'+options.map(o=>{
+    var label=o.label, val=o.value, on=current(o);
+    var at=extraAttr?extraAttr(o):'';
+    return '<span class="cchip'+(on?' on':'')+'" data-value="'+esc(val)+'"'+at+'>'+esc(label)+'</span>';
+  }).join('')+'</div>';
+}
+function cdtRenderTable(){
+  const o=cdtState.opt; if(!o){ return; }
+  const list=cdtState.products.filter(p=> cdtState.sub==='applied' ? p.applied : !p.applied);
+  if(!list.length){ document.getElementById('cdtTable').innerHTML='<p class="muted" style="padding:8px;">No products here.</p>'; cdtUpdateSel(); return; }
+  const ptOpts=(o.productTypes||[]).map(v=>({label:v,value:v}));
+  const roomOpts=(o.roomChoices||[]).map(v=>({label:v,value:v}));
+  const trendOpts=(o.trends||[]).map(v=>({label:v,value:v}));
+  const collOpts=(o.collections||[]).map(c=>({label:c.title,value:c.id,tags:c.tags||[]}));
+  const linkOpts=(o.linkedPages||[]).map(p=>({label:p.title,value:p.id}));
+  var head='<table><thead><tr><th></th><th>Photo</th><th>Product</th><th>Category</th><th>Product type · one</th><th>Room type</th><th>Trends</th><th>Collections</th><th>Linked trends</th></tr></thead><tbody>';
+  var body=list.map(function(p){
+    var img=p.image?'<img src="'+esc(p.image)+'" style="width:110px;height:110px;object-fit:cover;border-radius:6px;border:0.5px solid var(--border)">':'<div style="width:110px;height:110px;border-radius:6px;background:var(--surface-1);border:0.5px solid var(--border)"></div>';
+    var cat='<div class="cdtcat" data-id="'+esc(p.id)+'" data-catid="'+esc(p.categoryId||'')+'"><div class="catname" style="font-size:12px;margin-bottom:5px;">'+(p.categoryName?esc(p.categoryName):'<span class="muted">— none —</span>')+'</div><input class="cdtcatq" placeholder="Search to change" style="width:100%;height:26px;font-size:12px"><div class="cdtcatres" style="margin-top:4px;"></div></div>';
+    var pt=cdtPillCell('productType',false,ptOpts,function(x){return x.value===p.productType;});
+    var rm=cdtPillCell('rooms',true,roomOpts,function(x){return p.rooms.indexOf(x.value)>=0;});
+    var tr=cdtPillCell('trends',true,trendOpts,function(x){return p.trends.indexOf(x.value)>=0;});
+    var co=cdtPillCell('collections',true,collOpts,function(x){return (x.tags||[]).some(function(t){return p.tags.indexOf(t)>=0;});},function(x){return ' data-tags="'+esc(JSON.stringify(x.tags||[]))+'"';});
+    var li=cdtPillCell('linked',true,linkOpts,function(x){return p.linked.indexOf(x.value)>=0;});
+    return '<tr data-id="'+esc(p.id)+'"><td><input type="checkbox" class="cdtck" onchange="cdtUpdateSel()"></td><td>'+img+'</td>'+
+      '<td style="min-width:150px"><div style="font-weight:500">'+esc(p.title)+'</div><div class="muted" style="font-size:11px;font-family:var(--font-mono)">'+esc(p.handle)+'</div><span style="font-size:11px;padding:2px 7px;background:var(--bg-warning);color:var(--text-warning);border-radius:var(--radius)">draft</span></td>'+
+      '<td style="min-width:150px">'+cat+'</td><td>'+pt+'</td><td>'+rm+'</td><td>'+tr+'</td><td>'+co+'</td><td>'+li+'</td></tr>';
+  }).join('');
+  document.getElementById('cdtTable').innerHTML=head+body+'</tbody></table>';
+  cdtUpdateSel();
+}
+document.addEventListener('click',function(e){
+  var chip=e.target.closest ? e.target.closest('.cchip') : null;
+  if(!chip || !document.getElementById('cdtTable').contains(chip)) return;
+  var g=chip.closest('.cdtgroup'); if(!g) return;
+  if(g.getAttribute('data-multi')==='1'){ chip.classList.toggle('on'); }
+  else { var was=chip.classList.contains('on'); g.querySelectorAll('.cchip').forEach(function(x){x.classList.remove('on');x.classList.remove('locked');}); if(!was){ chip.classList.add('on'); g.querySelectorAll('.cchip').forEach(function(x){ if(x!==chip)x.classList.add('locked'); }); } }
+});
+document.addEventListener('keydown',async function(e){
+  if(e.key!=='Enter') return; var inp=e.target; if(!inp.classList||!inp.classList.contains('cdtcatq')) return;
+  e.preventDefault(); var box=inp.closest('.cdtcat'); var q=inp.value.trim(); if(!q)return;
+  var res=box.querySelector('.cdtcatres'); res.innerHTML='<span class="muted" style="font-size:11px">Searching…</span>';
+  try{ const d=await (await fetch(API+'?action=category-search&q='+encodeURIComponent(q))).json();
+    res.innerHTML=(d.categories||[]).slice(0,8).map(c=>'<span class="cchip" style="width:auto;margin:2px 3px 0 0;display:inline-block" data-catid="'+esc(c.id)+'" title="'+esc(c.fullName)+'">'+esc(c.name)+'</span>').join('')||'<span class="muted" style="font-size:11px">no match</span>';
+    res.querySelectorAll('.cchip').forEach(function(ch){ ch.addEventListener('click',function(){ box.setAttribute('data-catid',ch.getAttribute('data-catid')); box.querySelector('.catname').textContent=ch.getAttribute('title'); res.innerHTML=''; inp.value=''; }); });
+  }catch(err){ res.innerHTML='<span class="muted" style="font-size:11px">'+err.message+'</span>'; }
+});
+function cdtUpdateSel(){
+  var n=document.querySelectorAll('#cdtTable .cdtck:checked').length;
+  document.getElementById('cdtBulkBar').style.display=n?'flex':'none';
+  document.getElementById('cdtSelCount').textContent=n+' selected';
+}
+function cdtRowData(tr){
+  var id=tr.getAttribute('data-id');
+  var cat=tr.querySelector('.cdtcat'); var categoryId=cat?(cat.getAttribute('data-catid')||null):null;
+  function vals(field){ return Array.prototype.map.call(tr.querySelectorAll('.cdtgroup[data-field="'+field+'"] .cchip.on'),function(c){return c.getAttribute('data-value');}); }
+  var ptArr=vals('productType'); var productType=ptArr[0]||'';
+  var addTags=[]; tr.querySelectorAll('.cdtgroup[data-field="collections"] .cchip.on').forEach(function(c){ try{ (JSON.parse(c.getAttribute('data-tags')||'[]')).forEach(function(t){addTags.push(t);}); }catch(e){} });
+  return { productId:id, categoryId:categoryId||null, productType:productType, rooms:vals('rooms'), trends:vals('trends'), linkedIds:vals('linked'), addTags:Array.from(new Set(addTags)) };
+}
+async function cdtSave(){
+  var rows=Array.prototype.slice.call(document.querySelectorAll('#cdtTable tbody tr')).filter(function(tr){ return tr.querySelector('.cdtck').checked; });
+  if(!rows.length){ alert('Tick at least one product.'); return; }
+  var items=rows.map(cdtRowData);
+  document.getElementById('cdtSaveBtn').disabled=true; var st=document.getElementById('cdtStatus');
+  var BATCH=20, applied=0, errors=[], undoId=null;
+  try{
+    for(var i=0;i<items.length;i+=BATCH){ var chunk=items.slice(i,i+BATCH); st.textContent='Saving '+Math.min(i+BATCH,items.length)+' of '+items.length+' (data + 25% margin)…';
+      var b={action:'cdt-apply',items:chunk}; if(undoId)b.undoId=undoId;
+      var d=await (await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)})).json();
+      if(!d.ok){ errors.push(d.error||'error'); break; }
+      applied+=(d.applied||0); if(d.errors)errors=errors.concat(d.errors); undoId=d.undoId;
+    }
+    st.innerHTML='✅ Applied <b>'+applied+'</b> products + 25% margin. Moved to Data applied.'+(errors.length?(' <span style="color:#b35;">'+errors.length+' errors</span><br><span class="muted">'+errors.slice(0,8).map(esc).join('<br>')+'</span>'):'');
+    if(cdtState.vendor) await cdtLoadProducts({vendor:cdtState.vendor}); cdtLoadUndos();
+  }catch(e){ st.textContent='⚠️ '+e.message; }
+  document.getElementById('cdtSaveBtn').disabled=false;
+}
+async function cdtMoveBack(){
+  var rows=Array.prototype.slice.call(document.querySelectorAll('#cdtTable tbody tr')).filter(function(tr){ return tr.querySelector('.cdtck').checked; });
+  if(!rows.length){ alert('Tick at least one product.'); return; }
+  var ids=rows.map(function(tr){return tr.getAttribute('data-id');});
+  var st=document.getElementById('cdtStatus'); st.textContent='Moving back…';
+  try{ var d=await (await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'cdt-moveback',productIds:ids})})).json();
+    st.textContent=d.ok?('✅ Moved '+d.moved+' back to Drafts (their data stays, now editable).'):'⚠️ '+(d.error||'error');
+    if(cdtState.vendor) await cdtLoadProducts({vendor:cdtState.vendor});
+  }catch(e){ st.textContent='⚠️ '+e.message; }
+}
+async function cdtLoadUndos(){
+  try{ const d=await (await fetch(API+'?action=cdt-undo-list')).json(); const el=document.getElementById('cdtUndoList');
+    if(!d.ok||!d.undos||!d.undos.length){ el.innerHTML='<span class="muted">No runs yet.</span>'; return; }
+    el.innerHTML=d.undos.map(u=>'<div class="row" style="gap:10px;align-items:center;margin:4px 0;"><span>'+esc((u.createdAt||'').replace('T',' ').slice(0,16))+' · '+(u.count||0)+' products'+(u.reverted?' <span class="muted">(undone)</span>':'')+'</span>'+(u.reverted?'':'<button class="btn btn-light" onclick="cdtUndo(\''+esc(u.id)+'\')">↩ Undo</button>')+'</div>').join('');
+  }catch(e){}
+}
+async function cdtUndo(id){
+  if(!confirm('Put back the previous category, type, tags, rooms, trends, linked trends and prices for this run?')) return;
+  var st=document.getElementById('cdtStatus'); st.textContent='Undoing…';
+  try{ const { restored, errors } = await runBatchedUndo('cdt-undo', id); st.innerHTML='✅ Undone: '+restored+' products restored.'+(errors.length?(' <span style="color:#b35;">('+errors.length+' errors)</span>'):''); cdtLoadUndos(); if(cdtState.vendor) cdtLoadProducts({vendor:cdtState.vendor}); }
+  catch(e){ st.textContent='⚠️ '+e.message; }
 }
 </script>
 </body>
