@@ -148,7 +148,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v3.6 · NEW Metafields tab (Room Type + Trends, by group, backup + preview + undo) · Excel now covers Room Type + Trends and names the file by its columns + date · retention: latest backup + last 20 undos · 6 tabs · batches + backup + undo</div>
+            <div class="subtitle">v3.7 · NEW "Apply data via CSV" tab — per-product Category + Product Type + Room Type from a CSV by Handle, via API, with preview + validation (shows exactly what changes and flags invalid values with the right ones) + undo · 7 tabs · batches + backup + undo</div>
         </div>
 
         <!-- TABS (always visible) -->
@@ -159,6 +159,7 @@
             <button class="tab" id="tabBtnAv" onclick="switchTab('av')">➕ Add variants</button>
             <button class="tab" id="tabBtnXl" onclick="switchTab('xl')">📊 Excel</button>
             <button class="tab" id="tabBtnMf" onclick="switchTab('mf')">🏷️ Metafields</button>
+            <button class="tab" id="tabBtnCsv" onclick="switchTab('csv')">📥 Apply data via CSV</button>
         </div>
 
         <!-- ============ TAB 1: PRICES ============ -->
@@ -713,6 +714,62 @@
             <div id="mfPanel-blogs" hidden><div class="panel"><p class="muted">Blogs metafields — coming soon.</p></div></div>
             <div id="mfPanel-collections" hidden><div class="panel"><p class="muted">Collections metafields — coming soon.</p></div></div>
         </div><!-- /tabMf -->
+
+        <!-- ===================== APPLY DATA VIA CSV ===================== -->
+        <div class="tabpanel" id="tabCsv" hidden>
+            <div class="panel">
+                <h3 style="margin:0 0 6px;">📥 Apply data via CSV</h3>
+                <div class="hint">Paste or upload a CSV with a <b>Handle</b> column plus any of: <b>Product Category</b>, <b>Type</b>, <b>Room Type</b>. Each product is matched by its Handle and only those fields are updated via the API — nothing else is touched, and products stay as they are. Always <b>Preview</b> first: it tells you exactly what will change and flags anything invalid with the correct values.</div>
+            </div>
+
+            <div class="panel">
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+                    <b>Valid values (used to check the CSV)</b>
+                    <button class="btn btn-light" style="margin-left:auto;" onclick="csvToggleCfg()">Show / hide</button>
+                </div>
+                <div id="csvCfgBox" hidden>
+                    <div class="hint"><b>Room Type</b> is read live from the metafield — no list to keep here. <span id="csvRoomLive" class="muted"></span></div>
+                    <label class="muted" style="display:block;margin:10px 0 4px;"><b>Product Type — valid values</b> (one per line; the values from your Search &amp; Discovery filter)</label>
+                    <textarea id="csvPtValues" rows="6" style="width:100%;box-sizing:border-box;" placeholder="Living room Furniture&#10;Dining Room Furniture&#10;Wall Mirrors&#10;..."></textarea>
+                    <label class="muted" style="display:block;margin:10px 0 4px;"><b>Corrections / mappings</b> (one per line, "from =&gt; to" — e.g. Mirrors =&gt; Wall Mirrors)</label>
+                    <textarea id="csvPtMap" rows="3" style="width:100%;box-sizing:border-box;" placeholder="Mirrors => Wall Mirrors"></textarea>
+                    <div class="row" style="gap:10px;margin-top:8px;">
+                        <button class="btn btn-green" onclick="csvSaveCfg()">💾 Save valid values</button>
+                        <span id="csvCfgStatus" class="muted"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
+                    <b>Fields to apply:</b>
+                    <label><input type="checkbox" id="csvFldCategory" checked> Category</label>
+                    <label><input type="checkbox" id="csvFldType" checked> Product Type</label>
+                    <label><input type="checkbox" id="csvFldRoom" checked> Room Type</label>
+                </div>
+                <div class="row" style="gap:10px;margin-bottom:8px;">
+                    <input type="file" id="csvFile" accept=".csv" onchange="csvOnFile()" style="display:none;">
+                    <button class="btn btn-light" onclick="document.getElementById('csvFile').click()">📄 Upload CSV</button>
+                    <span class="muted">or paste below</span>
+                </div>
+                <textarea id="csvPaste" rows="4" style="width:100%;box-sizing:border-box;" placeholder="Paste the CSV here (with its header row)…"></textarea>
+                <div class="row" style="gap:10px;margin-top:10px;">
+                    <button class="btn btn-primary" id="csvPreviewBtn" onclick="csvPreview()">👁 Preview</button>
+                    <button class="btn btn-green" id="csvApplyBtn" onclick="csvApply()" disabled>✅ Apply changes</button>
+                    <span id="csvStatus" class="muted"></span>
+                </div>
+                <div id="csvColMap" style="margin-top:12px;"></div>
+                <div class="tbl-wrap" id="csvReport" style="margin-top:12px;"></div>
+            </div>
+
+            <div class="panel">
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+                    <b>Recent CSV runs</b><span class="muted">tap "Undo" to put a run back</span>
+                    <button class="btn btn-light" style="margin-left:auto;" onclick="csvLoadUndos()">↻ Refresh</button>
+                </div>
+                <div id="csvUndoList" class="muted">—</div>
+            </div>
+        </div><!-- /tabCsv -->
     </div>
 
     <datalist id="allTagsList"></datalist>
@@ -755,16 +812,19 @@ function switchTab(w){
     document.getElementById('tabAv').hidden = w!=='av';
     document.getElementById('tabXl').hidden = w!=='xl';
     document.getElementById('tabMf').hidden = w!=='mf';
+    document.getElementById('tabCsv').hidden = w!=='csv';
     document.getElementById('tabBtn1').classList.toggle('active', w===1);
     document.getElementById('tabBtnAwa').classList.toggle('active', w==='awa');
     document.getElementById('tabBtn2').classList.toggle('active', w===2);
     document.getElementById('tabBtnAv').classList.toggle('active', w==='av');
     document.getElementById('tabBtnXl').classList.toggle('active', w==='xl');
     document.getElementById('tabBtnMf').classList.toggle('active', w==='mf');
+    document.getElementById('tabBtnCsv').classList.toggle('active', w==='csv');
     if (w===2) loadFieldMeta(); // fresh from Shopify every time you open Other fields
     if (w==='av') { avOnGroup(); avLoadAdded(); } // Add variants tab
     if (w==='xl') { xlRenderChecks(); xlLoadUndos(); } // Excel tab
     if (w==='mf') mfInit(); // Metafields tab
+    if (w==='csv') csvInit(); // Apply data via CSV tab
 }
 
 /* ===================== METAFIELDS TAB ===================== */
@@ -2128,6 +2188,143 @@ buildAwaGrid();
 onFieldChange();   // shows the right panel + checks that field's backup gate
 checkPriceBackup();
 checkAwaGate();
+/* ===================== APPLY DATA VIA CSV ===================== */
+var csvState = { override:{}, products:[], headers:[] };
+const CSV_IGNORE = ['title','vendor','status','option1 name','option1 value','option2 name','option2 value','option3 name','option3 value','variant sku','variant price','sku','price','barcode','cost','weight','image src','published','tags','compare at price'];
+function csvNormH(h){ return String(h==null?'':h).replace(/ /g,' ').replace(/\s+/g,' ').trim().toLowerCase(); }
+function csvField(h){ const n=csvNormH(h);
+    if (n==='handle') return 'handle';
+    if (n==='product category'||n==='category') return 'category';
+    if (n==='type'||n==='product type') return 'productType';
+    if (n.indexOf('room type')===0 || n.indexOf('room_type')>=0) return 'roomType';
+    return null; }
+function csvLev(a,b){ a=csvNormH(a); b=csvNormH(b); const m=a.length,n=b.length; if(!m)return n; if(!n)return m; const dp=[]; for(let i=0;i<=m;i++){dp[i]=[i];} for(let j=0;j<=n;j++){dp[0][j]=j;} for(let i=1;i<=m;i++)for(let j=1;j<=n;j++)dp[i][j]=Math.min(dp[i-1][j]+1,dp[i][j-1]+1,dp[i-1][j-1]+(a[i-1]===b[j-1]?0:1)); return dp[m][n]; }
+function csvParse(text){
+    const rows=[]; let row=[], field='', inQ=false; text=String(text||'').replace(/\r\n/g,'\n').replace(/\r/g,'\n');
+    for (let i=0;i<text.length;i++){ const c=text[i];
+        if (inQ){ if (c==='"'){ if (text[i+1]==='"'){ field+='"'; i++; } else inQ=false; } else field+=c; }
+        else { if (c==='"') inQ=true; else if (c===','){ row.push(field); field=''; } else if (c==='\n'){ row.push(field); rows.push(row); row=[]; field=''; } else field+=c; } }
+    if (field!=='' || row.length){ row.push(field); rows.push(row); }
+    return rows.filter(r=> r.length>1 || (r.length===1 && String(r[0]).trim()!=='') );
+}
+function csvGetText(){ const p=document.getElementById('csvPaste').value; return p && p.trim() ? p : ''; }
+function csvFieldsSel(){ const f=[]; if(document.getElementById('csvFldCategory').checked)f.push('category'); if(document.getElementById('csvFldType').checked)f.push('productType'); if(document.getElementById('csvFldRoom').checked)f.push('roomType'); return f; }
+async function csvInit(){
+    try{ const d=await (await fetch(API+'?action=csv-config')).json();
+        if (d.ok){ document.getElementById('csvPtValues').value=(d.productTypeValues||[]).join('\n');
+            document.getElementById('csvPtMap').value=Object.keys(d.productTypeMap||{}).map(k=>k+' => '+d.productTypeMap[k]).join('\n');
+            document.getElementById('csvRoomLive').textContent='('+(d.roomChoices||[]).length+' room values live: '+(d.roomChoices||[]).join(', ')+')'; }
+    }catch(e){}
+    csvLoadUndos();
+}
+function csvToggleCfg(){ const b=document.getElementById('csvCfgBox'); b.hidden=!b.hidden; }
+function csvParseMap(text){ const m={}; String(text||'').split('\n').forEach(l=>{ const i=l.indexOf('=>'); if(i>0){ const a=l.slice(0,i).trim(), b=l.slice(i+2).trim(); if(a&&b)m[a]=b; } }); return m; }
+async function csvSaveCfg(){
+    const st=document.getElementById('csvCfgStatus'); st.textContent='Saving…';
+    const productTypeValues=document.getElementById('csvPtValues').value.split('\n').map(s=>s.trim()).filter(Boolean);
+    const productTypeMap=csvParseMap(document.getElementById('csvPtMap').value);
+    try{ const d=await (await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'csv-config-save',productTypeValues,productTypeMap})})).json();
+        st.textContent = d.ok ? ('✅ Saved '+d.count+' valid Product Types.') : ('⚠️ '+(d.error||'error')); }
+    catch(e){ st.textContent='⚠️ '+e.message; }
+}
+function csvOnFile(){ const f=document.getElementById('csvFile').files[0]; if(!f)return; const rd=new FileReader(); rd.onload=()=>{ document.getElementById('csvPaste').value=rd.result; csvState.override={}; document.getElementById('csvStatus').textContent='Loaded '+f.name+'. Press Preview.'; }; rd.readAsText(f); }
+function csvBuildData(){
+    const grid=csvParse(csvGetText()); if (grid.length<2) return null;
+    const headers=grid[0].map(h=>String(h).trim());
+    const map=headers.map((h,i)=> (csvState.override[i]!==undefined) ? csvState.override[i] : csvField(h));
+    const idxHandle=map.indexOf('handle');
+    const products=[]; let cur=null;
+    for (let r=1;r<grid.length;r++){ const cells=grid[r]; const handle=(idxHandle>=0?String(cells[idxHandle]||'').trim():'');
+        if (handle && (!cur || handle!==cur.handle)){ cur={handle};
+            map.forEach((f,i)=>{ if(!f||f==='handle')return; const val=String(cells[i]==null?'':cells[i]);
+                if(f==='roomType') cur.rooms=val.split('\n').map(s=>s.trim()).filter(Boolean); else cur[f]=val.trim(); });
+            products.push(cur);
+        }
+    }
+    return { headers, map, products };
+}
+function csvRenderColMap(headers,map){
+    const unknown=headers.map((h,i)=>({h,i,f:map[i]})).filter(x=> x.f===null && CSV_IGNORE.indexOf(csvNormH(x.h))===-1 && String(x.h).trim()!=='');
+    const el=document.getElementById('csvColMap');
+    if(!unknown.length){ el.innerHTML=''; return; }
+    const opts=[['','Ignore'],['category','Category'],['productType','Product Type'],['roomType','Room Type'],['handle','Handle']];
+    el.innerHTML='<div class="hint" style="color:#b35;">⚠️ Columns I don\'t recognise — pick what each one is (or Ignore):</div>'+unknown.map(u=>{
+        const guess=[['category','product category'],['productType','product type'],['roomType','room type']].map(g=>({f:g[0],d:csvLev(u.h,g[1])})).sort((a,b)=>a.d-b.d)[0];
+        const pre=(guess && guess.d<=6)?guess.f:'';
+        return '<div class="row" style="gap:8px;align-items:center;margin:4px 0;"><b>'+esc(u.h)+'</b> → <select onchange="csvSetOverride('+u.i+',this.value)">'+opts.map(o=>'<option value="'+o[0]+'"'+(o[0]===pre?' selected':'')+'>'+o[1]+'</option>').join('')+'</select></div>';
+    }).join('');
+    unknown.forEach(u=>{ const guess=[['category','product category'],['productType','product type'],['roomType','room type']].map(g=>({f:g[0],d:csvLev(u.h,g[1])})).sort((a,b)=>a.d-b.d)[0]; if(guess&&guess.d<=6&&csvState.override[u.i]===undefined) csvState.override[u.i]=guess.f; });
+}
+function csvSetOverride(i,v){ csvState.override[i]= v===''?'' : v; csvPreview(); }
+async function csvPreview(){
+    const st=document.getElementById('csvStatus'); const data=csvBuildData();
+    if(!data){ st.textContent='⚠️ Paste or upload a CSV first (with a header row).'; return; }
+    csvRenderColMap(data.headers,data.map);
+    if(data.map.indexOf('handle')===-1){ st.textContent='⚠️ No "Handle" column found — the tool needs it to match products.'; document.getElementById('csvReport').innerHTML=''; return; }
+    const fields=csvFieldsSel(); if(!fields.length){ st.textContent='⚠️ Tick at least one field to apply.'; return; }
+    csvState.products=data.products;
+    st.textContent='Checking '+data.products.length+' products against Shopify…';
+    document.getElementById('csvPreviewBtn').disabled=true;
+    try{
+        const d=await (await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'csv-apply',rows:data.products,fields,dryRun:true})})).json();
+        if(!d.ok){ st.textContent='⚠️ '+(d.error||'error'); return; }
+        csvRenderReport(d.report,d.summary);
+        const canApply=d.summary.readyChange>0;
+        document.getElementById('csvApplyBtn').disabled=!canApply;
+        st.innerHTML='<b>'+d.summary.total+'</b> products · <b style="color:#187a4b;">'+d.summary.readyChange+'</b> to change · '+d.summary.allOk+' already OK · <b style="color:#b35;">'+d.summary.withIssues+'</b> with issues'+(d.summary.notFound?(' · '+d.summary.notFound+' not found'):'')+(d.summary.nonDraft?(' · <b style="color:#b35;">'+d.summary.nonDraft+' NOT draft</b>'):'');
+    }catch(e){ st.textContent='⚠️ '+e.message; }
+    finally{ document.getElementById('csvPreviewBtn').disabled=false; }
+}
+function csvCell(f){
+    if(!f) return '<span class="muted">—</span>';
+    if(f.status==='ok') return '<span class="muted">✓ '+esc(f.new!=null?f.new:(f.old||''))+'</span>';
+    if(f.status==='change') return '<span style="color:#187a4b;">'+esc(f.old||'∅')+' → <b>'+esc(f.new)+'</b></span>'+(f.note?(' <span class="muted">('+esc(f.note)+')</span>'):'');
+    if(f.status==='invalid'){ let msg='<span style="color:#b35;">⚠️ '+esc(f.reason||'invalid');
+        if(f.bad&&f.bad.length) msg+=': '+f.bad.map(b=>esc(b.value)+(b.suggestions&&b.suggestions.length?(' → try '+esc(b.suggestions[0])):'')).join(', ');
+        else if(f.value) msg+=': "'+esc(f.value)+'"'+(f.suggestions&&f.suggestions.length?(' → try '+esc(f.suggestions[0])):'');
+        return msg+'</span>'; }
+    return '<span class="muted">—</span>';
+}
+function csvRenderReport(report,summary){
+    const rows=report.map(r=>{
+        const flag = !r.found ? '<span style="color:#b35;">not found</span>' : (r.hasIssue?'<span style="color:#b35;">⚠️ issue</span>':'<span style="color:#187a4b;">ready</span>');
+        const stTag = (r.found && r.productStatus && r.productStatus!=='DRAFT') ? ' <span style="color:#b35;">['+esc(r.productStatus)+']</span>' : '';
+        return '<tr><td>'+esc(r.handle)+stTag+'</td><td>'+flag+'</td><td>'+csvCell(r.fields.category)+'</td><td>'+csvCell(r.fields.productType)+'</td><td>'+csvCell(r.fields.roomType)+'</td></tr>';
+    }).join('');
+    document.getElementById('csvReport').innerHTML='<table class="tbl"><thead><tr><th>Handle</th><th>Status</th><th>Category</th><th>Product Type</th><th>Room Type</th></tr></thead><tbody>'+rows+'</tbody></table>';
+}
+async function csvApply(){
+    if(!csvState.products.length) return;
+    const fields=csvFieldsSel();
+    document.getElementById('csvApplyBtn').disabled=true; document.getElementById('csvPreviewBtn').disabled=true;
+    const st=document.getElementById('csvStatus'); const BATCH=40; let applied=0,skipped=0,errors=[],undoId=null;
+    try{
+        for(let i=0;i<csvState.products.length;i+=BATCH){
+            const chunk=csvState.products.slice(i,i+BATCH);
+            st.textContent='Applying '+Math.min(i+BATCH,csvState.products.length)+' of '+csvState.products.length+'…';
+            const bodyObj={action:'csv-apply',rows:chunk,fields,dryRun:false}; if(undoId)bodyObj.undoId=undoId;
+            const d=await (await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(bodyObj)})).json();
+            if(!d.ok){ errors.push(d.error||'error'); break; }
+            applied+=(d.applied||0); skipped+=(d.skipped||0); if(d.errors)errors=errors.concat(d.errors); undoId=d.undoId;
+        }
+        st.innerHTML='✅ Applied <b>'+applied+'</b> field updates'+(skipped?(' · '+skipped+' skipped (not found / with issues)'):'')+(errors.length?(' · <span style="color:#b35;">'+errors.length+' errors</span>'):'')+'. '+(errors.length?('<br><span class="muted">'+errors.slice(0,10).map(esc).join('<br>')+'</span>'):'');
+        csvLoadUndos();
+    }catch(e){ st.textContent='⚠️ '+e.message; }
+    finally{ document.getElementById('csvPreviewBtn').disabled=false; }
+}
+async function csvLoadUndos(){
+    try{ const d=await (await fetch(API+'?action=csv-undo-list')).json();
+        const el=document.getElementById('csvUndoList');
+        if(!d.ok||!d.undos||!d.undos.length){ el.innerHTML='<span class="muted">No CSV runs yet.</span>'; return; }
+        el.innerHTML=d.undos.map(u=>'<div class="row" style="gap:10px;align-items:center;margin:4px 0;"><span>'+esc((u.createdAt||'').replace('T',' ').slice(0,16))+' · '+(u.count||0)+' products'+(u.reverted?' <span class="muted">(undone)</span>':'')+'</span>'+(u.reverted?'':'<button class="btn btn-light" onclick="csvUndo(\''+esc(u.id)+'\')">↩ Undo</button>')+'</div>').join('');
+    }catch(e){}
+}
+async function csvUndo(id){
+    if(!confirm('Put back the previous Category / Product Type / Room Type for this run?')) return;
+    const st=document.getElementById('csvStatus'); st.textContent='Undoing…';
+    try{ const { restored, errors } = await runBatchedUndo('csv-undo', id); st.innerHTML='✅ Undone: '+restored+' values put back.'+(errors.length?(' <span style="color:#b35;">('+errors.length+' errors)</span>'):''); csvLoadUndos(); }
+    catch(e){ st.textContent='⚠️ '+e.message; }
+}
 </script>
 </body>
 </html>
