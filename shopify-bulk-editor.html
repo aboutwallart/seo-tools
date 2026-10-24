@@ -148,7 +148,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v3.10 · NEW "Collective items data" tab — per-product Category · Product type · Room type · Trends · Collections (auto-tags) · Linked trends with pills, by vendor/SKU, drafts only. Save &amp; apply writes it + the 25% margin + moves to Data applied. Backup gate + per-run undo · 8 tabs</div>
+            <div class="subtitle">v3.11 · NEW "Collective items data" tab — per-product Category · Product type · Room type · Trends · Collections (auto-tags) · Linked trends with pills, by vendor/SKU, drafts only. Save &amp; apply writes it + the 25% margin + moves to Data applied. Backup gate + per-run undo · 8 tabs</div>
         </div>
 
         <!-- TABS (always visible) -->
@@ -875,6 +875,7 @@ function switchTab(w){
     document.getElementById('tabMf').hidden = w!=='mf';
     document.getElementById('tabCsv').hidden = w!=='csv';
     document.getElementById('tabCdt').hidden = w!=='cdt';
+    var _ctn=document.querySelector('.container'); if(_ctn) _ctn.classList.toggle('cdtfull', w==='cdt');
     document.getElementById('tabBtn1').classList.toggle('active', w===1);
     document.getElementById('tabBtnAwa').classList.toggle('active', w==='awa');
     document.getElementById('tabBtn2').classList.toggle('active', w===2);
@@ -2414,7 +2415,7 @@ var cdtState={ opt:null, products:[], vendor:'', sub:'drafts', loaded:false };
 function cdtStyle(){
   if (document.getElementById('cdtStyle')) return;
   var s=document.createElement('style'); s.id='cdtStyle';
-  s.textContent='#cdtTable table{border-collapse:collapse;font-size:13px;width:100%}#cdtTable th,#cdtTable td{border:1.5px solid #111;padding:7px 8px;text-align:left;vertical-align:top}#cdtTable th{background:#eceae2;font-weight:600;white-space:nowrap}.cdtgroup{display:grid;grid-template-columns:1fr 1fr;gap:4px;min-width:140px}.cchip{display:block;width:100%;box-sizing:border-box;text-align:left;font-size:11px;padding:2px 8px;border-radius:var(--radius);cursor:pointer;line-height:1.4;background:#F1EFE8;color:#5F5E5A;border:none;user-select:none}.cchip.on{background:#C0DD97;color:#173404}.cchip.locked{opacity:.35;pointer-events:none}.cdtdone{background:#efeee8}.donepill{display:inline-block;background:#185FA5;color:#fff;font-size:11px;padding:2px 10px;border-radius:var(--radius)}.cdt-wide{width:98vw;position:relative;left:50%;margin-left:-49vw}.cdtcollwrap{display:flex;gap:8px}.cdtcollwrap>div{flex:1}.cdtcolllbl{font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:3px}';
+  s.textContent='.container.cdtfull{max-width:none;padding:0 10px}#cdtTable table{border-collapse:collapse;font-size:13px;width:100%}#cdtTable th,#cdtTable td{border:1.5px solid #111;padding:7px 8px;text-align:left;vertical-align:top}#cdtTable th{background:#fff;color:#111;font-weight:600;white-space:nowrap}.cdtgroup{display:grid;grid-template-columns:1fr;gap:4px;min-width:120px}.cdtgroup.two{grid-template-columns:1fr 1fr;min-width:200px}.cchip{display:block;width:100%;box-sizing:border-box;text-align:left;font-size:11px;padding:2px 8px;border-radius:var(--radius);cursor:pointer;line-height:1.4;background:#F1EFE8;color:#5F5E5A;border:none;user-select:none}.cchip.on{background:#C0DD97;color:#173404}.cchip.locked{opacity:.35;pointer-events:none}.cdtdone{background:#efeee8}.donepill{display:inline-block;background:#185FA5;color:#fff;font-size:11px;padding:2px 10px;border-radius:var(--radius)}.cdt-wide{width:100%}.cdtcollwrap{display:flex;gap:8px}.cdtcollwrap>div{flex:1}.cdtcolllbl{font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:3px}';
   document.head.appendChild(s);
 }
 async function cdtInit(){
@@ -2459,9 +2460,9 @@ async function cdtLoadProducts(q){
   }catch(e){ st.textContent='⚠️ '+e.message; }
 }
 function cdtSwitchSub(s){ cdtState.sub=s; document.getElementById('cdtSubDrafts').classList.toggle('active',s==='drafts'); document.getElementById('cdtSubApplied').classList.toggle('active',s==='applied'); document.getElementById('cdtMoveBtn').style.display=s==='applied'?'':'none'; document.getElementById('cdtSaveBtn').style.display=s==='applied'?'none':''; cdtRenderTable(); }
-function cdtPillCell(field,multi,options,current,extraAttr){
+function cdtPillCell(field,multi,options,current,extraAttr,two){
   var opts=options.slice().sort(function(a,b){ var ao=current(a)?0:1, bo=current(b)?0:1; if(ao!==bo)return ao-bo; return String(a.label).localeCompare(String(b.label)); });
-  return '<div class="cdtgroup" data-field="'+field+'" data-multi="'+(multi?1:0)+'">'+opts.map(o=>{
+  return '<div class="cdtgroup'+(two?' two':'')+'" data-field="'+field+'" data-multi="'+(multi?1:0)+'">'+opts.map(o=>{
     var label=o.label, val=o.value, on=current(o);
     var at=extraAttr?extraAttr(o):'';
     return '<span class="cchip'+(on?' on':'')+'" data-value="'+esc(val)+'"'+at+'>'+esc(label)+'</span>';
@@ -2487,7 +2488,7 @@ function cdtRenderTable(){
     var catCell = p.categoryId
       ? cdtDoneCell(p.categoryName)
       : '<td style="min-width:150px"><div class="cdtcat" data-id="'+esc(p.id)+'" data-catid=""><div class="catname" style="font-size:12px;margin-bottom:5px;"><span class="muted">— none —</span></div><input class="cdtcatq" placeholder="Search to set" style="width:100%;height:26px;font-size:12px"><div class="cdtcatres" style="margin-top:4px;"></div></div></td>';
-    var ptCell = p.productType ? cdtDoneCell(p.productType) : '<td>'+cdtPillCell('productType',false,ptOpts,function(x){return x.value===p.productType;})+'</td>';
+    var ptCell = p.productType ? cdtDoneCell(p.productType) : '<td>'+cdtPillCell('productType',false,ptOpts,function(x){return x.value===p.productType;},null,true)+'</td>';
     var rmCell = (p.rooms && p.rooms.length) ? cdtDoneCell(p.rooms.join(' · ')) : '<td>'+cdtPillCell('rooms',true,roomOpts,function(x){return p.rooms.indexOf(x.value)>=0;})+'</td>';
     var tr=cdtPillCell('trends',true,trendOpts,function(x){return p.trends.indexOf(x.value)>=0;});
     var co='<div class="cdtcollwrap"><div><div class="cdtcolllbl">By room</div>'+cdtPillCell('collections',true,collRoomOpts,collOn(p),collTagAttr)+'</div><div><div class="cdtcolllbl">By product</div>'+cdtPillCell('collections',true,collProdOpts,collOn(p),collTagAttr)+'</div></div>';
