@@ -1,4 +1,7 @@
-// shopify-bulk.js — v3.12 (25 Oct 2026)
+// shopify-bulk.js — v3.13 (25 Oct 2026)
+// v3.13: cdt — vendor list shows only vendors with drafts>0 again (done-only vendors drop). tagGroups now also carries
+//   roomToFurniture + decorToPages (for the front's auto-mark+grey of Furniture tags by room and Trend pages by Decor style).
+//   Decor style list reduced to 35 (collective-data-config.json — dropped the 7 generic grouping values).
 // v3.12: cdt — NEW Tags column (nested-collection tags, grouped in data/collective-tags-groups.json; shown by selected
 //   By Product collection + Room; added to addTags on save). 0-stock now hides only in Drafts (applied still show in Data
 //   applied; vendor list keeps vendors with applied>0). Undo runs keep last 10, store product titles/handles per run,
@@ -2150,7 +2153,7 @@ module.exports = async function handler(req, res) {
         (d.products.nodes || []).forEach(p => { if ((p.vendor || '') === AWA_VENDOR) return; const isApplied = appliedSet.has(p.id); if ((p.totalInventory || 0) <= 0 && !isApplied) return; const v = p.vendor || '(no vendor)'; if (!counts[v]) counts[v] = { drafts: 0, applied: 0 }; if (isApplied) counts[v].applied++; else counts[v].drafts++; });
         pages++; if (!d.products.pageInfo.hasNextPage) break; cursor = d.products.pageInfo.endCursor;
       }
-      const vendors = Object.keys(counts).map(v => ({ vendor: v, drafts: counts[v].drafts, applied: counts[v].applied })).filter(v => v.drafts > 0 || v.applied > 0).sort((a, b) => a.vendor.localeCompare(b.vendor));
+      const vendors = Object.keys(counts).map(v => ({ vendor: v, drafts: counts[v].drafts, applied: counts[v].applied })).filter(v => v.drafts > 0).sort((a, b) => a.vendor.localeCompare(b.vendor));
       return res.status(200).json({ ok: true, vendors });
     }
 
