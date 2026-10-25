@@ -1,4 +1,9 @@
-// api/etsy.js — AWA ETSY backend (OAuth + Tab 1 NEW PRODUCT + Tab 2 APPLY TO DUPLICATE)  ·  v0.46
+// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images)  ·  v0.48
+// v0.48 (2026-10-25): Replace images — Tanda 2: ri-sections / ri-listings (by Etsy section) / ri-detail (current Etsy
+//   images + video + Shopify match by sku_for_print_files, with "closest" fallback) / ri-shopify (media for a chosen
+//   SKU) / ri-apply (backup-first to data/etsy-images-undo.json, then riApplyMedia: ordered images incl. common set at
+//   the end, 20-cap, anchor trick; video keep/replace/remove). loadShopifyMedia adds the product video.
+// v0.47 (2026-10-25): Replace images — Tanda 1: common-set storage in GitHub (ri-common-get/add/delete/reorder).
 // v0.46 (2026-10-21): FIX "Generate listing" error "Unexpected non-whitespace character after JSON" — the AI sometimes
 //   adds text (or a 2nd block) after the JSON, and the greedy /{...}/ grabbed first "{" to LAST "}", swallowing it.
 //   claudeJSON now extracts the FIRST complete JSON object (brace-count, string-aware) via firstJsonObject and parses
@@ -137,6 +142,9 @@ const SENT_PATH = 'data/etsy-sent-items.json';
 const CLEAN_BACKUP_PATH = 'data/etsy-desc-backup.json'; // original descriptions, saved before the one-time off-platform cleanup
 const REG_PATH = 'data/etsy-listings.json';       // ONE registry: SKU -> [{listing_id,title,state}] (old live listings + new drafts)
 const VIDEO_LOG_PATH = 'data/etsy-video-log.json'; // [{listing_id, video_id, sku, fileId, fileName, ts}] — videos this tool pushed
+const COMMON_PATH = 'data/etsy-common-set.json';   // Replace images: the common image set (goes at the END of every listing), in order
+const COMMON_DIR  = 'assets/etsy-common';          // where the common-set image files live in the repo (served via raw.githubusercontent)
+const RI_UNDO_PATH = 'data/etsy-images-undo.json';  // Replace images: before every apply we save the listing's old image URLs + video (for undo)
 function ghHeaders() { return { 'Authorization': 'token ' + process.env.GITHUB_TOKEN, 'Accept': 'application/vnd.github+json', 'User-Agent': 'awa-etsy' }; }
 async function ghGet(path) {
   const r = await fetch('https://api.github.com/repos/' + REPO + '/contents/' + path + '?ref=main&t=' + Date.now(), { headers: ghHeaders() });
@@ -156,6 +164,10 @@ async function ghPut(path, content, sha, message) {
 async function readSent() { try { const f = await ghGet(SENT_PATH); if (f.content) { const j = JSON.parse(f.content); return { items: Array.isArray(j) ? j : (j.items || []), sha: f.sha }; } } catch (e) {} return { items: [], sha: null }; }
 async function readReg() { try { const f = await ghGet(REG_PATH); if (f.content) { const j = JSON.parse(f.content); return { map: (j && typeof j === 'object' && !Array.isArray(j)) ? j : {}, sha: f.sha }; } } catch (e) {} return { map: {}, sha: null }; }
 async function readVideoLog() { try { const f = await ghGet(VIDEO_LOG_PATH); if (f.content) { const j = JSON.parse(f.content); return { items: Array.isArray(j) ? j : (j.items || []), sha: f.sha }; } } catch (e) {} return { items: [], sha: null }; }
+// Replace images — common set stored in GitHub (shows on every computer). Each item: {fileName, path, ts}. Served from raw.githubusercontent.
+async function readCommon() { try { const f = await ghGet(COMMON_PATH); if (f.content) { const j = JSON.parse(f.content); return { items: Array.isArray(j) ? j : (j.items || []), sha: f.sha }; } } catch (e) {} return { items: [], sha: null }; }
+function commonUrl(path) { return 'https://raw.githubusercontent.com/' + REPO + '/main/' + path; }
+function withCommonUrls(items) { return (items || []).map(it => Object.assign({}, it, { url: commonUrl(it.path) })); }
 // Etsy variant SKUs look like "{BASE}- {size}{frame} {paper}" (the base can contain spaces, e.g. "CYANOTYPE BROWN").
 // The video filename gives the BASE, so group by the base code.
 function baseSkuEtsy(s) { return String(s || '').split(/\s*-\s/)[0].trim().toUpperCase(); }
@@ -384,6 +396,74 @@ async function replaceListingMedia(call, target, imageUrls) {
   } catch (e) { out.warning = 'photos error: ' + String(e && e.message || e); }
   return out;
 }
+// Replace images (Tanda 2): apply an ORDERED list of image entries ({url} OR {dataBase64}) to a listing, plus an
+// optional video URL. Mirrors replaceListingMedia's anchor trick + 20-cap retry. Entries already include the common set
+// at the end (the front builds the order). Deletes the current video first and uploads the new one if given.
+async function riApplyMedia(call, target, entries, video) {
+  const out = { video: { deleted: 0, uploaded: 0 }, photos: { found: 0, deleted: 0, uploaded: 0, failed: 0 }, warning: '' };
+  // --- video: keep (default — never touch it), replace, or remove ---
+  const vAct = (video && video.action) || 'keep';
+  if (vAct === 'replace' || vAct === 'remove') {
+    try {
+      const lv = await call('/listings/' + target + '/videos');
+      const vids = (lv.json && (lv.json.results || lv.json.videos)) || [];
+      for (const v of vids) { const dv = await call('/shops/' + SHOP_ID + '/listings/' + target + '/videos/' + v.video_id, { method: 'DELETE' }); if (dv.status < 300) out.video.deleted++; }
+    } catch (e) { /* best-effort */ }
+    if (vAct === 'replace' && video.url) {
+      try {
+        const vr = await fetch(video.url);
+        if (vr.ok) {
+          const vbuf = Buffer.from(await vr.arrayBuffer());
+          const fd = new FormData();
+          fd.append('video', new Blob([vbuf], { type: vr.headers.get('content-type') || 'video/mp4' }), 'video.mp4');
+          fd.append('name', 'video.mp4');
+          const r = await call('/shops/' + SHOP_ID + '/listings/' + target + '/videos', { method: 'POST', body: fd });
+          if (r.status < 300) out.video.uploaded++; else out.warning += ' video upload ' + r.status + ';';
+        }
+      } catch (e) { out.warning += ' video error;'; }
+    }
+  }
+  // --- photos: resolve each entry to bytes, then anchor-trick upload ---
+  const list = (entries || []).slice(0, 20);
+  let firstErr = null;
+  const bufs = [];
+  for (let i = 0; i < list.length; i++) {
+    const e = list[i] || {};
+    try {
+      if (e.dataBase64) bufs.push({ buf: Buffer.from(String(e.dataBase64).replace(/^data:[^,]+,/, ''), 'base64'), type: 'image/jpeg' });
+      else if (e.url) { const ir = await fetch(e.url); if (!ir.ok) { if (!firstErr) firstErr = 'fetch ' + ir.status; bufs.push(null); } else bufs.push({ buf: Buffer.from(await ir.arrayBuffer()), type: ir.headers.get('content-type') || 'image/jpeg' }); }
+      else bufs.push(null);
+    } catch (err) { if (!firstErr) firstErr = String(err && err.message || err); bufs.push(null); }
+  }
+  try {
+    const cur = await call('/listings/' + target + '/images');
+    const oldImgs = (cur.json && cur.json.results) || [];
+    out.photos.found = oldImgs.length;
+    const anchor = oldImgs.length ? oldImgs[0] : null;
+    const delImage = async (id) => { const dr = await call('/shops/' + SHOP_ID + '/listings/' + target + '/images/' + id, { method: 'DELETE' }); if (dr.status < 300) { out.photos.deleted++; return true; } return false; };
+    for (const im of oldImgs.slice(1)) await delImage(im.listing_image_id);
+    const uploadOne = async (i) => {
+      const b = bufs[i]; if (!b) return false;
+      try {
+        const fd = new FormData();
+        fd.append('image', new Blob([b.buf], { type: b.type }), 'image-' + (i + 1) + '.jpg');
+        fd.append('rank', String(i + 1));
+        const r = await call('/shops/' + SHOP_ID + '/listings/' + target + '/images', { method: 'POST', body: fd });
+        if (r.status < 300) return true;
+        if (!firstErr) firstErr = 'etsy upload ' + r.status + ' ' + JSON.stringify(r.json).slice(0, 120);
+        return false;
+      } catch (e) { if (!firstErr) firstErr = String(e && e.message || e); return false; }
+    };
+    const pending = [];
+    for (let i = 0; i < list.length; i++) { if (await uploadOne(i)) out.photos.uploaded++; else pending.push(i); }  // pass 1 (anchor still there)
+    if (anchor && out.photos.uploaded > 0) await delImage(anchor.listing_image_id);
+    const still = [];
+    for (const i of pending) { if (await uploadOne(i)) out.photos.uploaded++; else still.push(i); }  // pass 2 (20-cap)
+    out.photos.failed = still.length;
+    if ((out.photos.failed || out.photos.uploaded === 0) && firstErr) out.warning += ' ' + out.photos.failed + ' photos failed: ' + firstErr;
+  } catch (e) { out.warning += ' photos error: ' + String(e && e.message || e); }
+  return out;
+}
 function stripHtml(h) { return String(h || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim(); }
 function normT(s) { return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
 function eqSku(a, b) { return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase(); }
@@ -494,6 +574,22 @@ async function loadThumb(sku) {
   const hit = nodes.find(x => eqSku(x.skuMf && x.skuMf.value, sku));
   if (hit) return { exact: true, title: hit.title, image: (hit.images.nodes[0] || {}).url || '' };
   return { exact: false, title: '', image: '' };
+}
+// Replace images: Shopify product media (all images + the product video) for one SKU. Exact match on sku_for_print_files;
+// when there is no exact match, return the closest candidates (with a thumbnail) so Mae can pick one by hand.
+async function loadShopifyMedia(sku) {
+  const gq = 'query($q:String!){ products(first:25, query:$q){ nodes{ title handle images(first:50){nodes{url}} media(first:30){nodes{ ... on Video { sources{ url mimeType } } }} skuMf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } }';
+  const d = await shopGQL(gq, { q: 'metafield:custom.sku_for_print_files:' + sku });
+  const nodes = d.products.nodes || [];
+  const n = nodes.find(x => eqSku(x.skuMf && x.skuMf.value, sku));
+  if (!n) {
+    const similar = nodes.slice(0, 8).map(x => ({ sku: (x.skuMf && x.skuMf.value) || '', title: x.title, image: (x.images.nodes[0] || {}).url || '' }));
+    return { noMatch: true, similar };
+  }
+  const images = (n.images.nodes || []).map(i => i.url);
+  let video = '';
+  ((n.media && n.media.nodes) || []).forEach(m => { if (!video && m.sources && m.sources.length) { const mp4 = m.sources.find(s => /mp4/i.test(s.mimeType || '')) || m.sources[m.sources.length - 1]; video = mp4 && mp4.url || ''; } });
+  return { matched: true, title: n.title, handle: n.handle, images, video };
 }
 async function runApify(seeds) {
   const APIFY = process.env.APIFY_TOKEN;
@@ -762,6 +858,52 @@ module.exports = async (req, res) => {
   if (q.action === 'etsy-video-log-get') {
     try { const r = await readVideoLog(); res.status(200).json({ ok: true, log: r.items }); }
     catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
+    return;
+  }
+
+  // ---- Replace images: common set (GitHub only, no Etsy auth needed) ----
+  if (q.action === 'ri-common-get') {
+    try { const c = await readCommon(); res.status(200).json({ ok: true, items: withCommonUrls(c.items) }); }
+    catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
+    return;
+  }
+  if (q.action === 'ri-common-add' && req.method === 'POST') {
+    try {
+      const b = req.body || {};
+      const raw = String(b.dataBase64 || '').replace(/^data:[^,]+,/, ''); // accept a bare base64 or a data: URL
+      if (!raw) { res.status(400).json({ ok: false, error: 'No image data' }); return; }
+      const safe = String(b.fileName || 'image').replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 60) || 'image';
+      const stored = Date.now() + '-' + safe;
+      const path = COMMON_DIR + '/' + stored;
+      await ghPut(path, Buffer.from(raw, 'base64'), null, 'etsy common image: ' + stored);
+      const c = await readCommon();
+      c.items.push({ fileName: String(b.fileName || safe), path: path, ts: Date.now() });
+      await ghPut(COMMON_PATH, JSON.stringify({ items: c.items }, null, 2), c.sha, 'etsy common set + ' + stored);
+      res.status(200).json({ ok: true, items: withCommonUrls(c.items) });
+    } catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
+    return;
+  }
+  if (q.action === 'ri-common-delete' && req.method === 'POST') {
+    try {
+      const b = req.body || {};
+      const c = await readCommon();
+      const items = c.items.filter(it => it.path !== b.path);
+      await ghPut(COMMON_PATH, JSON.stringify({ items }, null, 2), c.sha, 'etsy common set - delete');
+      res.status(200).json({ ok: true, items: withCommonUrls(items) });
+    } catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
+    return;
+  }
+  if (q.action === 'ri-common-reorder' && req.method === 'POST') {
+    try {
+      const b = req.body || {};
+      const order = Array.isArray(b.order) ? b.order : [];
+      const c = await readCommon();
+      const byPath = {}; c.items.forEach(it => { byPath[it.path] = it; });
+      const items = order.map(p => byPath[p]).filter(Boolean);
+      c.items.forEach(it => { if (order.indexOf(it.path) < 0) items.push(it); }); // safety: keep any not listed
+      await ghPut(COMMON_PATH, JSON.stringify({ items }, null, 2), c.sha, 'etsy common set reorder');
+      res.status(200).json({ ok: true, items: withCommonUrls(items) });
+    } catch (e) { res.status(500).json({ ok: false, error: String(e && e.message || e) }); }
     return;
   }
 
@@ -1074,6 +1216,68 @@ module.exports = async (req, res) => {
       // only remove from the list when Etsy actually deleted it — a failed delete must NOT lose the item.
       if (ok) { items = s.items.filter(x => String(x.listing_id) !== String(b.listing_id)); try { await ghPut(SENT_PATH, JSON.stringify(items, null, 2), s.sha, 'AWA ETSY: delete ' + b.listing_id); } catch (e) {} }
       finish(200, { ok, status: del.status, items, error: ok ? undefined : del.json });
+      return;
+    }
+
+    // ---- Replace images (Tanda 2): Etsy sections, listings by section, listing detail (+ Shopify match), apply ----
+    if (q.action === 'ri-sections') {
+      const sec = await call('/shops/' + SHOP_ID + '/sections');
+      const sections = ((sec.json && sec.json.results) || []).map(s => ({ id: s.shop_section_id, title: s.title, count: s.active_listing_count }));
+      finish(200, { ok: true, sections });
+      return;
+    }
+    if (q.action === 'ri-listings') {
+      const sectionId = String(q.section || '');
+      const rows = []; let offset = 0;
+      for (let page = 0; page < 40; page++) {
+        const lr = await call('/shops/' + SHOP_ID + '/listings/active?limit=100&offset=' + offset + '&includes=Images');
+        const results = (lr.json && lr.json.results) || [];
+        results.forEach(l => {
+          if (sectionId && String(l.shop_section_id) !== sectionId) return;
+          const im0 = (l.images && l.images[0]) || {};
+          rows.push({ listing_id: l.listing_id, title: l.title, sku: ([].concat(l.skus || [])).filter(Boolean)[0] || '', image: im0.url_170x135 || im0.url_fullxfull || '' });
+        });
+        if (results.length < 100) break;
+        offset += 100;
+      }
+      finish(200, { ok: true, listings: rows });
+      return;
+    }
+    if (q.action === 'ri-detail') {
+      const id = q.listing_id;
+      if (!id) { finish(400, { ok: false, error: 'Missing listing_id' }); return; }
+      const imgs = await call('/listings/' + id + '/images');
+      const etsyImages = ((imgs.json && imgs.json.results) || []).map(im => ({ id: im.listing_image_id, url: im.url_fullxfull, rank: im.rank }));
+      let etsyVideo = null;
+      try { const vr = await call('/listings/' + id + '/videos'); const vids = (vr.json && (vr.json.results || vr.json.videos)) || []; if (vids[0]) etsyVideo = { video_id: vids[0].video_id, url: vids[0].video_url || '' }; } catch (e) {}
+      let sku = '';
+      try { const l = await call('/listings/' + id + '?includes=Inventory'); const lj = l.json || {}; sku = ([].concat(lj.skus || [], ((lj.inventory && lj.inventory.products) || []).map(p => p.sku))).filter(Boolean)[0] || ''; } catch (e) {}
+      let shopify = { noMatch: true, similar: [] };
+      if (sku) { try { shopify = await loadShopifyMedia(sku); } catch (e) { shopify = { noMatch: true, similar: [], error: String(e && e.message || e) }; } }
+      finish(200, { ok: true, listing_id: id, sku, etsyImages, etsyVideo, shopify });
+      return;
+    }
+    if (q.action === 'ri-shopify') {
+      try { const m = await loadShopifyMedia(String(q.sku || '')); finish(200, { ok: true, shopify: m }); }
+      catch (e) { finish(500, { ok: false, error: String(e && e.message || e) }); }
+      return;
+    }
+    if (q.action === 'ri-apply' && req.method === 'POST') {
+      const b = req.body || {};
+      if (!b.listing_id) { finish(400, { ok: false, error: 'Missing listing_id' }); return; }
+      const entries = Array.isArray(b.images) ? b.images : [];
+      if (!entries.length) { finish(400, { ok: false, error: 'No images to apply' }); return; }
+      // Back up the listing's CURRENT images + video FIRST — abort if we can't save it (same rule as the other tabs).
+      try {
+        const cur = await call('/listings/' + b.listing_id + '/images');
+        const oldImages = ((cur.json && cur.json.results) || []).map(im => im.url_fullxfull);
+        let oldVideo = ''; try { const vr = await call('/listings/' + b.listing_id + '/videos'); const vids = (vr.json && (vr.json.results || vr.json.videos)) || []; if (vids[0]) oldVideo = vids[0].video_url || ''; } catch (e) {}
+        const log = await ghGet(RI_UNDO_PATH); const arr = log.content ? (JSON.parse(log.content).items || []) : [];
+        arr.unshift({ listing_id: String(b.listing_id), sku: String(b.sku || ''), ts: Date.now(), oldImages, oldVideo });
+        await ghPut(RI_UNDO_PATH, JSON.stringify({ items: arr.slice(0, 200) }, null, 2), log.sha, 'ri undo ' + b.listing_id);
+      } catch (e) { finish(500, { ok: false, error: 'Backup could not be saved — nothing was changed. ' + String(e && e.message || e) }); return; }
+      const r = await riApplyMedia(call, b.listing_id, entries, b.video || null);
+      finish(200, { ok: true, result: r });
       return;
     }
 
