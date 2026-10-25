@@ -1,4 +1,7 @@
-// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images)  ·  v0.48
+// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images)  ·  v0.49
+// v0.49 (2026-10-25): ri-listings now returns each listing's featured image + SKU (uses /listings?state=active with
+//   includes=Inventory,Images — same pattern as etsy-reg-refresh). Common set points to data/etsy-common-set.json
+//   (reuses the NPG fixed images in assets/npg-images/fixed/ + a new "framed-products.jpg").
 // v0.48 (2026-10-25): Replace images — Tanda 2: ri-sections / ri-listings (by Etsy section) / ri-detail (current Etsy
 //   images + video + Shopify match by sku_for_print_files, with "closest" fallback) / ri-shopify (media for a chosen
 //   SKU) / ri-apply (backup-first to data/etsy-images-undo.json, then riApplyMedia: ordered images incl. common set at
@@ -1230,12 +1233,13 @@ module.exports = async (req, res) => {
       const sectionId = String(q.section || '');
       const rows = []; let offset = 0;
       for (let page = 0; page < 40; page++) {
-        const lr = await call('/shops/' + SHOP_ID + '/listings/active?limit=100&offset=' + offset + '&includes=Images');
+        const lr = await call('/shops/' + SHOP_ID + '/listings?state=active&limit=100&offset=' + offset + '&includes=Inventory,Images');
         const results = (lr.json && lr.json.results) || [];
         results.forEach(l => {
           if (sectionId && String(l.shop_section_id) !== sectionId) return;
-          const im0 = (l.images && l.images[0]) || {};
-          rows.push({ listing_id: l.listing_id, title: l.title, sku: ([].concat(l.skus || [])).filter(Boolean)[0] || '', image: im0.url_170x135 || im0.url_fullxfull || '' });
+          const im = (l.images && l.images[0]) || {};
+          const sku = ([].concat(l.skus || [], ((l.inventory && l.inventory.products) || []).map(p => p.sku))).filter(Boolean)[0] || '';
+          rows.push({ listing_id: l.listing_id, title: l.title, sku: sku, image: im.url_570xN || im.url_fullxfull || im.url_300x300 || '' });
         });
         if (results.length < 100) break;
         offset += 100;
