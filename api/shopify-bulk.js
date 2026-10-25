@@ -1,4 +1,8 @@
-// shopify-bulk.js — v3.11 (24 Oct 2026)
+// shopify-bulk.js — v3.12 (25 Oct 2026)
+// v3.12: cdt — NEW Tags column (nested-collection tags, grouped in data/collective-tags-groups.json; shown by selected
+//   By Product collection + Room; added to addTags on save). 0-stock now hides only in Drafts (applied still show in Data
+//   applied; vendor list keeps vendors with applied>0). Undo runs keep last 10, store product titles/handles per run,
+//   and on full revert move products back to Drafts (removed from collective-applied.json).
 // v3.11: cdt — exclude 0-stock drafts (totalInventory>0) from vendors + products; vendor list drops fully-done vendors.
 // v3.10: cdt-options now splits collections into collectionsByRoom + collectionsByProduct (two sub-columns in the UI).
 // v3.9: NEW "Update Collective items data" tab. cdt-options (pick-lists: product types, live room choices, trends from
@@ -2098,6 +2102,8 @@ module.exports = async function handler(req, res) {
     const CDT_CONFIG = 'data/collective-data-config.json';
     const CDT_APPLIED = 'data/collective-applied.json';
     const CDT_UNDO_DIR = 'data/collective-undo', CDT_UNDO_IDX = 'data/collective-undos.json';
+    const CDT_TAGS = 'data/collective-tags-groups.json';   // nested-collection tags, grouped, for the Tags column
+    const CDT_UNDO_KEEP = 10;   // keep only the last 10 runs for this tab (older snapshot files are deleted)
     const CDT_MARGIN = { mode: 'floor_cost', value: 25, rounding: 'none' };   // reuses Collective Prices rule: at least cost + 25%
 
     // ---- cdt-options: the pick-lists for every field (product types, room choices, trends, collections+their tag, linked-trend pages) ----
@@ -2108,6 +2114,7 @@ module.exports = async function handler(req, res) {
       let roomChoices = [];
       try { const d = await shopify(`query{ metafieldDefinitions(first:1, ownerType: PRODUCT, namespace:"custom", key:"room_type"){ nodes{ validations{ name value } } } }`); const n = d.metafieldDefinitions && d.metafieldDefinitions.nodes && d.metafieldDefinitions.nodes[0]; const v = n && (n.validations || []).find(x => x.name === 'choices'); if (v && v.value) roomChoices = JSON.parse(v.value); } catch (e) {}
       const trends = cfg.trendValues || [];
+      const tagGroups = (await ghGet(CDT_TAGS)).json || { groups: {}, byProductToGroup: {}, roomKeywordToGroup: [] };
       let collectionsByRoom = [], collectionsByProduct = [], linkedPages = [];
       try {
         const md = await shopify(`query($id:ID!){ menu(id:$id){ items{ title items{ title items{ title type resourceId } } } } }`, { id: cfg.menuId });
@@ -2131,7 +2138,7 @@ module.exports = async function handler(req, res) {
         collectionsByRoom = withTags(collRoom); collectionsByProduct = withTags(collProd);
         linkedPages.sort((a, b) => a.title.localeCompare(b.title));
       } catch (e) {}
-      return res.status(200).json({ ok: true, productTypes, roomChoices, trends, collectionsByRoom, collectionsByProduct, linkedPages });
+      return res.status(200).json({ ok: true, productTypes, roomChoices, trends, collectionsByRoom, collectionsByProduct, linkedPages, tagGroups });
     }
 
     // ---- cdt-vendors: Collective vendors (not About Wall Art) that have drafts, with draft / already-applied counts ----
@@ -2140,10 +2147,10 @@ module.exports = async function handler(req, res) {
       const counts = {}; let cursor = null, pages = 0;
       while (pages < 400) {
         const d = await shopify(`query($c:String){ products(first:100, query:"status:draft", after:$c){ pageInfo{ hasNextPage endCursor } nodes{ id vendor totalInventory } } }`, { c: cursor });
-        (d.products.nodes || []).forEach(p => { if ((p.vendor || '') === AWA_VENDOR) return; if ((p.totalInventory || 0) <= 0) return; const v = p.vendor || '(no vendor)'; if (!counts[v]) counts[v] = { drafts: 0, applied: 0 }; if (appliedSet.has(p.id)) counts[v].applied++; else counts[v].drafts++; });
+        (d.products.nodes || []).forEach(p => { if ((p.vendor || '') === AWA_VENDOR) return; const isApplied = appliedSet.has(p.id); if ((p.totalInventory || 0) <= 0 && !isApplied) return; const v = p.vendor || '(no vendor)'; if (!counts[v]) counts[v] = { drafts: 0, applied: 0 }; if (isApplied) counts[v].applied++; else counts[v].drafts++; });
         pages++; if (!d.products.pageInfo.hasNextPage) break; cursor = d.products.pageInfo.endCursor;
       }
-      const vendors = Object.keys(counts).map(v => ({ vendor: v, drafts: counts[v].drafts, applied: counts[v].applied })).filter(v => v.drafts > 0).sort((a, b) => a.vendor.localeCompare(b.vendor));
+      const vendors = Object.keys(counts).map(v => ({ vendor: v, drafts: counts[v].drafts, applied: counts[v].applied })).filter(v => v.drafts > 0 || v.applied > 0).sort((a, b) => a.vendor.localeCompare(b.vendor));
       return res.status(200).json({ ok: true, vendors });
     }
 
@@ -2157,7 +2164,7 @@ module.exports = async function handler(req, res) {
       const rows = []; let cursor = null, pages = 0;
       while (pages < 60) {
         const d = await shopify(`query($q:String,$c:String){ products(first:50, query:$q, after:$c){ pageInfo{ hasNextPage endCursor } nodes{ ${sel} } } }`, { q, c: cursor });
-        (d.products.nodes || []).forEach(p => { if ((p.vendor || '') === AWA_VENDOR) return; if ((p.totalInventory || 0) <= 0) return; rows.push({ id: p.id, handle: p.handle, title: p.title, vendor: p.vendor, image: p.featuredImage ? p.featuredImage.url : '', productType: p.productType || '', categoryId: p.category ? p.category.id : null, categoryName: p.category ? p.category.fullName : '', tags: p.tags || [], rooms: mfParse(p.rt ? p.rt.value : null), trends: mfParse(p.tr ? p.tr.value : null), linked: mfParse(p.lt ? p.lt.value : null), applied: applied.has(p.id) }); });
+        (d.products.nodes || []).forEach(p => { if ((p.vendor || '') === AWA_VENDOR) return; const isApplied = applied.has(p.id); if ((p.totalInventory || 0) <= 0 && !isApplied) return; rows.push({ id: p.id, handle: p.handle, title: p.title, vendor: p.vendor, image: p.featuredImage ? p.featuredImage.url : '', productType: p.productType || '', categoryId: p.category ? p.category.id : null, categoryName: p.category ? p.category.fullName : '', tags: p.tags || [], rooms: mfParse(p.rt ? p.rt.value : null), trends: mfParse(p.tr ? p.tr.value : null), linked: mfParse(p.lt ? p.lt.value : null), applied: isApplied }); });
         pages++; if (!d.products.pageInfo.hasNextPage || sku) break; cursor = d.products.pageInfo.endCursor;
       }
       return res.status(200).json({ ok: true, rows });
@@ -2172,14 +2179,15 @@ module.exports = async function handler(req, res) {
       const cur = {};
       for (let i = 0; i < ids.length; i += 15) {
         const chunk = ids.slice(i, i + 15);
-        const q = 'query{ ' + chunk.map((id, j) => `p${j}: product(id:"${id}"){ id tags productType category{ id } rt: metafield(namespace:"custom",key:"room_type"){ value } tr: metafield(namespace:"custom",key:"trends"){ value } lt: metafield(namespace:"custom",key:"linked_trends"){ value } variants(first:100){ nodes{ id price inventoryItem{ unitCost{ amount } } } } }`).join(' ') + ' }';
+        const q = 'query{ ' + chunk.map((id, j) => `p${j}: product(id:"${id}"){ id handle title tags productType category{ id } rt: metafield(namespace:"custom",key:"room_type"){ value } tr: metafield(namespace:"custom",key:"trends"){ value } lt: metafield(namespace:"custom",key:"linked_trends"){ value } variants(first:100){ nodes{ id price inventoryItem{ unitCost{ amount } } } } }`).join(' ') + ' }';
         const d = await shopify(q); chunk.forEach((id, j) => { if (d[`p${j}`]) cur[id] = d[`p${j}`]; });
       }
       const snapshot = [];
-      for (const it of items) { const p = cur[it.productId]; if (!p) continue; snapshot.push({ productId: it.productId, tags: p.tags || [], productType: p.productType || '', categoryId: p.category ? p.category.id : null, rooms: mfParse(p.rt ? p.rt.value : null), trends: mfParse(p.tr ? p.tr.value : null), linked: mfParse(p.lt ? p.lt.value : null), prices: (p.variants ? p.variants.nodes : []).map(v => ({ id: v.id, price: v.price })) }); }
+      for (const it of items) { const p = cur[it.productId]; if (!p) continue; snapshot.push({ productId: it.productId, title: p.title || '', handle: p.handle || '', tags: p.tags || [], productType: p.productType || '', categoryId: p.category ? p.category.id : null, rooms: mfParse(p.rt ? p.rt.value : null), trends: mfParse(p.tr ? p.tr.value : null), linked: mfParse(p.lt ? p.lt.value : null), prices: (p.variants ? p.variants.nodes : []).map(v => ({ id: v.id, price: v.price })) }); }
+      const snapProducts = snapshot.map(s => ({ id: s.productId, title: s.title, handle: s.handle }));
       try {
-        if (isFirst) { await ghPut(`${CDT_UNDO_DIR}/${undoId}.json`, { id: undoId, createdAt: now, snapshot }, `cdt backup ${undoId}`); const idx = (await ghGet(CDT_UNDO_IDX)).json || []; idx.unshift({ id: undoId, createdAt: now, count: snapshot.length, reverted: false }); await ghPut(CDT_UNDO_IDX, idx.slice(0, 100), `cdt idx ${undoId}`); await pruneUndos(CDT_UNDO_IDX, CDT_UNDO_DIR, UNDO_KEEP); }
-        else { const ex = (await ghGet(`${CDT_UNDO_DIR}/${undoId}.json`)).json || { id: undoId, snapshot: [] }; ex.snapshot = (ex.snapshot || []).concat(snapshot); await ghPut(`${CDT_UNDO_DIR}/${undoId}.json`, ex, `cdt backup append ${undoId}`); const idx = (await ghGet(CDT_UNDO_IDX)).json || []; const h = idx.find(x => x.id === undoId); if (h) h.count = (h.count || 0) + snapshot.length; else idx.unshift({ id: undoId, createdAt: now, count: snapshot.length, reverted: false }); await ghPut(CDT_UNDO_IDX, idx, `cdt idx ${undoId}`); }
+        if (isFirst) { await ghPut(`${CDT_UNDO_DIR}/${undoId}.json`, { id: undoId, createdAt: now, snapshot }, `cdt backup ${undoId}`); const idx = (await ghGet(CDT_UNDO_IDX)).json || []; idx.unshift({ id: undoId, createdAt: now, count: snapshot.length, reverted: false, products: snapProducts }); await ghPut(CDT_UNDO_IDX, idx.slice(0, CDT_UNDO_KEEP), `cdt idx ${undoId}`); await pruneUndos(CDT_UNDO_IDX, CDT_UNDO_DIR, CDT_UNDO_KEEP); }
+        else { const ex = (await ghGet(`${CDT_UNDO_DIR}/${undoId}.json`)).json || { id: undoId, snapshot: [] }; ex.snapshot = (ex.snapshot || []).concat(snapshot); await ghPut(`${CDT_UNDO_DIR}/${undoId}.json`, ex, `cdt backup append ${undoId}`); const idx = (await ghGet(CDT_UNDO_IDX)).json || []; const h = idx.find(x => x.id === undoId); if (h) { h.count = (h.count || 0) + snapshot.length; h.products = (h.products || []).concat(snapProducts); } else idx.unshift({ id: undoId, createdAt: now, count: snapshot.length, reverted: false, products: snapProducts }); await ghPut(CDT_UNDO_IDX, idx.slice(0, CDT_UNDO_KEEP), `cdt idx ${undoId}`); }
       } catch (e) { return res.status(500).json({ ok: false, error: 'Backup could not be saved — nothing was changed. ' + String(e.message || e) }); }
       const errors = []; let applied = 0; const doneIds = [];
       for (const it of items) {
@@ -2237,7 +2245,10 @@ module.exports = async function handler(req, res) {
         } catch (e) { errors.push(String(e.message || e)); }
       }
       const total = snap.snapshot.length, nextOffset = offset + work.length, hasMore = nextOffset < total;
-      if (!hasMore) { try { const idx = (await ghGet(CDT_UNDO_IDX)).json || []; const h = idx.find(x => x.id === undoId); if (h) h.reverted = true; await ghPut(CDT_UNDO_IDX, idx, `cdt reverted ${undoId}`); } catch (e) {} }
+      if (!hasMore) {
+        try { const idx = (await ghGet(CDT_UNDO_IDX)).json || []; const h = idx.find(x => x.id === undoId); if (h) h.reverted = true; await ghPut(CDT_UNDO_IDX, idx, `cdt reverted ${undoId}`); } catch (e) {}
+        try { const allIds = snap.snapshot.map(s => s.productId); const list = (await ghGet(CDT_APPLIED)).json || []; const set = new Set(list); allIds.forEach(id => set.delete(id)); await ghPut(CDT_APPLIED, Array.from(set), `cdt undo→drafts ${allIds.length}`); } catch (e) {}
+      }
       return res.status(200).json({ ok: true, restored, total, nextOffset, hasMore, errors: errors.slice(0, 20) });
     }
 
