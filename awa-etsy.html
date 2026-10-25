@@ -62,7 +62,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">AWA ETSY · v0.41</p>
+  <p class="ver">AWA ETSY · v0.43</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -76,7 +76,7 @@
   <div class="row" style="margin:0 0 16px">
     <button id="tabNew" onclick="switchTab('new')">New product</button>
     <button id="tabSent" class="ghost" onclick="switchTab('sent')">Sent items <span id="sentCount"></span></button>
-    <button id="tabDup" class="ghost" onclick="switchTab('dup')">Apply to duplicate</button>
+    <button id="tabImages" class="ghost" onclick="switchTab('images')">Replace images</button>
     <button id="tabClean" class="ghost" onclick="switchTab('clean')">Clean listings</button>
   </div>
 
@@ -196,15 +196,6 @@
     </div>
   </div>
 
-  <div id="dupTab" class="hide">
-    <div class="card">
-      <h2>Apply to a duplicate</h2>
-      <p class="sub">Etsy can't set international prices by API, so you duplicate a listing on Etsy (the copy keeps those prices) and this copies everything else onto it. The duplicate's SKU must end in "B"; its original is the same SKU without the "B". It copies the title, description, tags, materials, section, attributes and the Shopify photos — and never touches prices or variations.</p>
-      <div class="reminder">⚠️ This edits a LIVE Etsy draft. Check the match before you apply.</div>
-      <div class="row" style="margin-top:12px"><button id="dupScanBtn" onclick="loadDuplicates()">Find duplicates</button><span id="dupMsg" class="fixed"></span></div>
-      <div id="dupList" style="margin-top:12px"></div>
-    </div>
-  </div>
 
   <div id="cleanTab" class="hide">
     <div class="card">
@@ -217,6 +208,31 @@
         <div id="cleanSamples" style="margin-top:8px"></div>
         <div class="row" style="margin-top:12px"><button id="applyBtn" onclick="applyClean()">Apply to all that change</button><span id="applyMsg" class="fixed"></span></div>
       </div>
+    </div>
+  </div>
+
+  <div id="imagesTab" class="hide">
+    <div class="card">
+      <h2>Replace images</h2>
+      <p class="sub">Match each Etsy listing to its Shopify product by SKU, swap its photos (and video) for Shopify's, drop images you don't need, add new ones, reorder, and push to Etsy. The <b>common set</b> below is added to the <b>end</b> of every listing.</p>
+    </div>
+
+    <div class="card">
+      <h3>Common set <span class="fixed" id="riCommonCount"></span></h3>
+      <p class="sub">These images go at the <b>end</b> of every listing, in this order. Upload once — saved to GitHub (shows on every computer). Drag to reorder, × to remove.</p>
+      <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
+        <input type="file" id="riCommonFile" accept="image/*" multiple>
+        <button type="button" onclick="riCommonUpload()">Upload to common set</button>
+        <span id="riCommonMsg" class="fixed"></span>
+      </div>
+      <div id="riCommonList" style="margin-top:12px"></div>
+    </div>
+
+    <div class="card">
+      <h3>Listings by Etsy section</h3>
+      <p class="sub">Pick a section, then edit each listing: drop images you don't want, add Shopify photos or upload new ones, reorder, pick the video, and Save. The common set is added at the end automatically. Max 20 images. <b>Editing changes a LIVE Etsy listing</b> — its old images are backed up first.</p>
+      <div id="riSections" class="row" style="gap:6px;flex-wrap:wrap;margin:10px 0"></div>
+      <div id="riListings"></div>
     </div>
   </div>
 </div>
@@ -969,12 +985,13 @@
   /* ---------- #14: Sent items ---------- */
   var SENT = [];
   function switchTab(which){
-    show('newProductTab', which === 'new'); show('sentTab', which === 'sent'); show('dupTab', which === 'dup'); show('cleanTab', which === 'clean');
+    show('newProductTab', which === 'new'); show('sentTab', which === 'sent'); show('imagesTab', which === 'images'); show('cleanTab', which === 'clean');
     $('tabNew').className = which === 'new' ? '' : 'ghost';
     $('tabSent').className = which === 'sent' ? '' : 'ghost';
-    $('tabDup').className = which === 'dup' ? '' : 'ghost';
+    $('tabImages').className = which === 'images' ? '' : 'ghost';
     $('tabClean').className = which === 'clean' ? '' : 'ghost';
     if (which === 'sent') loadSent();
+    if (which === 'images') riInit();
   }
   async function loadSent(){
     try{ var r = await fetch('/api/etsy?action=tab1-sent-list&t=' + Date.now()); var j = await r.json(); if (j.ok){ SENT = j.items || []; renderSent(); } }catch(e){}
@@ -1132,6 +1149,164 @@
         btn.disabled = false; btn.textContent = 'Apply original to this';
       }
     }catch(e){ res.className = 'msg bad'; res.textContent = 'Failed: ' + e.message; btn.disabled = false; btn.textContent = 'Apply original to this'; }
+  }
+
+  /* ---------- Replace images: common set ---------- */
+  var RI_COMMON = [];
+  function riInit(){ riCommonLoad(); riLoadSections(); }
+  async function riCommonLoad(){
+    try{ var r = await fetch('/api/etsy?action=ri-common-get&t=' + Date.now()); var j = await r.json(); if (j.ok){ RI_COMMON = j.items || []; renderCommon(); } }catch(e){}
+  }
+  function renderCommon(){
+    $('riCommonCount').textContent = '(' + RI_COMMON.length + ')';
+    if (!RI_COMMON.length){ $('riCommonList').innerHTML = '<p class="sub">No images yet.</p>'; return; }
+    $('riCommonList').innerHTML = '<div id="riCommonGrid" style="display:flex;flex-wrap:wrap;gap:8px">' + RI_COMMON.map(function(it, i){
+      return '<div class="ricommon" draggable="true" data-path="' + esc(it.path) + '" style="position:relative;width:90px;text-align:center">' +
+        '<img src="' + esc(it.url) + '" style="width:90px;height:90px;object-fit:cover;border-radius:6px;border:1px solid var(--line);cursor:move">' +
+        '<button type="button" title="Remove" onclick="riCommonDelete(\'' + esc(it.path) + '\')" style="position:absolute;top:2px;right:2px;padding:0 6px;line-height:1.4">×</button>' +
+        '<div class="fixed" style="font-size:10px">' + (i + 1) + '</div></div>';
+    }).join('') + '</div>';
+    riWireCommonDrag();
+  }
+  function fileToBase64(file){ return new Promise(function(res, rej){ var fr = new FileReader(); fr.onload = function(){ res(String(fr.result)); }; fr.onerror = rej; fr.readAsDataURL(file); }); }
+  async function riCommonUpload(){
+    var inp = $('riCommonFile'); var files = inp.files; if (!files || !files.length){ alert('Pick image file(s) first.'); return; }
+    var msg = $('riCommonMsg');
+    for (var i = 0; i < files.length; i++){
+      var f = files[i]; msg.textContent = 'Uploading ' + (i + 1) + '/' + files.length + '…';
+      try{
+        var b64 = await fileToBase64(f);
+        var r = await fetch('/api/etsy?action=ri-common-add', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ fileName: f.name, dataBase64: b64 }) });
+        var j = await r.json(); if (j.ok){ RI_COMMON = j.items || []; } else { msg.textContent = '⚠ ' + (j.error || 'failed'); }
+      }catch(e){ msg.textContent = '⚠ ' + e.message; }
+    }
+    inp.value = ''; msg.textContent = '✓ Done.'; renderCommon();
+  }
+  async function riCommonDelete(path){
+    if (!confirm('Remove this image from the common set?')) return;
+    try{ var r = await fetch('/api/etsy?action=ri-common-delete', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ path: path }) }); var j = await r.json(); if (j.ok){ RI_COMMON = j.items || []; renderCommon(); } }catch(e){}
+  }
+  function riWireCommonDrag(){
+    var grid = $('riCommonGrid'); if (!grid) return; var dragEl = null;
+    grid.querySelectorAll('.ricommon').forEach(function(el){
+      el.addEventListener('dragstart', function(){ dragEl = el; });
+      el.addEventListener('dragover', function(e){ e.preventDefault(); var t = e.currentTarget; if (dragEl && t !== dragEl){ var rect = t.getBoundingClientRect(); var after = (e.clientX - rect.left) > rect.width / 2; grid.insertBefore(dragEl, after ? t.nextSibling : t); } });
+      el.addEventListener('drop', function(e){ e.preventDefault(); riCommonSaveOrder(); });
+    });
+  }
+  async function riCommonSaveOrder(){
+    var order = Array.prototype.map.call($('riCommonGrid').querySelectorAll('.ricommon'), function(el){ return el.getAttribute('data-path'); });
+    try{ var r = await fetch('/api/etsy?action=ri-common-reorder', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ order: order }) }); var j = await r.json(); if (j.ok){ RI_COMMON = j.items || []; renderCommon(); } }catch(e){}
+  }
+
+  /* ---------- Replace images: editor (sections -> listings -> per-listing) ---------- */
+  var RI_SECTIONS = [], RI_SEL_SECTION = null, RI_EDIT = {};
+  function riCap(){ return 20; }
+  async function riLoadSections(){
+    try{ var r = await fetch('/api/etsy?action=ri-sections&t=' + Date.now()); var j = await r.json();
+      if (j.ok){ RI_SECTIONS = j.sections || []; renderSections(); } else { $('riSections').innerHTML = '<span class="fixed">' + esc(j.error || 'error') + '</span>'; }
+    }catch(e){ $('riSections').innerHTML = '<span class="fixed">' + e.message + '</span>'; }
+  }
+  function renderSections(){
+    $('riSections').innerHTML = RI_SECTIONS.map(function(s){
+      return '<button type="button" class="' + (RI_SEL_SECTION === String(s.id) ? '' : 'ghost') + '" onclick="riPickSection(\'' + esc(s.id) + '\')">' + esc(s.title) + ' (' + (s.count || 0) + ')</button>';
+    }).join('') || '<span class="fixed">No sections.</span>';
+  }
+  async function riPickSection(id){
+    RI_SEL_SECTION = String(id); renderSections();
+    $('riListings').innerHTML = '<p class="sub">Loading listings…</p>';
+    try{ var r = await fetch('/api/etsy?action=ri-listings&section=' + encodeURIComponent(id) + '&t=' + Date.now()); var j = await r.json();
+      if (!j.ok){ $('riListings').innerHTML = '<p class="fixed">' + esc(j.error || 'error') + '</p>'; return; }
+      var rows = j.listings || [];
+      $('riListings').innerHTML = rows.length ? rows.map(function(l){
+        return '<div class="card" style="padding:10px"><div class="row" style="gap:10px;align-items:center">' +
+          (l.image ? '<img src="' + esc(l.image) + '" style="width:60px;height:48px;object-fit:cover;border-radius:6px;border:1px solid var(--line)">' : '') +
+          '<div style="flex:1;min-width:160px"><b>' + esc(l.title || '') + '</b><div class="fixed">' + esc(l.sku || '(no sku)') + '</div></div>' +
+          '<button type="button" onclick="riEditListing(\'' + esc(l.listing_id) + '\',\'' + esc(l.sku || '') + '\')">Edit images</button>' +
+          '</div><div class="riedit" id="riedit-' + esc(l.listing_id) + '"></div></div>';
+      }).join('') : '<p class="sub">No active listings in this section.</p>';
+    }catch(e){ $('riListings').innerHTML = '<p class="fixed">' + e.message + '</p>'; }
+  }
+  async function riEditListing(id, sku){
+    var box = $('riedit-' + id); if (!box) return;
+    if (box.getAttribute('data-open') === '1'){ box.innerHTML = ''; box.removeAttribute('data-open'); return; }
+    box.setAttribute('data-open', '1'); box.innerHTML = '<p class="sub">Loading…</p>';
+    try{ var r = await fetch('/api/etsy?action=ri-detail&listing_id=' + encodeURIComponent(id) + '&t=' + Date.now()); var j = await r.json();
+      if (!j.ok){ box.innerHTML = '<p class="fixed">' + esc(j.error || 'error') + '</p>'; return; }
+      var gallery = (j.etsyImages || []).map(function(im){ return { src: im.url, from: 'etsy' }; });
+      RI_EDIT[id] = { gallery: gallery, video: { action: 'keep', url: (j.etsyVideo && j.etsyVideo.url) || '' }, etsyVideo: j.etsyVideo, shopify: j.shopify || {}, sku: j.sku || sku };
+      renderEditor(id);
+    }catch(e){ box.innerHTML = '<p class="fixed">' + e.message + '</p>'; }
+  }
+  function renderEditor(id){
+    var st = RI_EDIT[id]; var box = $('riedit-' + id); if (!st || !box) return;
+    var commonN = RI_COMMON.length, total = st.gallery.length + commonN, sh = st.shopify || {}, over = total > riCap();
+    var gal = '<div class="rigal" id="rigal-' + id + '" style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0">' + st.gallery.map(function(g, i){
+      return '<div class="riimg" draggable="true" data-i="' + i + '" style="position:relative;width:80px;text-align:center">' +
+        '<img src="' + esc(g.src) + '" style="width:80px;height:80px;object-fit:cover;border-radius:6px;border:1px solid var(--line);cursor:move">' +
+        '<button type="button" title="Remove" onclick="riRemove(\'' + id + '\',' + i + ')" style="position:absolute;top:1px;right:1px;padding:0 5px;line-height:1.4">×</button>' +
+        '<div class="fixed" style="font-size:9px">' + (i + 1) + ' · ' + g.from + '</div></div>';
+    }).join('') + '</div>';
+    var commonNote = commonN ? '<p class="fixed">+ ' + commonN + ' common images at the end.</p>' : '<p class="fixed">No common set uploaded.</p>';
+    var picker;
+    if (sh.matched){
+      picker = '<p class="sub" style="margin-top:8px">Shopify photos — click to add/remove:</p><div style="display:flex;flex-wrap:wrap;gap:6px">' + (sh.images || []).map(function(u){
+        var inGal = st.gallery.some(function(g){ return g.src === u; });
+        return '<img src="' + esc(u) + '" onclick="riAddShopify(\'' + id + '\',\'' + encodeURIComponent(u) + '\')" style="width:64px;height:64px;object-fit:cover;border-radius:6px;border:2px solid ' + (inGal ? '#1a8a4a' : 'var(--line)') + ';cursor:pointer;opacity:' + (inGal ? '0.5' : '1') + '">';
+      }).join('') + '</div>';
+    } else {
+      picker = '<p class="sub" style="margin-top:8px">No exact Shopify match for <b>' + esc(st.sku || '') + '</b>. Closest — click to use its photos:</p><div style="display:flex;flex-wrap:wrap;gap:8px">' + ((sh.similar || []).map(function(s){
+        return '<div style="width:80px;text-align:center;cursor:pointer" onclick="riUseSimilar(\'' + id + '\',\'' + esc(s.sku) + '\')">' + (s.image ? '<img src="' + esc(s.image) + '" style="width:80px;height:80px;object-fit:cover;border-radius:6px;border:1px solid var(--line)">' : '') + '<div class="fixed" style="font-size:9px">' + esc(s.sku) + '</div></div>';
+      }).join('') || '<span class="fixed">none</span>') + '</div>';
+    }
+    var shVid = sh.matched && sh.video, curVid = st.etsyVideo && st.etsyVideo.url;
+    var video = '<p class="sub" style="margin-top:8px">Video:</p>' +
+      '<label style="margin-right:12px"><input type="radio" name="rivid-' + id + '" ' + (st.video.action === 'keep' ? 'checked' : '') + ' onchange="riVideo(\'' + id + '\',\'keep\')"> Keep current' + (curVid ? '' : ' (none)') + '</label>' +
+      (shVid ? '<label style="margin-right:12px"><input type="radio" name="rivid-' + id + '" ' + (st.video.action === 'replace' ? 'checked' : '') + ' onchange="riVideo(\'' + id + '\',\'replace\')"> Use Shopify video</label>' : '') +
+      '<label><input type="radio" name="rivid-' + id + '" ' + (st.video.action === 'remove' ? 'checked' : '') + ' onchange="riVideo(\'' + id + '\',\'remove\')"> Remove</label>';
+    box.innerHTML = '<div style="margin-top:8px">' +
+      '<p class="sub"><b>' + st.gallery.length + '</b> + ' + commonN + ' common = <b style="color:' + (over ? '#c33' : 'inherit') + '">' + total + '/' + riCap() + '</b> images' + (over ? ' — over the limit, remove some' : '') + '</p>' +
+      gal + commonNote + picker + video +
+      '<div class="row" style="gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap"><input type="file" accept="image/*" multiple onchange="riUpload(\'' + id + '\',this)"><button type="button" ' + (over ? 'disabled' : '') + ' onclick="riSave(\'' + id + '\')">Save to Etsy</button><span class="fixed" id="rimsg-' + id + '"></span></div>' +
+      '</div>';
+    riWireGalleryDrag(id);
+  }
+  function riRemove(id, i){ RI_EDIT[id].gallery.splice(i, 1); renderEditor(id); }
+  function riAddShopify(id, u){ u = decodeURIComponent(u); var st = RI_EDIT[id]; if (st.gallery.some(function(g){ return g.src === u; })){ st.gallery = st.gallery.filter(function(g){ return g.src !== u; }); } else { if (st.gallery.length + RI_COMMON.length >= riCap()){ alert('At the 20-image limit.'); return; } st.gallery.push({ src: u, from: 'shopify' }); } renderEditor(id); }
+  async function riUseSimilar(id, sku){ var st = RI_EDIT[id]; try{ var r = await fetch('/api/etsy?action=ri-shopify&sku=' + encodeURIComponent(sku) + '&t=' + Date.now()); var j = await r.json(); if (j.ok && j.shopify){ st.shopify = j.shopify; st.sku = sku; renderEditor(id); } }catch(e){} }
+  function riUpload(id, inp){
+    var st = RI_EDIT[id]; var files = inp.files; if (!files || !files.length) return; var done = 0, total = files.length;
+    Array.prototype.forEach.call(files, function(f){
+      if (st.gallery.length + RI_COMMON.length >= riCap()){ done++; if (done >= total) renderEditor(id); return; }
+      fileToBase64(f).then(function(b64){ st.gallery.push({ src: b64, from: 'upload', base64: b64 }); done++; if (done >= total) renderEditor(id); });
+    });
+    inp.value = '';
+  }
+  function riVideo(id, action){ RI_EDIT[id].video.action = action; }
+  function riWireGalleryDrag(id){
+    var grid = $('rigal-' + id); if (!grid) return; var dragEl = null;
+    grid.querySelectorAll('.riimg').forEach(function(el){
+      el.addEventListener('dragstart', function(){ dragEl = el; });
+      el.addEventListener('dragover', function(e){ e.preventDefault(); var t = e.currentTarget; if (dragEl && t !== dragEl){ var rect = t.getBoundingClientRect(); var after = (e.clientX - rect.left) > rect.width / 2; grid.insertBefore(dragEl, after ? t.nextSibling : t); } });
+      el.addEventListener('drop', function(e){ e.preventDefault(); riReorderFromDom(id); });
+    });
+  }
+  function riReorderFromDom(id){ var st = RI_EDIT[id]; var order = Array.prototype.map.call($('rigal-' + id).querySelectorAll('.riimg'), function(el){ return parseInt(el.getAttribute('data-i'), 10); }); st.gallery = order.map(function(i){ return st.gallery[i]; }); renderEditor(id); }
+  async function riSave(id){
+    var st = RI_EDIT[id]; var msg = $('rimsg-' + id);
+    if (st.gallery.length + RI_COMMON.length > riCap()){ alert('Over the 20-image limit.'); return; }
+    if (!st.gallery.length && !RI_COMMON.length){ alert('Add at least one image.'); return; }
+    if (!confirm('Replace this listing\'s images on Etsy now? (its current images are backed up first.)')) return;
+    msg.textContent = 'Saving to Etsy…';
+    var entries = st.gallery.map(function(g){ return g.base64 ? { dataBase64: g.base64 } : { url: g.src }; });
+    RI_COMMON.forEach(function(c){ entries.push({ url: c.url }); });
+    var body = { listing_id: id, sku: st.sku || '', images: entries, video: st.video };
+    try{
+      var r = await fetch('/api/etsy?action=ri-apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      var j = await r.json();
+      if (j.ok){ var p = (j.result && j.result.photos) || {}; msg.innerHTML = '✓ Done — ' + (p.uploaded || 0) + ' photos' + ((j.result && j.result.warning) ? (' <span style="color:#c33">' + esc(j.result.warning) + '</span>') : '') + ' <a href="https://www.etsy.com/your/shops/me/tools/listings/' + esc(id) + '" target="_blank">Open</a>'; }
+      else { msg.innerHTML = '⚠ ' + esc(j.error || 'failed'); }
+    }catch(e){ msg.textContent = '⚠ ' + e.message; }
   }
 
   if (location.search.indexOf('connected=1') >= 0) { setConnected(true); }
