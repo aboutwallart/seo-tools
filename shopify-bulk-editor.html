@@ -148,24 +148,24 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v3.15 · "Collective items data" tab — per-product Category · Product type · Room type · Decor style (35) · Collections · Tags · Trend pages, by vendor/SKU. Auto-mark: Furniture tag by room, and Trend pages by Decor style (rest dimmed, still tickable). Vendor list shows only vendors with drafts. Tag match ignores upper/lowercase. Click a photo to enlarge · Recent runs (last 10) show their products; Undo moves them back to Drafts · Select all + count · Backup gate · Tabs grouped: AWA · Collective · General</div>
+            <div class="subtitle">v3.16 · "Collective items data" tab — per-product Category · Product type · Room type · Decor style (35) · Collections · Tags · Trend pages, by vendor/SKU. Auto-mark: Furniture tag by room, and Trend pages by Decor style (rest dimmed, still tickable). Vendor list shows only vendors with drafts. Tag match ignores upper/lowercase. Click a photo to enlarge · Recent runs (last 10) show their products; Undo moves them back to Drafts · Select all + count · Backup gate · Tabs grouped: AWA · Collective · General</div>
         </div>
 
-        <!-- TOP-LEVEL GROUPS -->
-        <div class="tabbar" style="margin-bottom:4px;">
-            <button class="tab active" id="grpAwa" onclick="selectGroup('awa')" style="font-weight:600;">🖼️ AWA Products</button>
-            <button class="tab" id="grpCollective" onclick="selectGroup('collective')" style="font-weight:600;">🛋️ Collective Products</button>
-            <button class="tab" id="grpGeneral" onclick="selectGroup('general')" style="font-weight:600;">⚙️ General</button>
+        <!-- TOP-LEVEL GROUPS (full width) -->
+        <div style="display:flex; width:100%; gap:6px; margin-bottom:10px;">
+            <button class="tab active" id="grpAwa" onclick="selectGroup('awa')" style="flex:1; text-align:center; font-weight:700; font-size:15px; padding:14px 10px;">AWA PRODUCTS</button>
+            <button class="tab" id="grpCollective" onclick="selectGroup('collective')" style="flex:1; text-align:center; font-weight:700; font-size:15px; padding:14px 10px;">COLLECTIVE PRODUCTS</button>
+            <button class="tab" id="grpGeneral" onclick="selectGroup('general')" style="flex:1; text-align:center; font-weight:700; font-size:15px; padding:14px 10px;">GENERAL</button>
         </div>
         <!-- SUB-TABS (shown per group) -->
         <div class="tabbar">
-            <button class="tab active" id="tabBtnAwa" onclick="switchTab('awa')">🖼️ AWA Prices</button>
-            <button class="tab" id="tabBtnAv" onclick="switchTab('av')">➕ Add variants</button>
-            <button class="tab" id="tabBtnCdt" onclick="switchTab('cdt')">🛋️ Collective items data</button>
-            <button class="tab" id="tabBtn1" onclick="switchTab(1)">💷 Collective Prices</button>
-            <button class="tab" id="tabBtn2" onclick="switchTab(2)">✨ Other fields</button>
-            <button class="tab" id="tabBtnXl" onclick="switchTab('xl')">📊 Excel</button>
-            <button class="tab" id="tabBtnMf" onclick="switchTab('mf')">🏷️ Metafields</button>
+            <button class="tab active" id="tabBtnAwa" onclick="switchTab('awa')">AWA Prices</button>
+            <button class="tab" id="tabBtnAv" onclick="switchTab('av')">Add variants</button>
+            <button class="tab" id="tabBtnCdt" onclick="switchTab('cdt')">Collective items data</button>
+            <button class="tab" id="tabBtn1" onclick="switchTab(1)">Collective Prices</button>
+            <button class="tab" id="tabBtn2" onclick="switchTab(2)">Other fields</button>
+            <button class="tab" id="tabBtnXl" onclick="switchTab('xl')">Excel</button>
+            <button class="tab" id="tabBtnMf" onclick="switchTab('mf')">Metafields</button>
         </div>
 
         <!-- ============ TAB 1: PRICES ============ -->
