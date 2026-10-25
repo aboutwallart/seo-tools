@@ -148,7 +148,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v3.13 · "Collective items data" tab — per-product Category · Product type · Room type · Decor style (35) · Collections · Tags · Trend pages, by vendor/SKU. Auto-mark: Furniture tag by room, and Trend pages by Decor style (rest dimmed, still tickable). Vendor list shows only vendors with drafts. Tag match ignores upper/lowercase. Click a photo to enlarge · Recent runs (last 10) show their products; Undo moves them back to Drafts · Backup gate · 8 tabs</div>
+            <div class="subtitle">v3.14 · "Collective items data" tab — per-product Category · Product type · Room type · Decor style (35) · Collections · Tags · Trend pages, by vendor/SKU. Auto-mark: Furniture tag by room, and Trend pages by Decor style (rest dimmed, still tickable). Vendor list shows only vendors with drafts. Tag match ignores upper/lowercase. Click a photo to enlarge · Recent runs (last 10) show their products; Undo moves them back to Drafts · Backup gate · 8 tabs</div>
         </div>
 
         <!-- TABS (always visible) -->
@@ -2604,8 +2604,10 @@ function cdtRowData(tr){
   var cat=tr.querySelector('.cdtcat'); var categoryId=cat?(cat.getAttribute('data-catid')||null):null;
   function vals(field){ return Array.prototype.map.call(tr.querySelectorAll('.cdtgroup[data-field="'+field+'"] .cchip.on'),function(c){return c.getAttribute('data-value');}); }
   var ptArr=vals('productType'); var productType=ptArr[0]||'';
-  var addTags=[]; tr.querySelectorAll('.cdtgroup[data-field="collections"] .cchip.on').forEach(function(c){ try{ (JSON.parse(c.getAttribute('data-tags')||'[]')).forEach(function(t){addTags.push(t);}); }catch(e){} });
-  vals('tags').forEach(function(t){ addTags.push(t); });
+  // Tags come ONLY from the Tags column (specific nested-collection tags). We do NOT add the full
+  // rule-tag list of a selected By Room/By Product collection — those grouping collections carry 10–40
+  // tags and would over-tag the product. The Collections column only drives which Tags groups show.
+  var addTags=vals('tags');
   return { productId:id, categoryId:categoryId||null, productType:productType, rooms:vals('rooms'), trends:vals('trends'), linkedIds:vals('linked'), addTags:Array.from(new Set(addTags)) };
 }
 async function cdtSave(){
