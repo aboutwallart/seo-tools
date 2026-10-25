@@ -148,19 +148,24 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v3.14 · "Collective items data" tab — per-product Category · Product type · Room type · Decor style (35) · Collections · Tags · Trend pages, by vendor/SKU. Auto-mark: Furniture tag by room, and Trend pages by Decor style (rest dimmed, still tickable). Vendor list shows only vendors with drafts. Tag match ignores upper/lowercase. Click a photo to enlarge · Recent runs (last 10) show their products; Undo moves them back to Drafts · Backup gate · 8 tabs</div>
+            <div class="subtitle">v3.15 · "Collective items data" tab — per-product Category · Product type · Room type · Decor style (35) · Collections · Tags · Trend pages, by vendor/SKU. Auto-mark: Furniture tag by room, and Trend pages by Decor style (rest dimmed, still tickable). Vendor list shows only vendors with drafts. Tag match ignores upper/lowercase. Click a photo to enlarge · Recent runs (last 10) show their products; Undo moves them back to Drafts · Select all + count · Backup gate · Tabs grouped: AWA · Collective · General</div>
         </div>
 
-        <!-- TABS (always visible) -->
+        <!-- TOP-LEVEL GROUPS -->
+        <div class="tabbar" style="margin-bottom:4px;">
+            <button class="tab active" id="grpAwa" onclick="selectGroup('awa')" style="font-weight:600;">🖼️ AWA Products</button>
+            <button class="tab" id="grpCollective" onclick="selectGroup('collective')" style="font-weight:600;">🛋️ Collective Products</button>
+            <button class="tab" id="grpGeneral" onclick="selectGroup('general')" style="font-weight:600;">⚙️ General</button>
+        </div>
+        <!-- SUB-TABS (shown per group) -->
         <div class="tabbar">
-            <button class="tab active" id="tabBtn1" onclick="switchTab(1)">💷 Collective Prices</button>
-            <button class="tab" id="tabBtnAwa" onclick="switchTab('awa')">🖼️ AWA Prices</button>
-            <button class="tab" id="tabBtn2" onclick="switchTab(2)">✨ Other fields</button>
+            <button class="tab active" id="tabBtnAwa" onclick="switchTab('awa')">🖼️ AWA Prices</button>
             <button class="tab" id="tabBtnAv" onclick="switchTab('av')">➕ Add variants</button>
+            <button class="tab" id="tabBtnCdt" onclick="switchTab('cdt')">🛋️ Collective items data</button>
+            <button class="tab" id="tabBtn1" onclick="switchTab(1)">💷 Collective Prices</button>
+            <button class="tab" id="tabBtn2" onclick="switchTab(2)">✨ Other fields</button>
             <button class="tab" id="tabBtnXl" onclick="switchTab('xl')">📊 Excel</button>
             <button class="tab" id="tabBtnMf" onclick="switchTab('mf')">🏷️ Metafields</button>
-            <button class="tab" id="tabBtnCsv" onclick="switchTab('csv')">📥 Apply data via CSV</button>
-            <button class="tab" id="tabBtnCdt" onclick="switchTab('cdt')">🛋️ Collective items data</button>
         </div>
 
         <!-- ============ TAB 1: PRICES ============ -->
@@ -814,6 +819,7 @@
                         <button class="tab" id="cdtSubApplied" onclick="cdtSwitchSub('applied')">Data applied <span id="cdtCntApplied" class="muted"></span></button>
                     </div>
                     <div id="cdtBulkBar" style="display:none; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:10px; padding:10px 12px; background:var(--bg-accent); border-radius:var(--radius);">
+                        <label style="display:flex; align-items:center; gap:6px; font-size:13px; font-weight:500; color:var(--text-accent); cursor:pointer;"><input type="checkbox" id="cdtAll" onchange="cdtToggleAll(this)"> Select all <span id="cdtAllNum" class="muted"></span></label>
                         <span id="cdtSelCount" style="font-size:13px; color:var(--text-accent); font-weight:500;">0 selected</span>
                         <button class="btn btn-green" id="cdtSaveBtn" style="margin-left:auto;" onclick="cdtSave()">✅ Save &amp; apply — data + 25% margin</button>
                         <button class="btn btn-light" id="cdtMoveBtn" onclick="cdtMoveBack()" style="display:none;">↩ Move back to Drafts</button>
@@ -882,15 +888,24 @@ function switchTab(w){
     document.getElementById('tabBtnAv').classList.toggle('active', w==='av');
     document.getElementById('tabBtnXl').classList.toggle('active', w==='xl');
     document.getElementById('tabBtnMf').classList.toggle('active', w==='mf');
-    document.getElementById('tabBtnCsv').classList.toggle('active', w==='csv');
     document.getElementById('tabBtnCdt').classList.toggle('active', w==='cdt');
     if (w===2) loadFieldMeta(); // fresh from Shopify every time you open Other fields
     if (w==='av') { avOnGroup(); avLoadAdded(); } // Add variants tab
     if (w==='xl') { xlRenderChecks(); xlLoadUndos(); } // Excel tab
     if (w==='mf') mfInit(); // Metafields tab
-    if (w==='csv') csvInit(); // Apply data via CSV tab
     if (w==='cdt') cdtInit(); // Update Collective items data tab
 }
+// Top-level groups: AWA Products | Collective Products | General. Each shows only its sub-tabs.
+var TAB_SUBS = { awa:['tabBtnAwa','tabBtnAv'], collective:['tabBtnCdt','tabBtn1'], general:['tabBtn2','tabBtnXl','tabBtnMf'] };
+var TAB_FIRST = { awa:'awa', collective:'cdt', general:2 };
+function selectGroup(g){
+    ['Awa','Collective','General'].forEach(function(x){ var b=document.getElementById('grp'+x); if(b) b.classList.toggle('active', x.toLowerCase()===g); });
+    var allSubs=['tabBtnAwa','tabBtnAv','tabBtnCdt','tabBtn1','tabBtn2','tabBtnXl','tabBtnMf'];
+    allSubs.forEach(function(id){ var b=document.getElementById(id); if(b) b.style.display='none'; });
+    (TAB_SUBS[g]||[]).forEach(function(id){ var b=document.getElementById(id); if(b) b.style.display=''; });
+    switchTab(TAB_FIRST[g]);
+}
+selectGroup('awa'); // default: AWA Products
 
 /* ===================== METAFIELDS TAB ===================== */
 // Trends values accepted by the live "Decor Style" filter (from Shopify Search & Discovery — top values + grouped).
@@ -2595,10 +2610,15 @@ document.addEventListener('keydown',async function(e){
   }catch(err){ res.innerHTML='<span class="muted" style="font-size:11px">'+err.message+'</span>'; }
 });
 function cdtUpdateSel(){
+  var all=document.querySelectorAll('#cdtTable .cdtck'); var tot=all.length;
   var n=document.querySelectorAll('#cdtTable .cdtck:checked').length;
-  document.getElementById('cdtBulkBar').style.display=n?'flex':'none';
-  document.getElementById('cdtSelCount').textContent=n+' selected';
+  document.getElementById('cdtBulkBar').style.display=tot?'flex':'none';
+  document.getElementById('cdtSelCount').textContent=n+' of '+tot+' selected';
+  var sb=document.getElementById('cdtSaveBtn'); if(sb){ sb.textContent='✅ Save & apply — '+n+' product'+(n===1?'':'s')+' + 25% margin'; sb.disabled=(n===0); }
+  var ck=document.getElementById('cdtAll'); if(ck){ ck.checked=(tot>0&&n===tot); ck.indeterminate=(n>0&&n<tot); }
+  var num=document.getElementById('cdtAllNum'); if(num) num.textContent='('+tot+')';
 }
+function cdtToggleAll(cb){ var on=cb.checked; document.querySelectorAll('#cdtTable .cdtck').forEach(function(x){x.checked=on;}); cdtUpdateSel(); }
 function cdtRowData(tr){
   var id=tr.getAttribute('data-id');
   var cat=tr.querySelector('.cdtcat'); var categoryId=cat?(cat.getAttribute('data-catid')||null):null;
