@@ -62,7 +62,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">AWA ETSY · v0.50</p>
+  <p class="ver">AWA ETSY · v0.51</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -1210,9 +1210,14 @@
   }
   var RI_LISTINGS = [], RI_TAB = 'start', RI_NOMATCH = false;
   function renderSections(){
-    var opts = '<option value="">— pick a section —</option>' + RI_SECTIONS.map(function(s){
-      return '<option value="' + esc(s.id) + '"' + (RI_SEL_SECTION === String(s.id) ? ' selected' : '') + '>' + esc(s.title) + ' (' + (s.count || 0) + ')</option>';
-    }).join('');
+    // Split: sections with work left ("To do") vs fully finished ("Done"). Finished ones go in their own group so they
+    // don't look pending — you can still open them, they're just out of the way. Each shows done/total.
+    var todo = [], fin = [];
+    RI_SECTIONS.forEach(function(s){ var d = s.done || 0, c = s.count || 0; (c > 0 && d >= c ? fin : todo).push(s); });
+    function opt(s){ return '<option value="' + esc(s.id) + '"' + (RI_SEL_SECTION === String(s.id) ? ' selected' : '') + '>' + esc(s.title) + ' (' + (s.done || 0) + '/' + (s.count || 0) + ')</option>'; }
+    var opts = '<option value="">— pick a section —</option>';
+    if (todo.length) opts += '<optgroup label="To do">' + todo.map(opt).join('') + '</optgroup>';
+    if (fin.length) opts += '<optgroup label="✓ Done (all finished)">' + fin.map(opt).join('') + '</optgroup>';
     $('riSections').innerHTML =
       '<select onchange="riPickSection(this.value)" style="padding:6px 8px;min-width:300px">' + opts + '</select> <span class="fixed" id="riProgress"></span>';
   }
@@ -1241,21 +1246,33 @@
     var startAll = RI_LISTINGS.filter(function(l){ return !l.done; });
     var doneAll = RI_LISTINGS.filter(function(l){ return l.done; });
     var onDone = (RI_TAB === 'done');
-    var list = onDone ? doneAll : (RI_NOMATCH ? startAll.filter(function(l){ return !l.matched; }) : startAll);
     function tabBtn(t, label){ return '<button type="button" onclick="riSetTab(\'' + t + '\')" class="' + (RI_TAB === t ? '' : 'ghost') + '">' + label + '</button>'; }
     var tabs = '<div class="row" style="gap:6px;margin-bottom:10px;flex-wrap:wrap">' + tabBtn('start', 'Start here (' + startAll.length + ')') + tabBtn('done', 'Done (' + doneAll.length + ')') + '</div>';
-    var nomatch = onDone ? '' : '<label class="fixed" style="display:flex;gap:6px;align-items:center;cursor:pointer;margin-bottom:8px"><input type="checkbox" ' + (RI_NOMATCH ? 'checked' : '') + ' onchange="riToggleNomatch(this)"> Show only no-match</label>';
+    var topMsg = '<div id="riTopMsg" class="fixed" style="margin-bottom:8px"></div>';
+    if (onDone){
+      // Done tab: compact review rows only — featured image + title + SKU + "Move back". No editor, no bulk.
+      if (!doneAll.length){ $('riListings').innerHTML = tabs + topMsg + '<p class="sub">Nothing done yet.</p>'; return; }
+      $('riListings').innerHTML = tabs + topMsg + doneAll.map(function(l){
+        return '<div class="card" style="padding:10px"><div class="row" style="gap:10px;align-items:center">' +
+          (l.image ? '<img src="' + esc(l.image) + '" style="width:60px;height:48px;object-fit:cover;border-radius:6px;border:1px solid var(--line)">' : '') +
+          '<div style="flex:1;min-width:160px"><b>' + esc(l.title || '') + '</b><div class="fixed">' + esc(l.sku || '(no sku)') + '</div></div>' +
+          '<button type="button" class="ghost" onclick="riMoveBack(\'' + esc(l.listing_id) + '\')">Move back to Start here</button>' +
+          '</div></div>';
+      }).join('');
+      return;
+    }
+    // Start here tab: full editors + bulk.
+    var list = RI_NOMATCH ? startAll.filter(function(l){ return !l.matched; }) : startAll;
+    var nomatch = '<label class="fixed" style="display:flex;gap:6px;align-items:center;cursor:pointer;margin-bottom:8px"><input type="checkbox" ' + (RI_NOMATCH ? 'checked' : '') + ' onchange="riToggleNomatch(this)"> Show only no-match</label>';
     var bar = '<div class="row" style="gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap"><label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="riSelAll" onchange="riToggleAll(this)"> Select all</label><button type="button" id="riSendSelEtsy" onclick="riSendSelected(\'etsy\')">Send selected to Etsy</button><button type="button" id="riSendSelBoth" onclick="riSendSelected(\'both\')">Send selected to Etsy + Shopify</button><span class="fixed" id="riSendMsg"></span></div>';
-    var top = tabs + nomatch + bar + '<div id="riTopMsg" class="fixed" style="margin-bottom:8px"></div>';
-    if (!list.length){ $('riListings').innerHTML = top + '<p class="sub">' + (onDone ? 'Nothing done yet.' : (RI_NOMATCH ? 'No unmatched listings here.' : 'All done in this section. 🎉')) + '</p>'; riUpdateSel(); return; }
+    var top = tabs + nomatch + bar + topMsg;
+    if (!list.length){ $('riListings').innerHTML = top + '<p class="sub">' + (RI_NOMATCH ? 'No unmatched listings here.' : 'All done in this section. 🎉') + '</p>'; riUpdateSel(); return; }
     $('riListings').innerHTML = top + list.map(function(l){
       var badge = l.matched ? '<span style="color:#1a8a4a">✓ matched</span>' : '<span style="color:#c33">⚠ no match</span>';
-      var doneBadge = l.done ? ' <span style="background:#185FA5;color:#fff;padding:1px 8px;border-radius:10px;font-size:11px">done</span>' : '';
-      var back = onDone ? '<button type="button" class="ghost" style="margin-left:auto" onclick="riMoveBack(\'' + esc(l.listing_id) + '\')">Move back to Start here</button>' : '';
       return '<div class="card" style="padding:10px"><div class="row" style="gap:10px;align-items:center">' +
         '<input type="checkbox" class="risel" data-lid="' + esc(l.listing_id) + '" onchange="riUpdateSel()">' +
         (l.image ? '<img src="' + esc(l.image) + '" style="width:60px;height:48px;object-fit:cover;border-radius:6px;border:1px solid var(--line)">' : '') +
-        '<div style="flex:1;min-width:160px;cursor:pointer" onclick="riToggle(\'' + esc(l.listing_id) + '\',\'' + esc(l.sku || '') + '\')" title="Click to open/close the editor"><b>' + esc(l.title || '') + '</b><div class="fixed">' + esc(l.sku || '(no sku)') + ' · ' + badge + doneBadge + '</div></div>' + back +
+        '<div style="flex:1;min-width:160px;cursor:pointer" onclick="riToggle(\'' + esc(l.listing_id) + '\',\'' + esc(l.sku || '') + '\')" title="Click to open/close the editor"><b>' + esc(l.title || '') + '</b><div class="fixed">' + esc(l.sku || '(no sku)') + ' · ' + badge + '</div></div>' +
         '</div><div class="riedit" id="riedit-' + esc(l.listing_id) + '" data-lid="' + esc(l.listing_id) + '" data-sku="' + esc(l.sku || '') + '"></div></div>';
     }).join('');
     riObserveEditors(); riUpdateSel();
@@ -1372,7 +1389,7 @@
   async function riApplyOne(id, targetOverride){
     var st = RI_EDIT[id]; if (!st) return { ok: false, error: 'not loaded' };
     var target = targetOverride || 'etsy';
-    try{ var r = await fetch('/api/etsy?action=ri-apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listing_id: id, sku: st.sku || '', target: target, images: riBuildEntries(id) }) });
+    try{ var r = await fetch('/api/etsy?action=ri-apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listing_id: id, sku: st.sku || '', target: target, section: RI_SEL_SECTION || '', images: riBuildEntries(id) }) });
       var j = await r.json();
       if (j.ok){ var it = RI_LISTINGS.find(function(x){ return String(x.listing_id) === String(id); }); if (it && !it.done){ it.done = true; riProgress(); } }
       return j;
@@ -1380,7 +1397,8 @@
   }
   async function riSave(id, target){
     var st = RI_EDIT[id]; var msg = $('rimsg-' + id);
-    if (st.gallery.length + RI_COMMON.length > riCap()){ msg.innerHTML = '<span style="color:#c33">Over the 20-image limit — remove some.</span>'; return; }
+    var tot = st.gallery.length + RI_COMMON.length;
+    if (tot > riCap()){ alert('Can\'t send this listing.\n\nIt has ' + tot + ' images but Etsy allows ' + riCap() + '. The ' + RI_COMMON.length + ' common images are always added at the end.\n\nRemove ' + (tot - riCap()) + ' image(s) with the × — usually the old common / size-guide ones that are already on the listing — then send again.'); return; }
     if (!st.gallery.length && !RI_COMMON.length){ msg.innerHTML = '<span style="color:#c33">Add at least one image.</span>'; return; }
     msg.textContent = (target === 'both') ? 'Saving to Etsy + Shopify…' : 'Saving to Etsy…';
     var j = await riApplyOne(id, target || 'etsy');
@@ -1390,6 +1408,7 @@
       var note = '✓ ' + ttl + 'saved — ' + (p.uploaded || 0) + ' photos' + ((j.result && j.result.warning) ? (' <span style="color:#c33">' + esc(j.result.warning) + '</span>') : '') + riShopifyNote(j.shopify) + ' <a href="https://www.etsy.com/your/shops/me/tools/listings/' + esc(id) + '" target="_blank">Open</a> — moved to Done.';
       renderListings();   // the listing is now done → it leaves Start here and appears in Done
       if ($('riTopMsg')) $('riTopMsg').innerHTML = note;
+      riLoadSections();   // refresh the dropdown's x/total so a finished section moves to Done
     }
     else { msg.innerHTML = '⚠ ' + esc(j.error || 'failed'); }
   }
@@ -1398,18 +1417,21 @@
     var msg = $('riSendMsg');
     if (!ids.length){ if (msg) msg.innerHTML = '<span style="color:#c33">Tick at least one listing.</span>'; return; }
     var bt = target || 'etsy';
-    var ok = 0, over = 0, failed = 0, shopOk = 0, shopErr = 0;
+    var ok = 0, over = 0, failed = 0, shopOk = 0, shopErr = 0, overTitles = [];
     for (var k = 0; k < ids.length; k++){
       var id = ids[k]; msg.textContent = 'Sending ' + (k + 1) + ' / ' + ids.length + '…';
       if (!RI_EDIT[id]){ await riLoadEditor(id, ''); }
       var st = RI_EDIT[id]; if (!st){ failed++; continue; }
-      if (st.gallery.length + RI_COMMON.length > riCap()){ over++; continue; }
+      if (st.gallery.length + RI_COMMON.length > riCap()){ over++; var ot = RI_LISTINGS.find(function(x){ return String(x.listing_id) === String(id); }); overTitles.push('• ' + ((ot && ot.title) || id) + ' (' + (st.gallery.length + RI_COMMON.length) + '/' + riCap() + ')'); continue; }
       var j = await riApplyOne(id, bt);
       if (j && j.ok){ ok++; if (bt === 'both'){ if (j.shopify && !j.shopify.error) shopOk++; else shopErr++; } } else failed++;
     }
-    var summary = '✓ ' + ok + ' sent to Etsy.' + (bt === 'both' ? ' <span style="color:#1a8a4a">' + shopOk + ' also on Shopify.</span>' + (shopErr ? ' <span style="color:#c33">' + shopErr + ' Shopify failed.</span>' : '') : '') + (over ? ' <span style="color:#c33">' + over + ' over 20 — open &amp; trim them.</span>' : '') + (failed ? ' <span style="color:#c33">' + failed + ' failed.</span>' : '');
+    var summary = '✓ ' + ok + ' sent to Etsy.' + (bt === 'both' ? ' <span style="color:#1a8a4a">' + shopOk + ' also on Shopify.</span>' + (shopErr ? ' <span style="color:#c33">' + shopErr + ' Shopify failed.</span>' : '') : '') + (over ? ' <span style="color:#c33">' + over + ' skipped — over ' + riCap() + '.</span>' : '') + (failed ? ' <span style="color:#c33">' + failed + ' failed.</span>' : '');
     renderListings();   // done ones move to the Done tab
     if ($('riTopMsg')) $('riTopMsg').innerHTML = summary;
+    if (ok) riLoadSections();   // refresh the dropdown's x/total
+    // Pop-up so you can't miss WHY some didn't go: they're over the 20-image limit and need trimming first.
+    if (over){ alert('Couldn\'t send ' + over + ' listing(s) — over the ' + riCap() + '-image limit (the ' + RI_COMMON.length + ' common images are added at the end):\n\n' + overTitles.join('\n') + '\n\nOpen each, remove images down to ' + riCap() + ' or fewer (usually the old common / size-guide ones), then send again.'); }
   }
 
   if (location.search.indexOf('connected=1') >= 0) { setConnected(true); }
