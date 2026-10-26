@@ -62,7 +62,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">AWA ETSY · v0.45</p>
+  <p class="ver">AWA ETSY · v0.46</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -1235,27 +1235,39 @@
   function riSetFilter(f){ RI_FILTER = f; ['all','nomatch','pending'].forEach(function(x){ var b = $('rif' + x); if (b) b.className = (x === f ? '' : 'ghost'); }); renderListings(); }
   function renderListings(){
     var list = RI_LISTINGS.filter(function(l){ if (RI_FILTER === 'nomatch') return !l.matched; if (RI_FILTER === 'pending') return !l.done; return true; });
-    if (!list.length){ $('riListings').innerHTML = '<p class="sub">Nothing here with this filter.</p>'; return; }
-    $('riListings').innerHTML = list.map(function(l){
+    var bar = '<div class="row" style="gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap"><label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="riSelAll" onchange="riToggleAll(this)"> Select all</label><button type="button" id="riSendSel" onclick="riSendSelected()">Send selected to Etsy</button><span class="fixed" id="riSendMsg"></span></div>';
+    if (!list.length){ $('riListings').innerHTML = bar + '<p class="sub">Nothing here with this filter.</p>'; return; }
+    $('riListings').innerHTML = bar + list.map(function(l){
       var badge = l.matched ? '<span style="color:#1a8a4a">✓ matched</span>' : '<span style="color:#c33">⚠ no match</span>';
       var done = l.done ? ' <span style="background:#185FA5;color:#fff;padding:1px 8px;border-radius:10px;font-size:11px">done</span>' : '';
       return '<div class="card" style="padding:10px"><div class="row" style="gap:10px;align-items:center">' +
+        '<input type="checkbox" class="risel" data-lid="' + esc(l.listing_id) + '" onchange="riUpdateSel()">' +
         (l.image ? '<img src="' + esc(l.image) + '" style="width:60px;height:48px;object-fit:cover;border-radius:6px;border:1px solid var(--line)">' : '') +
-        '<div style="flex:1;min-width:160px"><b>' + esc(l.title || '') + '</b><div class="fixed">' + esc(l.sku || '(no sku)') + ' · ' + badge + done + '</div></div>' +
-        '<button type="button" onclick="riEditListing(\'' + esc(l.listing_id) + '\',\'' + esc(l.sku || '') + '\')">Edit images</button>' +
-        '</div><div class="riedit" id="riedit-' + esc(l.listing_id) + '"></div></div>';
+        '<div style="flex:1;min-width:160px;cursor:pointer" onclick="riToggle(\'' + esc(l.listing_id) + '\',\'' + esc(l.sku || '') + '\')" title="Click to open/close the editor"><b>' + esc(l.title || '') + '</b><div class="fixed">' + esc(l.sku || '(no sku)') + ' · ' + badge + done + '</div></div>' +
+        '</div><div class="riedit" id="riedit-' + esc(l.listing_id) + '" data-lid="' + esc(l.listing_id) + '" data-sku="' + esc(l.sku || '') + '"></div></div>';
     }).join('');
+    riObserveEditors(); riUpdateSel();
   }
-  async function riEditListing(id, sku){
-    var box = $('riedit-' + id); if (!box) return;
-    if (box.getAttribute('data-open') === '1'){ box.innerHTML = ''; box.removeAttribute('data-open'); return; }
+  function riToggleAll(cb){ document.querySelectorAll('#riListings .risel').forEach(function(x){ x.checked = cb.checked; }); riUpdateSel(); }
+  function riUpdateSel(){ var n = document.querySelectorAll('#riListings .risel:checked').length; var b = $('riSendSel'); if (b){ b.textContent = 'Send selected to Etsy' + (n ? ' (' + n + ')' : ''); b.disabled = (n === 0); } }
+  async function riLoadEditor(id, sku){
+    var box = $('riedit-' + id); if (!box || box.getAttribute('data-open') === '1') return;
     box.setAttribute('data-open', '1'); box.innerHTML = '<p class="sub">Loading…</p>';
     try{ var r = await fetch('/api/etsy?action=ri-detail&listing_id=' + encodeURIComponent(id) + '&t=' + Date.now()); var j = await r.json();
-      if (!j.ok){ box.innerHTML = '<p class="fixed">' + esc(j.error || 'error') + '</p>'; return; }
+      if (!j.ok){ box.innerHTML = '<p class="fixed">' + esc(j.error || 'error') + '</p>'; box.removeAttribute('data-open'); return; }
       var gallery = (j.etsyImages || []).map(function(im){ return { src: im.url, from: 'etsy' }; });
-      RI_EDIT[id] = { gallery: gallery, video: { action: 'keep', url: (j.etsyVideo && j.etsyVideo.url) || '' }, etsyVideo: j.etsyVideo, shopify: j.shopify || {}, sku: j.sku || sku };
+      var lrow = RI_LISTINGS.find(function(x){ return String(x.listing_id) === String(id); });
+      RI_EDIT[id] = { gallery: gallery, shopify: j.shopify || {}, sku: j.sku || sku, title: (lrow && lrow.title) || (j.shopify && j.shopify.title) || '' };
       renderEditor(id);
-    }catch(e){ box.innerHTML = '<p class="fixed">' + e.message + '</p>'; }
+    }catch(e){ box.innerHTML = '<p class="fixed">' + e.message + '</p>'; box.removeAttribute('data-open'); }
+  }
+  function riToggle(id, sku){ var box = $('riedit-' + id); if (!box) return; if (box.getAttribute('data-open') === '1'){ box.innerHTML = ''; box.removeAttribute('data-open'); } else { riLoadEditor(id, sku); } }
+  var riIO = null;
+  function riObserveEditors(){
+    if (riIO) riIO.disconnect();
+    if (!('IntersectionObserver' in window)) return;
+    riIO = new IntersectionObserver(function(entries){ entries.forEach(function(en){ if (en.isIntersecting){ var el = en.target; riLoadEditor(el.getAttribute('data-lid'), el.getAttribute('data-sku')); riIO.unobserve(el); } }); }, { rootMargin: '300px' });
+    document.querySelectorAll('#riListings .riedit[data-lid]').forEach(function(el){ riIO.observe(el); });
   }
   function renderEditor(id){
     var st = RI_EDIT[id]; var box = $('riedit-' + id); if (!st || !box) return;
@@ -1269,25 +1281,26 @@
     var commonNote = commonN ? '<p class="fixed">+ ' + commonN + ' common images at the end.</p>' : '<p class="fixed">No common set uploaded.</p>';
     var picker;
     if (sh.matched){
-      picker = '<p class="sub" style="margin-top:8px">Shopify photos — click to add/remove:</p><div style="display:flex;flex-wrap:wrap;gap:6px">' + (sh.images || []).map(function(u){
-        var inGal = st.gallery.some(function(g){ return g.src === u; });
-        return '<img src="' + esc(u) + '" onclick="riAddShopify(\'' + id + '\',\'' + encodeURIComponent(u) + '\')" style="width:64px;height:64px;object-fit:cover;border-radius:6px;border:2px solid ' + (inGal ? '#1a8a4a' : 'var(--line)') + ';cursor:pointer;opacity:' + (inGal ? '0.5' : '1') + '">';
+      picker = '<p class="sub" style="margin-top:8px">Shopify photos — click to add/remove:</p><div style="display:flex;flex-wrap:wrap;gap:6px">' + (sh.images || []).map(function(im){
+        var u = im.url; var inGal = st.gallery.some(function(g){ return g.src === u; });
+        return '<img src="' + esc(u) + '" title="' + esc(im.alt || '') + '" onclick="riAddShopify(\'' + id + '\',\'' + encodeURIComponent(u) + '\')" style="width:64px;height:64px;object-fit:cover;border-radius:6px;border:2px solid ' + (inGal ? '#1a8a4a' : 'var(--line)') + ';cursor:pointer;opacity:' + (inGal ? '0.5' : '1') + '">';
       }).join('') + '</div>';
     } else {
       picker = '<p class="sub" style="margin-top:8px">No exact Shopify match for <b>' + esc(st.sku || '') + '</b>. Closest — click to use its photos:</p><div style="display:flex;flex-wrap:wrap;gap:8px">' + ((sh.similar || []).map(function(s){
         return '<div style="width:80px;text-align:center;cursor:pointer" onclick="riUseSimilar(\'' + id + '\',\'' + esc(s.sku) + '\')">' + (s.image ? '<img src="' + esc(s.image) + '" style="width:80px;height:80px;object-fit:cover;border-radius:6px;border:1px solid var(--line)">' : '') + '<div class="fixed" style="font-size:9px">' + esc(s.sku) + '</div></div>';
       }).join('') || '<span class="fixed">none</span>') + '</div>';
     }
-    var manual = '<div class="row" style="gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap"><span class="fixed">Wrong SKU? Search Shopify by hand:</span><input id="rimansku-' + id + '" placeholder="Shopify SKU" value="' + esc(st.sku || '') + '" style="padding:4px 6px;min-width:160px"><button type="button" onclick="riManualSku(\'' + id + '\')">Search</button><span class="fixed" id="rimanmsg-' + id + '"></span></div>';
+    var manual = '<div class="row" style="gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap"><span class="fixed">Wrong SKU? Search Shopify by hand:</span><input id="rimansku-' + id + '" placeholder="Shopify SKU (Enter to search)" value="' + esc(st.sku || '') + '" onkeydown="if(event.key===\'Enter\'){event.preventDefault();riManualSku(\'' + id + '\')}" style="padding:4px 6px;min-width:180px"><button type="button" onclick="riManualSku(\'' + id + '\')">Search</button><span class="fixed" id="rimanmsg-' + id + '"></span></div>';
     box.innerHTML = '<div style="margin-top:8px">' +
       '<p class="sub"><b>' + st.gallery.length + '</b> + ' + commonN + ' common = <b style="color:' + (over ? '#c33' : 'inherit') + '">' + total + '/' + riCap() + '</b> images' + (over ? ' — over the limit, remove some' : '') + '</p>' +
       gal + commonNote + picker + manual +
-      '<div class="row" style="gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap"><input type="file" accept="image/*" multiple onchange="riUpload(\'' + id + '\',this)"><button type="button" ' + (over ? 'disabled' : '') + ' onclick="riSave(\'' + id + '\')">Save to Etsy</button><span class="fixed" id="rimsg-' + id + '"></span></div>' +
+      '<div id="ridrop-' + id + '" style="border:2px dashed var(--line);border-radius:8px;padding:8px 12px;margin-top:10px;font-size:13px;color:var(--text-muted,#666)">Drag images here, or <label style="text-decoration:underline;cursor:pointer">choose files<input type="file" accept="image/*" multiple style="display:none" onchange="riUpload(\'' + id + '\',this)"></label></div>' +
+      '<div class="row" style="gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap"><button type="button" ' + (over ? 'disabled' : '') + ' onclick="riSave(\'' + id + '\')">Save to Etsy</button><span class="fixed" id="rimsg-' + id + '"></span></div>' +
       '</div>';
-    riWireGalleryDrag(id);
+    riWireGalleryDrag(id); riWireDrop(id);
   }
   function riRemove(id, i){ RI_EDIT[id].gallery.splice(i, 1); renderEditor(id); }
-  function riAddShopify(id, u){ u = decodeURIComponent(u); var st = RI_EDIT[id]; if (st.gallery.some(function(g){ return g.src === u; })){ st.gallery = st.gallery.filter(function(g){ return g.src !== u; }); } else { if (st.gallery.length + RI_COMMON.length >= riCap()){ alert('At the 20-image limit.'); return; } st.gallery.push({ src: u, from: 'shopify' }); } renderEditor(id); }
+  function riAddShopify(id, u){ u = decodeURIComponent(u); var st = RI_EDIT[id]; if (st.gallery.some(function(g){ return g.src === u; })){ st.gallery = st.gallery.filter(function(g){ return g.src !== u; }); } else { if (st.gallery.length + RI_COMMON.length >= riCap()){ alert('At the 20-image limit.'); return; } var im = (st.shopify.images || []).find(function(x){ return x.url === u; }); st.gallery.push({ src: u, from: 'shopify', alt: (im && im.alt) || '' }); } renderEditor(id); }
   async function riUseSimilar(id, sku){ var st = RI_EDIT[id]; try{ var r = await fetch('/api/etsy?action=ri-shopify&sku=' + encodeURIComponent(sku) + '&t=' + Date.now()); var j = await r.json(); if (j.ok && j.shopify){ st.shopify = j.shopify; st.sku = sku; renderEditor(id); } }catch(e){} }
   async function riManualSku(id){
     var inp = $('rimansku-' + id); if (!inp) return; var v = (inp.value || '').trim(); if (!v) return;
@@ -1297,15 +1310,27 @@
       else if (msg) msg.textContent = '⚠ ' + (j.error || 'not found');
     }catch(e){ if (msg) msg.textContent = '⚠ ' + e.message; }
   }
-  function riUpload(id, inp){
-    var st = RI_EDIT[id]; var files = inp.files; if (!files || !files.length) return; var done = 0, total = files.length;
-    Array.prototype.forEach.call(files, function(f){
-      if (st.gallery.length + RI_COMMON.length >= riCap()){ done++; if (done >= total) renderEditor(id); return; }
-      fileToBase64(f).then(function(b64){ st.gallery.push({ src: b64, from: 'upload', base64: b64 }); done++; if (done >= total) renderEditor(id); });
+  function riCompress(file){
+    return new Promise(function(res){
+      if (!/^image\//.test(file.type)){ fileToBase64(file).then(res); return; }
+      var img = new Image(); var url = URL.createObjectURL(file);
+      img.onload = function(){ var max = 1600, w = img.width, h = img.height; if (Math.max(w, h) > max){ var s = max / Math.max(w, h); w = Math.round(w * s); h = Math.round(h * s); } var c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').drawImage(img, 0, 0, w, h); URL.revokeObjectURL(url); try{ res(c.toDataURL('image/jpeg', 0.72)); }catch(e){ fileToBase64(file).then(res); } };
+      img.onerror = function(){ URL.revokeObjectURL(url); fileToBase64(file).then(res); };
+      img.src = url;
     });
-    inp.value = '';
   }
-  function riVideo(id, action){ RI_EDIT[id].video.action = action; }
+  async function riUploadFiles(id, files){
+    var st = RI_EDIT[id]; if (!st || !files || !files.length) return;
+    for (var i = 0; i < files.length; i++){ if (st.gallery.length + RI_COMMON.length >= riCap()) break; var b64 = await riCompress(files[i]); st.gallery.push({ src: b64, from: 'upload', base64: b64, alt: '' }); }
+    renderEditor(id);
+  }
+  function riUpload(id, inp){ riUploadFiles(id, inp.files); inp.value = ''; }
+  function riWireDrop(id){
+    var z = $('ridrop-' + id); if (!z) return;
+    z.addEventListener('dragover', function(e){ e.preventDefault(); z.style.background = 'rgba(26,138,74,.08)'; });
+    z.addEventListener('dragleave', function(e){ e.preventDefault(); z.style.background = ''; });
+    z.addEventListener('drop', function(e){ e.preventDefault(); z.style.background = ''; var f = e.dataTransfer && e.dataTransfer.files; if (f && f.length) riUploadFiles(id, f); });
+  }
   function riWireGalleryDrag(id){
     var grid = $('rigal-' + id); if (!grid) return; var dragEl = null;
     grid.querySelectorAll('.riimg').forEach(function(el){
@@ -1315,22 +1340,48 @@
     });
   }
   function riReorderFromDom(id){ var st = RI_EDIT[id]; var order = Array.prototype.map.call($('rigal-' + id).querySelectorAll('.riimg'), function(el){ return parseInt(el.getAttribute('data-i'), 10); }); st.gallery = order.map(function(i){ return st.gallery[i]; }); renderEditor(id); }
+  function riBuildEntries(id){
+    var st = RI_EDIT[id]; var title = st.title || (st.shopify && st.shopify.title) || '';
+    var entries = st.gallery.map(function(g, idx){
+      var alt = g.alt || (title + (idx > 0 ? ' — ' + (idx + 1) : ''));   // Shopify alt, else the listing title (+ a number so fallbacks aren't identical)
+      return g.base64 ? { dataBase64: g.base64, alt: alt } : { url: g.src, alt: alt };
+    });
+    RI_COMMON.forEach(function(c){ entries.push({ url: c.url, alt: c.alt || '' }); });   // common set keeps its own alt
+    return entries;
+  }
+  async function riApplyOne(id){
+    var st = RI_EDIT[id]; if (!st) return { ok: false, error: 'not loaded' };
+    try{ var r = await fetch('/api/etsy?action=ri-apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listing_id: id, sku: st.sku || '', images: riBuildEntries(id) }) });
+      var j = await r.json();
+      if (j.ok){ var it = RI_LISTINGS.find(function(x){ return String(x.listing_id) === String(id); }); if (it && !it.done){ it.done = true; riProgress(); } }
+      return j;
+    }catch(e){ return { ok: false, error: e.message }; }
+  }
   async function riSave(id){
     var st = RI_EDIT[id]; var msg = $('rimsg-' + id);
-    if (st.gallery.length + RI_COMMON.length > riCap()){ alert('Over the 20-image limit.'); return; }
+    if (st.gallery.length + RI_COMMON.length > riCap()){ alert('Over the 20-image limit — remove some.'); return; }
     if (!st.gallery.length && !RI_COMMON.length){ alert('Add at least one image.'); return; }
     if (!confirm('Replace this listing\'s images on Etsy now? (its current images are backed up first.)')) return;
     msg.textContent = 'Saving to Etsy…';
-    var entries = st.gallery.map(function(g){ return g.base64 ? { dataBase64: g.base64 } : { url: g.src }; });
-    RI_COMMON.forEach(function(c){ entries.push({ url: c.url }); });
-    var body = { listing_id: id, sku: st.sku || '', images: entries };
-    try{
-      var r = await fetch('/api/etsy?action=ri-apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      var j = await r.json();
-      if (j.ok){ var p = (j.result && j.result.photos) || {}; msg.innerHTML = '✓ Done — ' + (p.uploaded || 0) + ' photos' + ((j.result && j.result.warning) ? (' <span style="color:#c33">' + esc(j.result.warning) + '</span>') : '') + ' <a href="https://www.etsy.com/your/shops/me/tools/listings/' + esc(id) + '" target="_blank">Open</a>';
-        var it = RI_LISTINGS.find(function(x){ return String(x.listing_id) === String(id); }); if (it && !it.done){ it.done = true; riProgress(); } }
-      else { msg.innerHTML = '⚠ ' + esc(j.error || 'failed'); }
-    }catch(e){ msg.textContent = '⚠ ' + e.message; }
+    var j = await riApplyOne(id);
+    if (j.ok){ var p = (j.result && j.result.photos) || {}; msg.innerHTML = '✓ Done — ' + (p.uploaded || 0) + ' photos' + ((j.result && j.result.warning) ? (' <span style="color:#c33">' + esc(j.result.warning) + '</span>') : '') + ' <a href="https://www.etsy.com/your/shops/me/tools/listings/' + esc(id) + '" target="_blank">Open</a>'; }
+    else { msg.innerHTML = '⚠ ' + esc(j.error || 'failed'); }
+  }
+  async function riSendSelected(){
+    var ids = Array.prototype.map.call(document.querySelectorAll('#riListings .risel:checked'), function(c){ return c.getAttribute('data-lid'); });
+    if (!ids.length){ alert('Tick at least one listing.'); return; }
+    if (!confirm('Send ' + ids.length + ' listing(s) to Etsy? Their current images are backed up first.')) return;
+    var msg = $('riSendMsg'); var ok = 0, over = 0, failed = 0;
+    for (var k = 0; k < ids.length; k++){
+      var id = ids[k]; msg.textContent = 'Sending ' + (k + 1) + ' / ' + ids.length + '…';
+      if (!RI_EDIT[id]){ await riLoadEditor(id, ''); }
+      var st = RI_EDIT[id]; if (!st){ failed++; continue; }
+      if (st.gallery.length + RI_COMMON.length > riCap()){ over++; continue; }
+      var j = await riApplyOne(id);
+      if (j && j.ok) ok++; else failed++;
+    }
+    msg.innerHTML = '✓ ' + ok + ' sent.' + (over ? ' <span style="color:#c33">' + over + ' over 20 — open &amp; trim them.</span>' : '') + (failed ? ' <span style="color:#c33">' + failed + ' failed.</span>' : '');
+    renderListings();
   }
 
   if (location.search.indexOf('connected=1') >= 0) { setConnected(true); }
