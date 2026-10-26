@@ -1,4 +1,8 @@
-// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images)  ·  v0.52
+// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images)  ·  v0.53
+// v0.53 (2026-10-26): Replace images — "Etsy + Shopify" option. ri-apply takes target ('etsy'|'both'); 'both' pushes the
+//   SAME image set, in the SAME order, to the matched Shopify product (pushImagesToShopify: create new media first, then
+//   delete the old — product never left imageless). uploadImageToShopify (staged upload, copied from keywords.js) handles
+//   manually-uploaded images. loadShopifyMedia now returns the product id; old Shopify images backed up in the undo log.
 // v0.52 (2026-10-26): Replace images — alt text. loadShopifyMedia returns each image's Shopify altText; ri-apply /
 //   riApplyMedia pass a per-image alt and set alt_text on the Etsy upload (front sends Shopify alt, else the listing
 //   title + a number so fallbacks aren't identical; common set keeps its own alt).
@@ -594,7 +598,7 @@ async function loadThumb(sku) {
 // when there is no exact match, return the closest candidates (with a thumbnail) so Mae can pick one by hand.
 async function loadShopifyMedia(sku) {
   // Same proven query as loadProduct (NO media/video — the media field broke the whole search on this API version).
-  const gq = 'query($q:String!){ products(first:25, query:$q){ nodes{ title handle images(first:50){nodes{url altText}} skuMf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } }';
+  const gq = 'query($q:String!){ products(first:25, query:$q){ nodes{ id title handle images(first:50){nodes{url altText}} skuMf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } }';
   async function tryOne(s) {
     if (!s) return { nodes: [], n: null };
     const d = await shopGQL(gq, { q: 'metafield:custom.sku_for_print_files:' + s });
@@ -611,7 +615,52 @@ async function loadShopifyMedia(sku) {
     const similar = nodes.slice(0, 8).map(x => ({ sku: (x.skuMf && x.skuMf.value) || '', title: x.title, image: ((x.images.nodes[0]) || {}).url || '' }));
     return { noMatch: true, similar };
   }
-  return { matched: true, title: n.title, handle: n.handle, images: (n.images.nodes || []).map(i => ({ url: i.url, alt: i.altText || '' })) };
+  return { matched: true, id: n.id, title: n.title, handle: n.handle, images: (n.images.nodes || []).map(i => ({ url: i.url, alt: i.altText || '' })) };
+}
+// Replace images — "Etsy + Shopify" option: upload one image (base64) to Shopify Files and return its permanent
+// CDN url. COPIED from api/keywords.js's proven uploadImageToShopify (staged upload -> multipart POST -> fileCreate
+// -> poll), adapted to use shopGQL. Do not diverge from that pattern.
+async function uploadImageToShopify(base64, filename, mimeType, altText) {
+  const mime = mimeType || 'image/jpeg';
+  const safeFilename = String(filename || 'image').replace(/[^a-zA-Z0-9._-]/g, '_');
+  const sd = await shopGQL('mutation($input:[StagedUploadInput!]!){ stagedUploadsCreate(input:$input){ stagedTargets{ url resourceUrl parameters{ name value } } userErrors{ field message } } }', { input: [{ resource: 'FILE', filename: safeFilename, mimeType: mime, httpMethod: 'POST' }] });
+  const ue1 = sd.stagedUploadsCreate.userErrors || []; if (ue1.length) throw new Error(ue1[0].message);
+  const target = sd.stagedUploadsCreate.stagedTargets[0]; if (!target) throw new Error('No staged upload target returned');
+  const imageBuffer = Buffer.from(base64, 'base64');
+  const boundary = '----FormBoundary' + Math.random().toString(36).slice(2);
+  let formParts = '';
+  for (const p of target.parameters) formParts += `--${boundary}\r\nContent-Disposition: form-data; name="${p.name}"\r\n\r\n${p.value}\r\n`;
+  formParts += `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${safeFilename}"\r\nContent-Type: ${mime}\r\n\r\n`;
+  const bodyBuf = Buffer.concat([Buffer.from(formParts, 'utf8'), imageBuffer, Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8')]);
+  const ur = await fetch(target.url, { method: 'POST', headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` }, body: bodyBuf });
+  if (!ur.ok) { const t = await ur.text(); throw new Error('Upload to Shopify failed: ' + t.slice(0, 200)); }
+  const cd = await shopGQL('mutation($files:[FileCreateInput!]!){ fileCreate(files:$files){ files{ ... on MediaImage { id image{ url } } } userErrors{ field message } } }', { files: [{ originalSource: target.resourceUrl, contentType: 'IMAGE', alt: String(altText || safeFilename).slice(0, 512) }] });
+  const ue2 = cd.fileCreate.userErrors || []; if (ue2.length) throw new Error(ue2[0].message);
+  const file = cd.fileCreate.files[0]; let cdnUrl = file && file.image ? file.image.url : null; const fileId = file ? file.id : null;
+  if (!fileId) throw new Error('fileCreate did not return a file id.');
+  for (let a = 0; !cdnUrl && a < 6; a++) { await new Promise(r => setTimeout(r, 2000)); try { const pd = await shopGQL('query($id:ID!){ node(id:$id){ ... on MediaImage { image{ url } } } }', { id: fileId }); cdnUrl = pd.node && pd.node.image ? pd.node.image.url : null; } catch (e) {} }
+  return { gid: fileId, url: cdnUrl };
+}
+// Replace the whole image set on a Shopify product, in the given order. entries: [{url}|{dataBase64}, alt]. Creates
+// the new media FIRST (so the product is never left without images if something fails), then deletes the old media —
+// leaving exactly the new set in array order.
+async function pushImagesToShopify(productGid, entries) {
+  const media = [];
+  for (const e of (entries || [])) {
+    let src = e.url;
+    if (!src && e.dataBase64) { const b64 = String(e.dataBase64).replace(/^data:[^;]+;base64,/, ''); const up = await uploadImageToShopify(b64, 'awa-etsy-' + Date.now(), 'image/jpeg', e.alt); src = up.url; }
+    if (src) media.push({ originalSource: src, alt: String(e.alt || '').slice(0, 512), mediaContentType: 'IMAGE' });
+  }
+  if (!media.length) throw new Error('No images to push to Shopify');
+  const before = await shopGQL('query($id:ID!){ product(id:$id){ media(first:100){ nodes{ id } } } }', { id: productGid });
+  const oldIds = ((before.product && before.product.media && before.product.media.nodes) || []).map(n => n.id);
+  const cr = await shopGQL('mutation($pid:ID!,$media:[CreateMediaInput!]!){ productCreateMedia(productId:$pid, media:$media){ media{ id } mediaUserErrors{ field message } } }', { pid: productGid, media });
+  const ue = (cr.productCreateMedia && cr.productCreateMedia.mediaUserErrors) || []; if (ue.length) throw new Error('create media: ' + ue[0].message);
+  if (oldIds.length) {
+    const del = await shopGQL('mutation($pid:ID!,$ids:[ID!]!){ productDeleteMedia(productId:$pid, mediaIds:$ids){ deletedMediaIds mediaUserErrors{ field message } } }', { pid: productGid, ids: oldIds });
+    const ue2 = (del.productDeleteMedia && del.productDeleteMedia.mediaUserErrors) || []; if (ue2.length) throw new Error('delete media: ' + ue2[0].message);
+  }
+  return { pushed: media.length, removed: oldIds.length };
 }
 // Replace images: ALL Shopify sku_for_print_files values (lowercased set) — to flag each Etsy listing as matched or not
 // in the list, without one query per listing. ~5 paginated queries for the whole catalogue.
@@ -1306,19 +1355,31 @@ module.exports = async (req, res) => {
       if (!b.listing_id) { finish(400, { ok: false, error: 'Missing listing_id' }); return; }
       const entries = Array.isArray(b.images) ? b.images : [];
       if (!entries.length) { finish(400, { ok: false, error: 'No images to apply' }); return; }
+      const target = String(b.target || 'etsy');   // 'etsy' or 'both' (both = also push the same set to Shopify)
+      // If pushing to Shopify too, resolve the matched product up front — it gives the id to push to AND its current
+      // images, which we back up alongside the Etsy ones.
+      let shopProd = null;
+      if (target === 'both') { try { shopProd = await loadShopifyMedia(b.sku || ''); } catch (e) { shopProd = { error: String(e && e.message || e) }; } }
       // Back up the listing's CURRENT images + video FIRST — abort if we can't save it (same rule as the other tabs).
       try {
         const cur = await call('/listings/' + b.listing_id + '/images');
         const oldImages = ((cur.json && cur.json.results) || []).map(im => im.url_fullxfull);
         let oldVideo = ''; try { const vr = await call('/listings/' + b.listing_id + '/videos'); const vids = (vr.json && (vr.json.results || vr.json.videos)) || []; if (vids[0]) oldVideo = vids[0].video_url || ''; } catch (e) {}
+        const oldShopifyImages = (shopProd && shopProd.matched && Array.isArray(shopProd.images)) ? shopProd.images.map(i => i.url) : [];
         const log = await ghGet(RI_UNDO_PATH); const arr = log.content ? (JSON.parse(log.content).items || []) : [];
-        arr.unshift({ listing_id: String(b.listing_id), sku: String(b.sku || ''), ts: Date.now(), oldImages, oldVideo });
+        arr.unshift({ listing_id: String(b.listing_id), sku: String(b.sku || ''), ts: Date.now(), oldImages, oldVideo, oldShopifyImages });
         await ghPut(RI_UNDO_PATH, JSON.stringify({ items: arr.slice(0, 200) }, null, 2), log.sha, 'ri undo ' + b.listing_id);
       } catch (e) { finish(500, { ok: false, error: 'Backup could not be saved — nothing was changed. ' + String(e && e.message || e) }); return; }
       const r = await riApplyMedia(call, b.listing_id, entries, b.video || null);
+      // "Etsy + Shopify": replace the Shopify product's images with the same set, in the same order.
+      let shopify = null;
+      if (target === 'both') {
+        if (shopProd && shopProd.matched && shopProd.id) { try { shopify = await pushImagesToShopify(shopProd.id, entries); } catch (e) { shopify = { error: String(e && e.message || e) }; } }
+        else { shopify = { error: 'No matched Shopify product for SKU ' + (b.sku || '') + (shopProd && shopProd.error ? (' — ' + shopProd.error) : '') }; }
+      }
       // mark this listing as processed (for the per-section progress counter + the "done" badge)
       try { const dn = await readDone(); const ids = dn.ids.map(String); if (ids.indexOf(String(b.listing_id)) < 0) { ids.unshift(String(b.listing_id)); await ghPut(RI_DONE_PATH, JSON.stringify({ ids }, null, 2), dn.sha, 'ri done ' + b.listing_id); } } catch (e) {}
-      finish(200, { ok: true, result: r });
+      finish(200, { ok: true, result: r, shopify });
       return;
     }
 
