@@ -62,7 +62,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">AWA ETSY · v0.52</p>
+  <p class="ver">AWA ETSY · v0.53</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -1282,7 +1282,7 @@
     // Start here tab: full editors + bulk.
     var list = RI_NOMATCH ? startAll.filter(function(l){ return !l.matched; }) : startAll;
     var nomatch = '<label class="fixed" style="display:flex;gap:6px;align-items:center;cursor:pointer;margin-bottom:8px"><input type="checkbox" ' + (RI_NOMATCH ? 'checked' : '') + ' onchange="riToggleNomatch(this)"> Show only no-match</label>';
-    var bar = '<div class="row" style="gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap"><label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="riSelAll" onchange="riToggleAll(this)"> Select all</label><button type="button" id="riSendSelEtsy" onclick="riSendSelected(\'etsy\')">Send selected to Etsy</button><button type="button" id="riSendSelBoth" onclick="riSendSelected(\'both\')">Send selected to Etsy + Shopify</button><span class="fixed" id="riSendMsg"></span></div>';
+    var bar = '<div class="row" style="gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap"><label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="riSelAll" onchange="riToggleAll(this)"> Select all</label><button type="button" id="riSendSelEtsy" onclick="riSendSelected(\'etsy\')">Send selected to Etsy</button><button type="button" id="riSendSelBoth" onclick="riSendSelected(\'both\')">Send selected to Etsy + Shopify</button><button type="button" id="riSkipBtn" class="ghost" onclick="riSkipSelected()">Skip — mark done (no changes)</button><span class="fixed" id="riSendMsg"></span></div>';
     var top = tabs + nomatch + bar + topMsg;
     if (!list.length){ $('riListings').innerHTML = top + '<p class="sub">' + (RI_NOMATCH ? 'No unmatched listings here.' : 'All done in this section. 🎉') + '</p>'; riUpdateSel(); return; }
     $('riListings').innerHTML = top + list.map(function(l){
@@ -1296,7 +1296,7 @@
     riObserveEditors(); riUpdateSel();
   }
   function riToggleAll(cb){ document.querySelectorAll('#riListings .risel').forEach(function(x){ x.checked = cb.checked; }); riUpdateSel(); }
-  function riUpdateSel(){ var n = document.querySelectorAll('#riListings .risel:checked').length; var suf = n ? ' (' + n + ')' : ''; var b1 = $('riSendSelEtsy'), b2 = $('riSendSelBoth'); if (b1){ b1.textContent = 'Send selected to Etsy' + suf; b1.disabled = (n === 0); } if (b2){ b2.textContent = 'Send selected to Etsy + Shopify' + suf; b2.disabled = (n === 0); } }
+  function riUpdateSel(){ var n = document.querySelectorAll('#riListings .risel:checked').length; var suf = n ? ' (' + n + ')' : ''; var b1 = $('riSendSelEtsy'), b2 = $('riSendSelBoth'), b3 = $('riSkipBtn'); if (b1){ b1.textContent = 'Send selected to Etsy' + suf; b1.disabled = (n === 0); } if (b2){ b2.textContent = 'Send selected to Etsy + Shopify' + suf; b2.disabled = (n === 0); } if (b3){ b3.textContent = 'Skip — mark done' + suf; b3.disabled = (n === 0); } }
   async function riLoadEditor(id, sku){
     var box = $('riedit-' + id); if (!box || box.getAttribute('data-open') === '1') return;
     box.setAttribute('data-open', '1'); box.innerHTML = '<p class="sub">Loading…</p>';
@@ -1450,6 +1450,17 @@
     if (ok) riLoadSections();   // refresh the dropdown's x/total
     // Pop-up so you can't miss WHY some didn't go: they're over the 20-image limit and need trimming first.
     if (over){ alert('Couldn\'t send ' + over + ' listing(s) — over the ' + riCap() + '-image limit (the ' + RI_COMMON.length + ' common images are added at the end):\n\n' + overTitles.join('\n') + '\n\nOpen each, remove images down to ' + riCap() + ' or fewer (usually the old common / size-guide ones), then send again.'); }
+  }
+  // Skip — mark the selected listings as done WITHOUT touching their images (for the ones that already look fine).
+  async function riSkipSelected(){
+    var ids = Array.prototype.map.call(document.querySelectorAll('#riListings .risel:checked'), function(c){ return c.getAttribute('data-lid'); });
+    var msg = $('riSendMsg');
+    if (!ids.length){ if (msg) msg.innerHTML = '<span style="color:#c33">Tick at least one listing.</span>'; return; }
+    if (msg) msg.textContent = 'Marking ' + ids.length + ' as done…';
+    try{ var r = await fetch('/api/etsy?action=ri-mark-done', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: ids, section: RI_SEL_SECTION || '' }) }); var j = await r.json();
+      if (j.ok){ ids.forEach(function(id){ var it = RI_LISTINGS.find(function(x){ return String(x.listing_id) === String(id); }); if (it) it.done = true; }); riProgress(); renderListings(); if ($('riTopMsg')) $('riTopMsg').innerHTML = '✓ ' + ids.length + ' marked as done (no changes) — moved to Done.'; riLoadSections(); }
+      else { if (msg) msg.innerHTML = '<span style="color:#c33">⚠ ' + esc(j.error || 'failed') + '</span>'; }
+    }catch(e){ if (msg) msg.innerHTML = '<span style="color:#c33">⚠ ' + esc(e.message) + '</span>'; }
   }
 
   /* ---------- Compliance photo: bulk-add common #2 to every active + draft listing ---------- */
