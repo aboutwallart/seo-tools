@@ -1,4 +1,7 @@
-// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images)  ·  v0.49
+// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images)  ·  v0.50
+// v0.50 (2026-10-26): Replace images — FIX match (loadShopifyMedia dropped the media/video field that broke the whole
+//   Shopify search on 2025-01, so nothing matched). Video removed from the feature. ri-listings now flags each listing
+//   matched (vs allShopifySkus set) + done (data/etsy-images-done.json) and returns total/done; ri-apply marks done.
 // v0.49 (2026-10-25): ri-listings now returns each listing's featured image + SKU (uses /listings?state=active with
 //   includes=Inventory,Images — same pattern as etsy-reg-refresh). Common set points to data/etsy-common-set.json
 //   (reuses the NPG fixed images in assets/npg-images/fixed/ + a new "framed-products.jpg").
@@ -148,6 +151,7 @@ const VIDEO_LOG_PATH = 'data/etsy-video-log.json'; // [{listing_id, video_id, sk
 const COMMON_PATH = 'data/etsy-common-set.json';   // Replace images: the common image set (goes at the END of every listing), in order
 const COMMON_DIR  = 'assets/etsy-common';          // where the common-set image files live in the repo (served via raw.githubusercontent)
 const RI_UNDO_PATH = 'data/etsy-images-undo.json';  // Replace images: before every apply we save the listing's old image URLs + video (for undo)
+const RI_DONE_PATH = 'data/etsy-images-done.json';  // Replace images: listing_ids already processed (saved), to show progress per section
 function ghHeaders() { return { 'Authorization': 'token ' + process.env.GITHUB_TOKEN, 'Accept': 'application/vnd.github+json', 'User-Agent': 'awa-etsy' }; }
 async function ghGet(path) {
   const r = await fetch('https://api.github.com/repos/' + REPO + '/contents/' + path + '?ref=main&t=' + Date.now(), { headers: ghHeaders() });
@@ -171,6 +175,7 @@ async function readVideoLog() { try { const f = await ghGet(VIDEO_LOG_PATH); if 
 async function readCommon() { try { const f = await ghGet(COMMON_PATH); if (f.content) { const j = JSON.parse(f.content); return { items: Array.isArray(j) ? j : (j.items || []), sha: f.sha }; } } catch (e) {} return { items: [], sha: null }; }
 function commonUrl(path) { return 'https://raw.githubusercontent.com/' + REPO + '/main/' + path; }
 function withCommonUrls(items) { return (items || []).map(it => Object.assign({}, it, { url: commonUrl(it.path) })); }
+async function readDone() { try { const f = await ghGet(RI_DONE_PATH); if (f.content) { const j = JSON.parse(f.content); return { ids: Array.isArray(j) ? j : (j.ids || []), sha: f.sha }; } } catch (e) {} return { ids: [], sha: null }; }
 // Etsy variant SKUs look like "{BASE}- {size}{frame} {paper}" (the base can contain spaces, e.g. "CYANOTYPE BROWN").
 // The video filename gives the BASE, so group by the base code.
 function baseSkuEtsy(s) { return String(s || '').split(/\s*-\s/)[0].trim().toUpperCase(); }
@@ -581,7 +586,9 @@ async function loadThumb(sku) {
 // Replace images: Shopify product media (all images + the product video) for one SKU. Exact match on sku_for_print_files;
 // when there is no exact match, return the closest candidates (with a thumbnail) so Mae can pick one by hand.
 async function loadShopifyMedia(sku) {
-  const gq = 'query($q:String!){ products(first:25, query:$q){ nodes{ title handle images(first:50){nodes{url}} media(first:30){nodes{ ... on Video { sources{ url mimeType } } }} skuMf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } }';
+  // Same proven query as loadProduct (NO media/video — the media field broke the whole search on this API version,
+  // so nothing matched). Video was dropped from Replace images; if needed later it gets its own tab.
+  const gq = 'query($q:String!){ products(first:25, query:$q){ nodes{ title handle images(first:50){nodes{url}} skuMf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } }';
   const d = await shopGQL(gq, { q: 'metafield:custom.sku_for_print_files:' + sku });
   const nodes = d.products.nodes || [];
   const n = nodes.find(x => eqSku(x.skuMf && x.skuMf.value, sku));
@@ -589,10 +596,19 @@ async function loadShopifyMedia(sku) {
     const similar = nodes.slice(0, 8).map(x => ({ sku: (x.skuMf && x.skuMf.value) || '', title: x.title, image: (x.images.nodes[0] || {}).url || '' }));
     return { noMatch: true, similar };
   }
-  const images = (n.images.nodes || []).map(i => i.url);
-  let video = '';
-  ((n.media && n.media.nodes) || []).forEach(m => { if (!video && m.sources && m.sources.length) { const mp4 = m.sources.find(s => /mp4/i.test(s.mimeType || '')) || m.sources[m.sources.length - 1]; video = mp4 && mp4.url || ''; } });
-  return { matched: true, title: n.title, handle: n.handle, images, video };
+  return { matched: true, title: n.title, handle: n.handle, images: (n.images.nodes || []).map(i => i.url) };
+}
+// Replace images: ALL Shopify sku_for_print_files values (lowercased set) — to flag each Etsy listing as matched or not
+// in the list, without one query per listing. ~5 paginated queries for the whole catalogue.
+async function allShopifySkus() {
+  const set = new Set(); let after = null;
+  for (let p = 0; p < 30; p++) {
+    const d = await shopGQL('query($after:String){ products(first:250, after:$after){ pageInfo{ hasNextPage endCursor } nodes{ skuMf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } }', { after });
+    (d.products.nodes || []).forEach(n => { const v = n.skuMf && n.skuMf.value; if (v) set.add(String(v).trim().toLowerCase()); });
+    if (!d.products.pageInfo.hasNextPage) break;
+    after = d.products.pageInfo.endCursor;
+  }
+  return set;
 }
 async function runApify(seeds) {
   const APIFY = process.env.APIFY_TOKEN;
@@ -1244,7 +1260,11 @@ module.exports = async (req, res) => {
         if (results.length < 100) break;
         offset += 100;
       }
-      finish(200, { ok: true, listings: rows });
+      let skuSet = new Set(), doneIds = new Set();
+      try { skuSet = await allShopifySkus(); } catch (e) {}
+      try { doneIds = new Set((await readDone()).ids.map(String)); } catch (e) {}
+      rows.forEach(r => { r.matched = !!r.sku && skuSet.has(String(r.sku).trim().toLowerCase()); r.done = doneIds.has(String(r.listing_id)); });
+      finish(200, { ok: true, listings: rows, total: rows.length, done: rows.filter(r => r.done).length });
       return;
     }
     if (q.action === 'ri-detail') {
@@ -1281,6 +1301,8 @@ module.exports = async (req, res) => {
         await ghPut(RI_UNDO_PATH, JSON.stringify({ items: arr.slice(0, 200) }, null, 2), log.sha, 'ri undo ' + b.listing_id);
       } catch (e) { finish(500, { ok: false, error: 'Backup could not be saved — nothing was changed. ' + String(e && e.message || e) }); return; }
       const r = await riApplyMedia(call, b.listing_id, entries, b.video || null);
+      // mark this listing as processed (for the per-section progress counter + the "done" badge)
+      try { const dn = await readDone(); const ids = dn.ids.map(String); if (ids.indexOf(String(b.listing_id)) < 0) { ids.unshift(String(b.listing_id)); await ghPut(RI_DONE_PATH, JSON.stringify({ ids }, null, 2), dn.sha, 'ri done ' + b.listing_id); } } catch (e) {}
       finish(200, { ok: true, result: r });
       return;
     }
