@@ -1,4 +1,6 @@
-// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images + Compliance photo)  ·  v0.56
+// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images + Compliance photo)  ·  v0.57
+// v0.57 (2026-10-26): Replace images — ri-mark-done: mark several listings as done WITHOUT changing their images
+//   (the "Skip — mark done" bulk button, for listings that already look fine).
 // v0.56 (2026-10-26): Compliance photo tab — bulk-add common image #2 (a real, non-AI/non-mockup photo) to every active +
 //   draft listing, to meet Etsy's rule. ri-comply-plan builds the worklist (active+draft minus Replace-images done);
 //   ri-comply-batch processes N at a time (if a listing has 20 images, deletes the last one, backed up, then appends #2);
@@ -1432,6 +1434,20 @@ module.exports = async (req, res) => {
         const sections = dn.sections || {}; delete sections[String(b.listing_id)];
         await ghPut(RI_DONE_PATH, JSON.stringify({ ids, sections }, null, 2), dn.sha, 'ri undone ' + b.listing_id);
         finish(200, { ok: true });
+      } catch (e) { finish(500, { ok: false, error: String(e && e.message || e) }); }
+      return;
+    }
+
+    // Replace images — "Skip (mark done, no changes)": mark several listings as done WITHOUT touching their images.
+    if (q.action === 'ri-mark-done' && req.method === 'POST') {
+      const b = req.body || {};
+      const idList = Array.isArray(b.ids) ? b.ids.map(String) : [];
+      if (!idList.length) { finish(400, { ok: false, error: 'No listing_ids' }); return; }
+      try {
+        const dn = await readDone(); const ids = dn.ids.map(String); const sections = dn.sections || {}; let added = 0;
+        idList.forEach(id => { if (ids.indexOf(id) < 0) { ids.unshift(id); added++; } if (b.section) sections[id] = String(b.section); });
+        await ghPut(RI_DONE_PATH, JSON.stringify({ ids, sections }, null, 2), dn.sha, 'ri mark done x' + idList.length);
+        finish(200, { ok: true, added });
       } catch (e) { finish(500, { ok: false, error: String(e && e.message || e) }); }
       return;
     }
