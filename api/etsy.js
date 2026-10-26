@@ -1,4 +1,6 @@
-// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images)  ·  v0.53
+// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images)  ·  v0.54
+// v0.54 (2026-10-26): Replace images — Start here / Done sub-tabs. New ri-done-remove action un-marks a listing as done
+//   (removes it from data/etsy-images-done.json) so "Move back to Start here" returns it to the to-do list.
 // v0.53 (2026-10-26): Replace images — "Etsy + Shopify" option. ri-apply takes target ('etsy'|'both'); 'both' pushes the
 //   SAME image set, in the SAME order, to the matched Shopify product (pushImagesToShopify: create new media first, then
 //   delete the old — product never left imageless). uploadImageToShopify (staged upload, copied from keywords.js) handles
@@ -1380,6 +1382,18 @@ module.exports = async (req, res) => {
       // mark this listing as processed (for the per-section progress counter + the "done" badge)
       try { const dn = await readDone(); const ids = dn.ids.map(String); if (ids.indexOf(String(b.listing_id)) < 0) { ids.unshift(String(b.listing_id)); await ghPut(RI_DONE_PATH, JSON.stringify({ ids }, null, 2), dn.sha, 'ri done ' + b.listing_id); } } catch (e) {}
       finish(200, { ok: true, result: r, shopify });
+      return;
+    }
+    // Replace images — "Move back to Start here": un-mark a listing as done (remove it from the done list).
+    if (q.action === 'ri-done-remove' && req.method === 'POST') {
+      const b = req.body || {};
+      if (!b.listing_id) { finish(400, { ok: false, error: 'Missing listing_id' }); return; }
+      try {
+        const dn = await readDone();
+        const ids = dn.ids.map(String).filter(x => x !== String(b.listing_id));
+        await ghPut(RI_DONE_PATH, JSON.stringify({ ids }, null, 2), dn.sha, 'ri undone ' + b.listing_id);
+        finish(200, { ok: true });
+      } catch (e) { finish(500, { ok: false, error: String(e && e.message || e) }); }
       return;
     }
 
