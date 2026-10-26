@@ -12,6 +12,8 @@
   h1{ font-size:22px; font-weight:600; margin:0 0 2px; }
   .ver{ color:var(--muted); font-size:12px; margin:0 0 20px; }
   .card{ background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px 20px; margin:0 0 16px; }
+  /* Replace-images listing cards: thick, dark border + spacing so each card is clearly separated (no visual blur). */
+  #riListings > .card{ border:2px solid #3a3a3a; margin-bottom:18px; box-shadow:0 1px 4px rgba(0,0,0,.12); }
   .card h2{ font-size:16px; font-weight:600; margin:0 0 10px; }
   .card h3{ font-size:14px; font-weight:600; margin:16px 0 6px; }
   .sub{ color:var(--muted); font-size:14px; margin:0 0 12px; }
@@ -62,7 +64,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">AWA ETSY · v0.53</p>
+  <p class="ver">AWA ETSY · v0.54</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -78,7 +80,7 @@
     <button id="tabSent" class="ghost" onclick="switchTab('sent')">Sent items <span id="sentCount"></span></button>
     <button id="tabImages" class="ghost" onclick="switchTab('images')">Replace images</button>
     <button id="tabComply" class="ghost" onclick="switchTab('comply')">Compliance photo</button>
-    <button id="tabClean" class="ghost" onclick="switchTab('clean')">Clean listings</button>
+    <button id="tabClean" class="ghost" onclick="switchTab('clean')">Edit Descriptions</button>
   </div>
 
   <div id="newProductTab">
@@ -200,14 +202,38 @@
 
   <div id="cleanTab" class="hide">
     <div class="card">
-      <h2>Clean listings (remove off-platform text)</h2>
-      <p class="sub">Etsy removes listings that point buyers off-platform. This strips everything below the "FREE UK POSTAGE" line (social links, bit.ly, email, the ★★ promos) from your existing listings. Scan first to preview — nothing is changed until you click Apply, and every original description is backed up to GitHub.</p>
-      <div class="reminder">⚠️ This edits your LIVE Etsy listings. Always Scan and review the preview before Apply.</div>
-      <div class="row" style="margin-top:12px"><button id="scanBtn" onclick="scanClean()">Scan listings</button><span id="cleanMsg" class="fixed"></span></div>
-      <div id="cleanPreview" class="hide">
-        <div id="cleanSummary" class="msg" style="margin-top:12px"></div>
-        <div id="cleanSamples" style="margin-top:8px"></div>
-        <div class="row" style="margin-top:12px"><button id="applyBtn" onclick="applyClean()">Apply to all that change</button><span id="applyMsg" class="fixed"></span></div>
+      <h2>Edit Descriptions</h2>
+      <p class="sub">Find/replace text in your Etsy descriptions, or rewrite them with AI by giving an instruction. Preview first, then Apply — every original is backed up. <b>Edits LIVE Etsy listings.</b></p>
+
+      <label class="fixed" style="font-weight:600">How to edit</label>
+      <div class="row" style="gap:16px;margin:4px 0 8px">
+        <label style="display:flex;gap:5px;align-items:center;cursor:pointer"><input type="radio" name="edmode" value="find" checked onchange="edMode()"> Find / replace</label>
+        <label style="display:flex;gap:5px;align-items:center;cursor:pointer"><input type="radio" name="edmode" value="ai" onchange="edMode()"> Rewrite with AI</label>
+      </div>
+      <div id="edFind">
+        <label class="fixed">Find this text (exact)</label><input id="edFindTxt" type="text" placeholder="text to find">
+        <label class="fixed" style="margin-top:6px;display:block">Replace with</label><input id="edReplaceTxt" type="text" placeholder="replacement — leave empty to delete the found text">
+      </div>
+      <div id="edAi" class="hide">
+        <p class="fixed" style="color:#c33;font-weight:600">⚠ AI rewrite uses Claude tokens (costs money) — one call per description. Best on SKUs or one section, not on "All", unless you really mean it.</p>
+        <label class="fixed">Instruction for the AI</label><textarea id="edInstr" rows="3" placeholder="e.g. Remove any mention of social media and shorten the intro"></textarea>
+      </div>
+
+      <label class="fixed" style="font-weight:600;margin-top:12px;display:block">Apply to</label>
+      <div class="row" style="gap:16px;margin:4px 0">
+        <label style="display:flex;gap:5px;align-items:center;cursor:pointer"><input type="radio" name="edscope" value="all" checked onchange="edScope()"> All (active + draft)</label>
+        <label style="display:flex;gap:5px;align-items:center;cursor:pointer"><input type="radio" name="edscope" value="skus" onchange="edScope()"> These SKUs</label>
+        <label style="display:flex;gap:5px;align-items:center;cursor:pointer"><input type="radio" name="edscope" value="section" onchange="edScope()"> By section</label>
+      </div>
+      <p id="edAllWarn" class="fixed" style="color:#c33;font-weight:600">⚠ "All" edits hundreds of live listings — always Scan and review the preview before Apply.</p>
+      <div id="edSkus" class="hide"><textarea id="edSkusTxt" rows="3" placeholder="Paste SKUs, separated by commas or new lines"></textarea></div>
+      <div id="edSection" class="hide"><select id="edSectionSel"></select></div>
+
+      <div class="row" style="margin-top:12px;gap:8px"><button id="edScanBtn" onclick="edScan()">Scan</button><span id="edScanMsg" class="fixed"></span></div>
+      <div id="edPreview" class="hide">
+        <div id="edSamples" style="margin-top:10px"></div>
+        <div class="row" style="margin-top:10px;gap:8px;align-items:center"><button id="edApplyBtn" onclick="edApplyStart()">Apply to all in scope</button><button id="edStopBtn" class="ghost" onclick="edStop()" disabled>Stop</button><span id="edApplyMsg" class="fixed"></span></div>
+        <div id="edBar" style="height:14px;background:#eee;border-radius:7px;margin:10px 0;overflow:hidden;display:none"><div id="edBarFill" style="height:100%;width:0;background:#185FA5;transition:width .2s"></div></div>
       </div>
     </div>
   </div>
@@ -233,6 +259,8 @@
       <h3>Listings by Etsy section</h3>
       <p class="sub">Pick a section, then edit each listing: drop images you don't want, add Shopify photos or upload new ones, reorder, pick the video, and Save. The common set is added at the end automatically. Max 20 images. <b>Editing changes a LIVE Etsy listing</b> — its old images are backed up first.</p>
       <div id="riSections" class="row" style="gap:6px;flex-wrap:wrap;margin:10px 0"></div>
+      <div class="row" style="gap:8px;margin:4px 0 6px"><button type="button" class="ghost" onclick="riSkusToDo()">SKUs to do (all sections)</button></div>
+      <div id="riSkusBox" style="margin-bottom:10px"></div>
       <div id="riListings"></div>
     </div>
   </div>
@@ -1010,6 +1038,7 @@
     if (which === 'sent') loadSent();
     if (which === 'images') riInit();
     if (which === 'comply') complyInit();
+    if (which === 'clean'){ edMode(); edScope(); }
   }
   async function loadSent(){
     try{ var r = await fetch('/api/etsy?action=tab1-sent-list&t=' + Date.now()); var j = await r.json(); if (j.ok){ SENT = j.items || []; renderSent(); } }catch(e){}
@@ -1462,6 +1491,79 @@
       else { if (msg) msg.innerHTML = '<span style="color:#c33">⚠ ' + esc(j.error || 'failed') + '</span>'; }
     }catch(e){ if (msg) msg.innerHTML = '<span style="color:#c33">⚠ ' + esc(e.message) + '</span>'; }
   }
+
+  /* ---------- Edit Descriptions ---------- */
+  var ED_RUN = false, ED_TOTAL = 0, ED_DONE = 0;
+  function edMode(){ var m = (document.querySelector('input[name=edmode]:checked') || {}).value || 'find'; show('edFind', m === 'find'); show('edAi', m === 'ai'); }
+  function edScope(){ var s = (document.querySelector('input[name=edscope]:checked') || {}).value || 'all'; show('edSkus', s === 'skus'); show('edSection', s === 'section'); show('edAllWarn', s === 'all'); if (s === 'section') edLoadSections(); }
+  async function edLoadSections(){ var sel = $('edSectionSel'); if (!sel || sel.options.length) return; try{ var r = await fetch('/api/etsy?action=ri-sections&t=' + Date.now()); var j = await r.json(); if (j.ok){ sel.innerHTML = (j.sections || []).map(function(s){ return '<option value="' + esc(s.id) + '">' + esc(s.title) + ' (' + (s.count || 0) + ')</option>'; }).join(''); } }catch(e){} }
+  function edParams(){
+    return { mode: (document.querySelector('input[name=edmode]:checked') || {}).value || 'find',
+      scope: (document.querySelector('input[name=edscope]:checked') || {}).value || 'all',
+      section: ($('edSectionSel') || {}).value || '',
+      skus: (($('edSkusTxt') || {}).value || '').split(/[\n,]+/).map(function(x){ return x.trim(); }).filter(Boolean),
+      find: ($('edFindTxt') || {}).value || '', replace: ($('edReplaceTxt') || {}).value || '', instruction: ($('edInstr') || {}).value || '' };
+  }
+  async function edScan(){
+    var p = edParams(); var msg = $('edScanMsg');
+    if (p.scope === 'skus' && !p.skus.length){ msg.innerHTML = '<span style="color:#c33">Paste at least one SKU.</span>'; return; }
+    if (p.mode === 'find' && !p.find){ msg.innerHTML = '<span style="color:#c33">Enter the text to find.</span>'; return; }
+    if (p.mode === 'ai' && !p.instruction){ msg.innerHTML = '<span style="color:#c33">Enter an instruction for the AI.</span>'; return; }
+    msg.textContent = 'Scanning scope…'; $('edScanBtn').disabled = true; show('edPreview', false);
+    try{ var r = await fetch('/api/etsy?action=ed-plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scope: p.scope, section: p.section, skus: p.skus }) }); var j = await r.json();
+      if (!j.ok){ msg.innerHTML = '<span style="color:#c33">⚠ ' + esc(j.error || 'failed') + '</span>'; $('edScanBtn').disabled = false; return; }
+      ED_TOTAL = j.total; ED_DONE = 0;
+      if (!j.total){ msg.innerHTML = 'Nothing matched that scope.'; $('edScanBtn').disabled = false; return; }
+      msg.innerHTML = '<b>' + j.total + '</b> listings in scope. Preview below (first few):';
+      await edShowPreview(p, j.preview || []);
+      $('edBar').style.display = 'none'; $('edApplyBtn').disabled = false; $('edStopBtn').disabled = true; $('edApplyMsg').textContent = '';
+      show('edPreview', true);
+    }catch(e){ msg.innerHTML = '<span style="color:#c33">⚠ ' + esc(e.message) + '</span>'; }
+    $('edScanBtn').disabled = false;
+  }
+  async function edShowPreview(p, rows){
+    var box = $('edSamples'); box.innerHTML = '<p class="sub">Computing preview…</p>';
+    var samples = [];
+    if (p.mode === 'find'){
+      samples = rows.map(function(rw){ var before = rw.desc || ''; var after = p.find ? before.split(p.find).join(p.replace) : before; return { sku: rw.sku, title: rw.title, before: before, after: after, changed: after !== before }; });
+    } else {
+      try{ var r = await fetch('/api/etsy?action=ed-batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'ai', instruction: p.instruction, apply: false, size: 4 }) }); var j = await r.json(); samples = (j.ok && j.samples) || []; }catch(e){}
+    }
+    box.innerHTML = samples.length ? samples.slice(0, 6).map(function(s){
+      return '<div class="card" style="padding:8px 10px;margin:0 0 8px"><div class="fixed"><b>' + esc(s.sku || s.title || '') + '</b> ' + (s.changed ? '<span style="color:#1a8a4a">changed</span>' : '<span style="color:#888">no change</span>') + '</div>' +
+        '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px"><div style="flex:1;min-width:220px"><div class="fixed">Before</div><div style="white-space:pre-wrap;font-size:12px;background:#f7f6f2;border-radius:6px;padding:6px;max-height:150px;overflow:auto">' + esc((s.before || '').slice(0, 700)) + '</div></div>' +
+        '<div style="flex:1;min-width:220px"><div class="fixed">After</div><div style="white-space:pre-wrap;font-size:12px;background:#eef6f0;border-radius:6px;padding:6px;max-height:150px;overflow:auto">' + esc((s.after || '').slice(0, 700)) + '</div></div></div></div>';
+    }).join('') : '<p class="fixed">No preview rows.</p>';
+  }
+  async function edApplyStart(){
+    if (ED_RUN) return; var p = edParams(); var msg = $('edApplyMsg');
+    ED_RUN = true; $('edApplyBtn').disabled = true; $('edStopBtn').disabled = false; $('edScanBtn').disabled = true; $('edBar').style.display = 'block';
+    while (ED_RUN){
+      var j;
+      try{ var r = await fetch('/api/etsy?action=ed-batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: p.mode, find: p.find, replace: p.replace, instruction: p.instruction, apply: true, size: 5 }) }); j = await r.json(); }
+      catch(e){ msg.innerHTML = '<span style="color:#c33">⚠ ' + esc(e.message) + ' — stopped. Apply again to resume.</span>'; break; }
+      if (!j.ok){ msg.innerHTML = '<span style="color:#c33">⚠ ' + esc(j.error || 'failed') + '</span>'; break; }
+      ED_TOTAL = j.total; ED_DONE = j.complied || ED_DONE; $('edBarFill').style.width = (ED_TOTAL ? Math.round(ED_DONE / ED_TOTAL * 100) : 0) + '%';
+      if (j.done){ ED_RUN = false; msg.innerHTML = '✓ Finished — ' + ED_TOTAL + ' listings processed.'; break; }
+      msg.innerHTML = ED_DONE + ' / ' + ED_TOTAL + ' done…';
+    }
+    $('edStopBtn').disabled = true; $('edScanBtn').disabled = false; $('edApplyBtn').disabled = (ED_TOTAL > 0 && ED_DONE >= ED_TOTAL); ED_RUN = false;
+  }
+  function edStop(){ ED_RUN = false; $('edApplyMsg').innerHTML = '⏸ Stopped at ' + ED_DONE + ' / ' + ED_TOTAL + '. Apply again to resume.'; $('edStopBtn').disabled = true; $('edApplyBtn').disabled = false; $('edScanBtn').disabled = false; }
+
+  /* ---------- SKUs to do: pending SKUs across all sections, grouped by section ---------- */
+  async function riSkusToDo(){
+    var box = $('riSkusBox'); box.innerHTML = '<p class="sub">Gathering pending SKUs across all sections…</p>';
+    try{ var r = await fetch('/api/etsy?action=ri-skus-todo&t=' + Date.now()); var j = await r.json();
+      if (!j.ok){ box.innerHTML = '<p class="fixed" style="color:#c33">⚠ ' + esc(j.error || 'error') + '</p>'; return; }
+      if (!j.total){ box.innerHTML = '<p class="sub">Nothing pending — all done. 🎉</p>'; return; }
+      var txt = (j.groups || []).map(function(g){ return g.title + ' (' + g.skus.length + ')\n' + g.skus.join(', '); }).join('\n\n');
+      box.innerHTML = '<p class="sub"><b>' + j.total + '</b> SKUs still to do, grouped by section:</p>' +
+        '<textarea readonly style="width:100%;height:220px;font-family:monospace;font-size:12px" onclick="this.select()">' + esc(txt) + '</textarea>' +
+        '<div class="row" style="margin-top:6px"><button type="button" onclick="riCopySkus(this)">Copy</button></div>';
+    }catch(e){ box.innerHTML = '<p class="fixed" style="color:#c33">⚠ ' + esc(e.message) + '</p>'; }
+  }
+  function riCopySkus(btn){ var ta = $('riSkusBox').querySelector('textarea'); if (!ta) return; ta.select(); try{ document.execCommand('copy'); btn.textContent = 'Copied ✓'; setTimeout(function(){ btn.textContent = 'Copy'; }, 1500); }catch(e){} }
 
   /* ---------- Compliance photo: bulk-add common #2 to every active + draft listing ---------- */
   var COMPLY_RUN = false, COMPLY_TOTAL = 0, COMPLY_DONE = 0;
