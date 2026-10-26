@@ -1,4 +1,7 @@
-// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images)  ·  v0.50
+// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images)  ·  v0.51
+// v0.51 (2026-10-26): Replace images — FIX the "matched in the list but no match inside" bug: ri-listings used the BASE
+//   SKU but ri-detail used the VARIANT SKU. Now BOTH reduce to the base (baseSkuEtsy), and loadShopifyMedia falls back
+//   to the base if the exact SKU doesn't match. Same value matched in both places.
 // v0.50 (2026-10-26): Replace images — FIX match (loadShopifyMedia dropped the media/video field that broke the whole
 //   Shopify search on 2025-01, so nothing matched). Video removed from the feature. ri-listings now flags each listing
 //   matched (vs allShopifySkus set) + done (data/etsy-images-done.json) and returns total/done; ri-apply marks done.
@@ -586,12 +589,20 @@ async function loadThumb(sku) {
 // Replace images: Shopify product media (all images + the product video) for one SKU. Exact match on sku_for_print_files;
 // when there is no exact match, return the closest candidates (with a thumbnail) so Mae can pick one by hand.
 async function loadShopifyMedia(sku) {
-  // Same proven query as loadProduct (NO media/video — the media field broke the whole search on this API version,
-  // so nothing matched). Video was dropped from Replace images; if needed later it gets its own tab.
+  // Same proven query as loadProduct (NO media/video — the media field broke the whole search on this API version).
   const gq = 'query($q:String!){ products(first:25, query:$q){ nodes{ title handle images(first:50){nodes{url}} skuMf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } }';
-  const d = await shopGQL(gq, { q: 'metafield:custom.sku_for_print_files:' + sku });
-  const nodes = d.products.nodes || [];
-  const n = nodes.find(x => eqSku(x.skuMf && x.skuMf.value, sku));
+  async function tryOne(s) {
+    if (!s) return { nodes: [], n: null };
+    const d = await shopGQL(gq, { q: 'metafield:custom.sku_for_print_files:' + s });
+    const nodes = d.products.nodes || [];
+    return { nodes, n: nodes.find(x => eqSku(x.skuMf && x.skuMf.value, s)) };
+  }
+  const want = String(sku || '').trim();
+  let { nodes, n } = await tryOne(want);
+  if (!n) {
+    const base = baseSkuEtsy(want);  // fallback: strip any Etsy variant suffix ("...- A4B SATIN") and match the base
+    if (base && base.toLowerCase() !== want.toLowerCase()) { const r2 = await tryOne(base); if (r2.n) { n = r2.n; nodes = r2.nodes; } else if (!nodes.length) nodes = r2.nodes; }
+  }
   if (!n) {
     const similar = nodes.slice(0, 8).map(x => ({ sku: (x.skuMf && x.skuMf.value) || '', title: x.title, image: (x.images.nodes[0] || {}).url || '' }));
     return { noMatch: true, similar };
@@ -1254,7 +1265,7 @@ module.exports = async (req, res) => {
         results.forEach(l => {
           if (sectionId && String(l.shop_section_id) !== sectionId) return;
           const im = (l.images && l.images[0]) || {};
-          const sku = ([].concat(l.skus || [], ((l.inventory && l.inventory.products) || []).map(p => p.sku))).filter(Boolean)[0] || '';
+          const sku = baseSkuEtsy(([].concat(l.skus || [], ((l.inventory && l.inventory.products) || []).map(p => p.sku))).filter(Boolean)[0] || '');
           rows.push({ listing_id: l.listing_id, title: l.title, sku: sku, image: im.url_570xN || im.url_fullxfull || im.url_300x300 || '' });
         });
         if (results.length < 100) break;
@@ -1275,7 +1286,7 @@ module.exports = async (req, res) => {
       let etsyVideo = null;
       try { const vr = await call('/listings/' + id + '/videos'); const vids = (vr.json && (vr.json.results || vr.json.videos)) || []; if (vids[0]) etsyVideo = { video_id: vids[0].video_id, url: vids[0].video_url || '' }; } catch (e) {}
       let sku = '';
-      try { const l = await call('/listings/' + id + '?includes=Inventory'); const lj = l.json || {}; sku = ([].concat(lj.skus || [], ((lj.inventory && lj.inventory.products) || []).map(p => p.sku))).filter(Boolean)[0] || ''; } catch (e) {}
+      try { const l = await call('/listings/' + id + '?includes=Inventory'); const lj = l.json || {}; sku = baseSkuEtsy(([].concat(lj.skus || [], ((lj.inventory && lj.inventory.products) || []).map(p => p.sku))).filter(Boolean)[0] || ''); } catch (e) {}
       let shopify = { noMatch: true, similar: [] };
       if (sku) { try { shopify = await loadShopifyMedia(sku); } catch (e) { shopify = { noMatch: true, similar: [], error: String(e && e.message || e) }; } }
       finish(200, { ok: true, listing_id: id, sku, etsyImages, etsyVideo, shopify });
