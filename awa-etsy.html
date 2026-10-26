@@ -62,7 +62,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">AWA ETSY · v0.43</p>
+  <p class="ver">AWA ETSY · v0.45</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -1207,25 +1207,44 @@
       if (j.ok){ RI_SECTIONS = j.sections || []; renderSections(); } else { $('riSections').innerHTML = '<span class="fixed">' + esc(j.error || 'error') + '</span>'; }
     }catch(e){ $('riSections').innerHTML = '<span class="fixed">' + e.message + '</span>'; }
   }
+  var RI_LISTINGS = [], RI_FILTER = 'all';
   function renderSections(){
-    $('riSections').innerHTML = RI_SECTIONS.map(function(s){
-      return '<button type="button" class="' + (RI_SEL_SECTION === String(s.id) ? '' : 'ghost') + '" onclick="riPickSection(\'' + esc(s.id) + '\')">' + esc(s.title) + ' (' + (s.count || 0) + ')</button>';
-    }).join('') || '<span class="fixed">No sections.</span>';
+    var opts = '<option value="">— pick a section —</option>' + RI_SECTIONS.map(function(s){
+      return '<option value="' + esc(s.id) + '"' + (RI_SEL_SECTION === String(s.id) ? ' selected' : '') + '>' + esc(s.title) + ' (' + (s.count || 0) + ')</option>';
+    }).join('');
+    $('riSections').innerHTML =
+      '<select onchange="riPickSection(this.value)" style="padding:6px 8px;min-width:300px">' + opts + '</select> <span class="fixed" id="riProgress"></span>' +
+      '<div class="row" id="riFilters" style="gap:6px;margin-top:8px;display:none">' +
+        '<button type="button" id="rifall" onclick="riSetFilter(\'all\')">All</button>' +
+        '<button type="button" id="rifnomatch" class="ghost" onclick="riSetFilter(\'nomatch\')">No match</button>' +
+        '<button type="button" id="rifpending" class="ghost" onclick="riSetFilter(\'pending\')">Pending</button>' +
+      '</div>';
   }
+  function riProgress(){ var done = RI_LISTINGS.filter(function(x){ return x.done; }).length; var p = $('riProgress'); if (p) p.innerHTML = '<b>' + done + '</b> / ' + RI_LISTINGS.length + ' done'; }
   async function riPickSection(id){
-    RI_SEL_SECTION = String(id); renderSections();
-    $('riListings').innerHTML = '<p class="sub">Loading listings…</p>';
+    RI_SEL_SECTION = String(id || '');
+    if (!RI_SEL_SECTION){ $('riListings').innerHTML = ''; if ($('riProgress')) $('riProgress').textContent = ''; if ($('riFilters')) $('riFilters').style.display = 'none'; return; }
+    $('riListings').innerHTML = '<p class="sub">Loading listings… (checking Shopify matches)</p>'; if ($('riProgress')) $('riProgress').textContent = '';
     try{ var r = await fetch('/api/etsy?action=ri-listings&section=' + encodeURIComponent(id) + '&t=' + Date.now()); var j = await r.json();
       if (!j.ok){ $('riListings').innerHTML = '<p class="fixed">' + esc(j.error || 'error') + '</p>'; return; }
-      var rows = j.listings || [];
-      $('riListings').innerHTML = rows.length ? rows.map(function(l){
-        return '<div class="card" style="padding:10px"><div class="row" style="gap:10px;align-items:center">' +
-          (l.image ? '<img src="' + esc(l.image) + '" style="width:60px;height:48px;object-fit:cover;border-radius:6px;border:1px solid var(--line)">' : '') +
-          '<div style="flex:1;min-width:160px"><b>' + esc(l.title || '') + '</b><div class="fixed">' + esc(l.sku || '(no sku)') + '</div></div>' +
-          '<button type="button" onclick="riEditListing(\'' + esc(l.listing_id) + '\',\'' + esc(l.sku || '') + '\')">Edit images</button>' +
-          '</div><div class="riedit" id="riedit-' + esc(l.listing_id) + '"></div></div>';
-      }).join('') : '<p class="sub">No active listings in this section.</p>';
+      RI_LISTINGS = j.listings || []; riProgress();
+      if ($('riFilters')) $('riFilters').style.display = RI_LISTINGS.length ? 'flex' : 'none';
+      renderListings();
     }catch(e){ $('riListings').innerHTML = '<p class="fixed">' + e.message + '</p>'; }
+  }
+  function riSetFilter(f){ RI_FILTER = f; ['all','nomatch','pending'].forEach(function(x){ var b = $('rif' + x); if (b) b.className = (x === f ? '' : 'ghost'); }); renderListings(); }
+  function renderListings(){
+    var list = RI_LISTINGS.filter(function(l){ if (RI_FILTER === 'nomatch') return !l.matched; if (RI_FILTER === 'pending') return !l.done; return true; });
+    if (!list.length){ $('riListings').innerHTML = '<p class="sub">Nothing here with this filter.</p>'; return; }
+    $('riListings').innerHTML = list.map(function(l){
+      var badge = l.matched ? '<span style="color:#1a8a4a">✓ matched</span>' : '<span style="color:#c33">⚠ no match</span>';
+      var done = l.done ? ' <span style="background:#185FA5;color:#fff;padding:1px 8px;border-radius:10px;font-size:11px">done</span>' : '';
+      return '<div class="card" style="padding:10px"><div class="row" style="gap:10px;align-items:center">' +
+        (l.image ? '<img src="' + esc(l.image) + '" style="width:60px;height:48px;object-fit:cover;border-radius:6px;border:1px solid var(--line)">' : '') +
+        '<div style="flex:1;min-width:160px"><b>' + esc(l.title || '') + '</b><div class="fixed">' + esc(l.sku || '(no sku)') + ' · ' + badge + done + '</div></div>' +
+        '<button type="button" onclick="riEditListing(\'' + esc(l.listing_id) + '\',\'' + esc(l.sku || '') + '\')">Edit images</button>' +
+        '</div><div class="riedit" id="riedit-' + esc(l.listing_id) + '"></div></div>';
+    }).join('');
   }
   async function riEditListing(id, sku){
     var box = $('riedit-' + id); if (!box) return;
@@ -1259,14 +1278,10 @@
         return '<div style="width:80px;text-align:center;cursor:pointer" onclick="riUseSimilar(\'' + id + '\',\'' + esc(s.sku) + '\')">' + (s.image ? '<img src="' + esc(s.image) + '" style="width:80px;height:80px;object-fit:cover;border-radius:6px;border:1px solid var(--line)">' : '') + '<div class="fixed" style="font-size:9px">' + esc(s.sku) + '</div></div>';
       }).join('') || '<span class="fixed">none</span>') + '</div>';
     }
-    var shVid = sh.matched && sh.video, curVid = st.etsyVideo && st.etsyVideo.url;
-    var video = '<p class="sub" style="margin-top:8px">Video:</p>' +
-      '<label style="margin-right:12px"><input type="radio" name="rivid-' + id + '" ' + (st.video.action === 'keep' ? 'checked' : '') + ' onchange="riVideo(\'' + id + '\',\'keep\')"> Keep current' + (curVid ? '' : ' (none)') + '</label>' +
-      (shVid ? '<label style="margin-right:12px"><input type="radio" name="rivid-' + id + '" ' + (st.video.action === 'replace' ? 'checked' : '') + ' onchange="riVideo(\'' + id + '\',\'replace\')"> Use Shopify video</label>' : '') +
-      '<label><input type="radio" name="rivid-' + id + '" ' + (st.video.action === 'remove' ? 'checked' : '') + ' onchange="riVideo(\'' + id + '\',\'remove\')"> Remove</label>';
+    var manual = '<div class="row" style="gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap"><span class="fixed">Wrong SKU? Search Shopify by hand:</span><input id="rimansku-' + id + '" placeholder="Shopify SKU" value="' + esc(st.sku || '') + '" style="padding:4px 6px;min-width:160px"><button type="button" onclick="riManualSku(\'' + id + '\')">Search</button><span class="fixed" id="rimanmsg-' + id + '"></span></div>';
     box.innerHTML = '<div style="margin-top:8px">' +
       '<p class="sub"><b>' + st.gallery.length + '</b> + ' + commonN + ' common = <b style="color:' + (over ? '#c33' : 'inherit') + '">' + total + '/' + riCap() + '</b> images' + (over ? ' — over the limit, remove some' : '') + '</p>' +
-      gal + commonNote + picker + video +
+      gal + commonNote + picker + manual +
       '<div class="row" style="gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap"><input type="file" accept="image/*" multiple onchange="riUpload(\'' + id + '\',this)"><button type="button" ' + (over ? 'disabled' : '') + ' onclick="riSave(\'' + id + '\')">Save to Etsy</button><span class="fixed" id="rimsg-' + id + '"></span></div>' +
       '</div>';
     riWireGalleryDrag(id);
@@ -1274,6 +1289,14 @@
   function riRemove(id, i){ RI_EDIT[id].gallery.splice(i, 1); renderEditor(id); }
   function riAddShopify(id, u){ u = decodeURIComponent(u); var st = RI_EDIT[id]; if (st.gallery.some(function(g){ return g.src === u; })){ st.gallery = st.gallery.filter(function(g){ return g.src !== u; }); } else { if (st.gallery.length + RI_COMMON.length >= riCap()){ alert('At the 20-image limit.'); return; } st.gallery.push({ src: u, from: 'shopify' }); } renderEditor(id); }
   async function riUseSimilar(id, sku){ var st = RI_EDIT[id]; try{ var r = await fetch('/api/etsy?action=ri-shopify&sku=' + encodeURIComponent(sku) + '&t=' + Date.now()); var j = await r.json(); if (j.ok && j.shopify){ st.shopify = j.shopify; st.sku = sku; renderEditor(id); } }catch(e){} }
+  async function riManualSku(id){
+    var inp = $('rimansku-' + id); if (!inp) return; var v = (inp.value || '').trim(); if (!v) return;
+    var msg = $('rimanmsg-' + id); if (msg) msg.textContent = 'Searching…';
+    try{ var r = await fetch('/api/etsy?action=ri-shopify&sku=' + encodeURIComponent(v) + '&t=' + Date.now()); var j = await r.json();
+      if (j.ok && j.shopify){ var st = RI_EDIT[id]; st.shopify = j.shopify; st.sku = v; renderEditor(id); if (!j.shopify.matched && $('rimanmsg-' + id)) $('rimanmsg-' + id).textContent = 'No exact match for that SKU either.'; }
+      else if (msg) msg.textContent = '⚠ ' + (j.error || 'not found');
+    }catch(e){ if (msg) msg.textContent = '⚠ ' + e.message; }
+  }
   function riUpload(id, inp){
     var st = RI_EDIT[id]; var files = inp.files; if (!files || !files.length) return; var done = 0, total = files.length;
     Array.prototype.forEach.call(files, function(f){
@@ -1300,11 +1323,12 @@
     msg.textContent = 'Saving to Etsy…';
     var entries = st.gallery.map(function(g){ return g.base64 ? { dataBase64: g.base64 } : { url: g.src }; });
     RI_COMMON.forEach(function(c){ entries.push({ url: c.url }); });
-    var body = { listing_id: id, sku: st.sku || '', images: entries, video: st.video };
+    var body = { listing_id: id, sku: st.sku || '', images: entries };
     try{
       var r = await fetch('/api/etsy?action=ri-apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       var j = await r.json();
-      if (j.ok){ var p = (j.result && j.result.photos) || {}; msg.innerHTML = '✓ Done — ' + (p.uploaded || 0) + ' photos' + ((j.result && j.result.warning) ? (' <span style="color:#c33">' + esc(j.result.warning) + '</span>') : '') + ' <a href="https://www.etsy.com/your/shops/me/tools/listings/' + esc(id) + '" target="_blank">Open</a>'; }
+      if (j.ok){ var p = (j.result && j.result.photos) || {}; msg.innerHTML = '✓ Done — ' + (p.uploaded || 0) + ' photos' + ((j.result && j.result.warning) ? (' <span style="color:#c33">' + esc(j.result.warning) + '</span>') : '') + ' <a href="https://www.etsy.com/your/shops/me/tools/listings/' + esc(id) + '" target="_blank">Open</a>';
+        var it = RI_LISTINGS.find(function(x){ return String(x.listing_id) === String(id); }); if (it && !it.done){ it.done = true; riProgress(); } }
       else { msg.innerHTML = '⚠ ' + esc(j.error || 'failed'); }
     }catch(e){ msg.textContent = '⚠ ' + e.message; }
   }
