@@ -1,4 +1,7 @@
-// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images)  ·  v0.54
+// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images)  ·  v0.55
+// v0.55 (2026-10-26): Replace images — per-section progress. The done store now records each done listing's section
+//   ({ids, sections}); ri-sections returns done/total per section (for the dropdown's x/total + greying finished ones);
+//   ri-apply stores the section; ri-listings backfills the section for older done records; ri-done-remove clears it.
 // v0.54 (2026-10-26): Replace images — Start here / Done sub-tabs. New ri-done-remove action un-marks a listing as done
 //   (removes it from data/etsy-images-done.json) so "Move back to Start here" returns it to the to-do list.
 // v0.53 (2026-10-26): Replace images — "Etsy + Shopify" option. ri-apply takes target ('etsy'|'both'); 'both' pushes the
@@ -187,7 +190,7 @@ async function readVideoLog() { try { const f = await ghGet(VIDEO_LOG_PATH); if 
 async function readCommon() { try { const f = await ghGet(COMMON_PATH); if (f.content) { const j = JSON.parse(f.content); return { items: Array.isArray(j) ? j : (j.items || []), sha: f.sha }; } } catch (e) {} return { items: [], sha: null }; }
 function commonUrl(path) { return 'https://raw.githubusercontent.com/' + REPO + '/main/' + path; }
 function withCommonUrls(items) { return (items || []).map(it => Object.assign({}, it, { url: commonUrl(it.path) })); }
-async function readDone() { try { const f = await ghGet(RI_DONE_PATH); if (f.content) { const j = JSON.parse(f.content); return { ids: Array.isArray(j) ? j : (j.ids || []), sha: f.sha }; } } catch (e) {} return { ids: [], sha: null }; }
+async function readDone() { try { const f = await ghGet(RI_DONE_PATH); if (f.content) { const j = JSON.parse(f.content); return { ids: Array.isArray(j) ? j : (j.ids || []), sections: (j && j.sections) || {}, sha: f.sha }; } } catch (e) {} return { ids: [], sections: {}, sha: null }; }
 // Etsy variant SKUs look like "{BASE}- {size}{frame} {paper}" (the base can contain spaces, e.g. "CYANOTYPE BROWN").
 // The video filename gives the BASE, so group by the base code.
 function baseSkuEtsy(s) { return String(s || '').split(/\s*-\s/)[0].trim().toUpperCase(); }
@@ -1308,6 +1311,10 @@ module.exports = async (req, res) => {
     if (q.action === 'ri-sections') {
       const sec = await call('/shops/' + SHOP_ID + '/sections');
       const sections = ((sec.json && sec.json.results) || []).map(s => ({ id: s.shop_section_id, title: s.title, count: s.active_listing_count }));
+      // how many listings are done per section (from the done store's section map) — for the dropdown's x/total progress
+      let doneBySection = {};
+      try { const dn = await readDone(); Object.keys(dn.sections || {}).forEach(lid => { const sid = String(dn.sections[lid]); doneBySection[sid] = (doneBySection[sid] || 0) + 1; }); } catch (e) {}
+      sections.forEach(s => { s.done = doneBySection[String(s.id)] || 0; });
       finish(200, { ok: true, sections });
       return;
     }
@@ -1326,10 +1333,16 @@ module.exports = async (req, res) => {
         if (results.length < 100) break;
         offset += 100;
       }
-      let skuSet = new Set(), doneIds = new Set();
+      let skuSet = new Set(), dn = { ids: [], sections: {}, sha: null };
       try { skuSet = await allShopifySkus(); } catch (e) {}
-      try { doneIds = new Set((await readDone()).ids.map(String)); } catch (e) {}
+      try { dn = await readDone(); } catch (e) {}
+      const doneIds = new Set(dn.ids.map(String));
       rows.forEach(r => { r.matched = !!r.sku && skuSet.has(String(r.sku).trim().toLowerCase()); r.done = doneIds.has(String(r.listing_id)); });
+      // backfill: record the section for any done listing that doesn't have it yet (so the dropdown's x/total is right
+      // even for listings processed before sections were tracked)
+      try {
+        if (sectionId) { const sections = dn.sections || {}; let changed = false; rows.forEach(r => { if (r.done && sections[String(r.listing_id)] !== sectionId) { sections[String(r.listing_id)] = sectionId; changed = true; } }); if (changed) await ghPut(RI_DONE_PATH, JSON.stringify({ ids: dn.ids, sections }, null, 2), dn.sha, 'ri backfill sections'); }
+      } catch (e) {}
       finish(200, { ok: true, listings: rows, total: rows.length, done: rows.filter(r => r.done).length });
       return;
     }
@@ -1379,8 +1392,13 @@ module.exports = async (req, res) => {
         if (shopProd && shopProd.matched && shopProd.id) { try { shopify = await pushImagesToShopify(shopProd.id, entries); } catch (e) { shopify = { error: String(e && e.message || e) }; } }
         else { shopify = { error: 'No matched Shopify product for SKU ' + (b.sku || '') + (shopProd && shopProd.error ? (' — ' + shopProd.error) : '') }; }
       }
-      // mark this listing as processed (for the per-section progress counter + the "done" badge)
-      try { const dn = await readDone(); const ids = dn.ids.map(String); if (ids.indexOf(String(b.listing_id)) < 0) { ids.unshift(String(b.listing_id)); await ghPut(RI_DONE_PATH, JSON.stringify({ ids }, null, 2), dn.sha, 'ri done ' + b.listing_id); } } catch (e) {}
+      // mark this listing as processed (for the per-section progress counter + the "done" badge), with its section
+      try {
+        const dn = await readDone(); const ids = dn.ids.map(String); const sections = dn.sections || {}; let changed = false;
+        if (ids.indexOf(String(b.listing_id)) < 0) { ids.unshift(String(b.listing_id)); changed = true; }
+        if (b.section && sections[String(b.listing_id)] !== String(b.section)) { sections[String(b.listing_id)] = String(b.section); changed = true; }
+        if (changed) await ghPut(RI_DONE_PATH, JSON.stringify({ ids, sections }, null, 2), dn.sha, 'ri done ' + b.listing_id);
+      } catch (e) {}
       finish(200, { ok: true, result: r, shopify });
       return;
     }
@@ -1391,7 +1409,8 @@ module.exports = async (req, res) => {
       try {
         const dn = await readDone();
         const ids = dn.ids.map(String).filter(x => x !== String(b.listing_id));
-        await ghPut(RI_DONE_PATH, JSON.stringify({ ids }, null, 2), dn.sha, 'ri undone ' + b.listing_id);
+        const sections = dn.sections || {}; delete sections[String(b.listing_id)];
+        await ghPut(RI_DONE_PATH, JSON.stringify({ ids, sections }, null, 2), dn.sha, 'ri undone ' + b.listing_id);
         finish(200, { ok: true });
       } catch (e) { finish(500, { ok: false, error: String(e && e.message || e) }); }
       return;
