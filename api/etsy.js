@@ -1,4 +1,8 @@
-// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images)  ·  v0.55
+// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images + Compliance photo)  ·  v0.56
+// v0.56 (2026-10-26): Compliance photo tab — bulk-add common image #2 (a real, non-AI/non-mockup photo) to every active +
+//   draft listing, to meet Etsy's rule. ri-comply-plan builds the worklist (active+draft minus Replace-images done);
+//   ri-comply-batch processes N at a time (if a listing has 20 images, deletes the last one, backed up, then appends #2);
+//   ri-comply-status reports progress. Batched + resumable (complied listing_ids stored, skipped on re-run).
 // v0.55 (2026-10-26): Replace images — per-section progress. The done store now records each done listing's section
 //   ({ids, sections}); ri-sections returns done/total per section (for the dropdown's x/total + greying finished ones);
 //   ri-apply stores the section; ri-listings backfills the section for older done records; ri-done-remove clears it.
@@ -167,6 +171,12 @@ const COMMON_PATH = 'data/etsy-common-set.json';   // Replace images: the common
 const COMMON_DIR  = 'assets/etsy-common';          // where the common-set image files live in the repo (served via raw.githubusercontent)
 const RI_UNDO_PATH = 'data/etsy-images-undo.json';  // Replace images: before every apply we save the listing's old image URLs + video (for undo)
 const RI_DONE_PATH = 'data/etsy-images-done.json';  // Replace images: listing_ids already processed (saved), to show progress per section
+// Compliance photo: bulk-add common image #2 (a real, non-AI, non-mockup photo) to every active + draft listing, to meet
+// Etsy's rule. Runs in batches, resumable. QUEUE = the worklist of listing_ids; DONE = the ones already complied;
+// UNDO = backup of any "last image" we deleted to make room at the 20-image cap.
+const RI_COMPLY_QUEUE_PATH = 'data/etsy-compliance-queue.json';
+const RI_COMPLY_DONE_PATH  = 'data/etsy-compliance-done.json';
+const RI_COMPLY_UNDO_PATH  = 'data/etsy-compliance-undo.json';
 function ghHeaders() { return { 'Authorization': 'token ' + process.env.GITHUB_TOKEN, 'Accept': 'application/vnd.github+json', 'User-Agent': 'awa-etsy' }; }
 async function ghGet(path) {
   const r = await fetch('https://api.github.com/repos/' + REPO + '/contents/' + path + '?ref=main&t=' + Date.now(), { headers: ghHeaders() });
@@ -189,6 +199,16 @@ async function readVideoLog() { try { const f = await ghGet(VIDEO_LOG_PATH); if 
 // Replace images — common set stored in GitHub (shows on every computer). Each item: {fileName, path, ts}. Served from raw.githubusercontent.
 async function readCommon() { try { const f = await ghGet(COMMON_PATH); if (f.content) { const j = JSON.parse(f.content); return { items: Array.isArray(j) ? j : (j.items || []), sha: f.sha }; } } catch (e) {} return { items: [], sha: null }; }
 function commonUrl(path) { return 'https://raw.githubusercontent.com/' + REPO + '/main/' + path; }
+// Compliance photo = common set image #2 (index 1). Fetch its bytes from raw.githubusercontent for uploading to Etsy.
+async function complyImageBuf() {
+  const c = await readCommon(); const it = (c.items || [])[1];
+  if (!it || !it.path) throw new Error('Common image #2 is not set — upload it in Replace images first.');
+  const ir = await fetch(commonUrl(it.path));
+  if (!ir.ok) throw new Error('Could not fetch common image #2 (' + ir.status + ')');
+  return { buf: Buffer.from(await ir.arrayBuffer()), type: ir.headers.get('content-type') || 'image/jpeg', name: it.fileName || 'compliance.jpg' };
+}
+async function readComplyDone() { try { const f = await ghGet(RI_COMPLY_DONE_PATH); if (f.content) { const j = JSON.parse(f.content); return { ids: (j && j.ids) || [], sha: f.sha }; } } catch (e) {} return { ids: [], sha: null }; }
+async function readComplyQueue() { try { const f = await ghGet(RI_COMPLY_QUEUE_PATH); if (f.content) { const j = JSON.parse(f.content); return { ids: (j && j.ids) || [], builtAt: (j && j.builtAt) || null, sha: f.sha }; } } catch (e) {} return { ids: [], builtAt: null, sha: null }; }
 function withCommonUrls(items) { return (items || []).map(it => Object.assign({}, it, { url: commonUrl(it.path) })); }
 async function readDone() { try { const f = await ghGet(RI_DONE_PATH); if (f.content) { const j = JSON.parse(f.content); return { ids: Array.isArray(j) ? j : (j.ids || []), sections: (j && j.sections) || {}, sha: f.sha }; } } catch (e) {} return { ids: [], sections: {}, sha: null }; }
 // Etsy variant SKUs look like "{BASE}- {size}{frame} {paper}" (the base can contain spaces, e.g. "CYANOTYPE BROWN").
@@ -1412,6 +1432,81 @@ module.exports = async (req, res) => {
         const sections = dn.sections || {}; delete sections[String(b.listing_id)];
         await ghPut(RI_DONE_PATH, JSON.stringify({ ids, sections }, null, 2), dn.sha, 'ri undone ' + b.listing_id);
         finish(200, { ok: true });
+      } catch (e) { finish(500, { ok: false, error: String(e && e.message || e) }); }
+      return;
+    }
+
+    // ---- Compliance photo: bulk-add common image #2 to every active + draft listing (batched, resumable) ----
+    // Build the worklist: all active + draft listing_ids, minus the ones already finished in Replace images.
+    if (q.action === 'ri-comply-plan' && req.method === 'POST') {
+      try {
+        const ids = [];
+        for (const state of ['active', 'draft']) {
+          let offset = 0;
+          for (let page = 0; page < 60; page++) {
+            const lr = await call('/shops/' + SHOP_ID + '/listings?state=' + state + '&limit=100&offset=' + offset);
+            const results = (lr.json && lr.json.results) || [];
+            results.forEach(l => ids.push(String(l.listing_id)));
+            if (results.length < 100) break;
+            offset += 100;
+          }
+        }
+        const doneSet = new Set((await readDone()).ids.map(String));   // skip the Replace-images "done" ones (avoid dupes)
+        const queue = ids.filter(id => !doneSet.has(id));
+        const q0 = await readComplyQueue();
+        await ghPut(RI_COMPLY_QUEUE_PATH, JSON.stringify({ ids: queue, builtAt: Date.now() }, null, 2), q0.sha, 'compliance queue (' + queue.length + ')');
+        const complied = new Set((await readComplyDone()).ids.map(String));
+        const done = queue.filter(id => complied.has(id)).length;
+        finish(200, { ok: true, total: queue.length, complied: done, remaining: queue.length - done });
+      } catch (e) { finish(500, { ok: false, error: String(e && e.message || e) }); }
+      return;
+    }
+    // Progress without rebuilding the queue (for showing state when the tab opens).
+    if (q.action === 'ri-comply-status') {
+      try {
+        const queue = (await readComplyQueue()).ids.map(String);
+        const complied = new Set((await readComplyDone()).ids.map(String));
+        const done = queue.filter(id => complied.has(id)).length;
+        finish(200, { ok: true, total: queue.length, complied: done, remaining: queue.length - done, hasQueue: queue.length > 0 });
+      } catch (e) { finish(500, { ok: false, error: String(e && e.message || e) }); }
+      return;
+    }
+    // Process the next N listings from the queue: add common #2 at the end. If the listing has 20 images, delete the last
+    // one first (its URL is backed up to the undo file). Already-complied listings are skipped, so it is safe to resume.
+    if (q.action === 'ri-comply-batch' && req.method === 'POST') {
+      const b = req.body || {};
+      const size = Math.max(1, Math.min(10, parseInt(b.size, 10) || 5));
+      try {
+        const queue = (await readComplyQueue()).ids.map(String);
+        if (!queue.length) { finish(400, { ok: false, error: 'No queue yet — click Plan first.' }); return; }
+        const complied = (await readComplyDone()).ids.map(String);
+        const compliedSet = new Set(complied);
+        const targets = queue.filter(id => !compliedSet.has(id)).slice(0, size);
+        if (!targets.length) { finish(200, { ok: true, processed: 0, uploaded: 0, complied: complied.length, total: queue.length, done: true }); return; }
+        const img = await complyImageBuf();
+        const undo = await ghGet(RI_COMPLY_UNDO_PATH); const undoArr = undo.content ? (JSON.parse(undo.content).items || []) : [];
+        let okCount = 0; const errors = [];
+        for (const id of targets) {
+          try {
+            const imr = await call('/listings/' + id + '/images');
+            const imgs = ((imr.json && imr.json.results) || []);
+            let wasDeleted = false;
+            if (imgs.length >= 20) {
+              const last = imgs.slice().sort((a, c) => (c.rank || 0) - (a.rank || 0))[0];   // highest rank = last position
+              if (last && last.listing_image_id) { undoArr.unshift({ listing_id: id, deletedUrl: last.url_fullxfull || '', ts: Date.now() }); await call('/shops/' + SHOP_ID + '/listings/' + id + '/images/' + last.listing_image_id, { method: 'DELETE' }); wasDeleted = true; }
+            }
+            const rank = Math.min(20, (imgs.length - (wasDeleted ? 1 : 0)) + 1);   // append at the end
+            const fd = new FormData();
+            fd.append('image', new Blob([img.buf], { type: img.type }), img.name);
+            fd.append('rank', String(rank));
+            const r = await call('/shops/' + SHOP_ID + '/listings/' + id + '/images', { method: 'POST', body: fd });
+            if (r.status < 300) { okCount++; complied.push(id); } else { errors.push(id + ': etsy ' + r.status); }
+          } catch (e) { errors.push(id + ': ' + String(e && e.message || e)); }
+        }
+        try { const cd2 = await readComplyDone(); await ghPut(RI_COMPLY_DONE_PATH, JSON.stringify({ ids: complied }, null, 2), cd2.sha, 'compliance +' + okCount); } catch (e) {}
+        if (undoArr.length) { try { const u2 = await ghGet(RI_COMPLY_UNDO_PATH); await ghPut(RI_COMPLY_UNDO_PATH, JSON.stringify({ items: undoArr.slice(0, 2000) }, null, 2), u2.sha, 'compliance undo'); } catch (e) {} }
+        const compliedNow = queue.filter(id => complied.indexOf(id) >= 0).length;
+        finish(200, { ok: true, processed: targets.length, uploaded: okCount, complied: compliedNow, total: queue.length, done: compliedNow >= queue.length, errors: errors.slice(0, 5) });
       } catch (e) { finish(500, { ok: false, error: String(e && e.message || e) }); }
       return;
     }
