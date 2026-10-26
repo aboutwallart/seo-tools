@@ -62,7 +62,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">AWA ETSY · v0.51</p>
+  <p class="ver">AWA ETSY · v0.52</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -77,6 +77,7 @@
     <button id="tabNew" onclick="switchTab('new')">New product</button>
     <button id="tabSent" class="ghost" onclick="switchTab('sent')">Sent items <span id="sentCount"></span></button>
     <button id="tabImages" class="ghost" onclick="switchTab('images')">Replace images</button>
+    <button id="tabComply" class="ghost" onclick="switchTab('comply')">Compliance photo</button>
     <button id="tabClean" class="ghost" onclick="switchTab('clean')">Clean listings</button>
   </div>
 
@@ -233,6 +234,21 @@
       <p class="sub">Pick a section, then edit each listing: drop images you don't want, add Shopify photos or upload new ones, reorder, pick the video, and Save. The common set is added at the end automatically. Max 20 images. <b>Editing changes a LIVE Etsy listing</b> — its old images are backed up first.</p>
       <div id="riSections" class="row" style="gap:6px;flex-wrap:wrap;margin:10px 0"></div>
       <div id="riListings"></div>
+    </div>
+  </div>
+
+  <div id="complyTab" class="hide">
+    <div class="card">
+      <h2>Compliance photo</h2>
+      <p class="sub">Adds one real photo (<b>common image #2</b>) to every <b>active + draft</b> Etsy listing, to meet Etsy's rule that at least one photo isn't AI or a mockup. It <b>skips</b> the listings you already finished in Replace images (so nothing goes in twice). If a listing already has 20 images, the last one is removed to make room — its URL is backed up first. Runs in batches: press <b>Start</b> once and it keeps going on its own; you can <b>Stop</b> and resume any time (it never repeats a listing). Keep this tab open while it runs.</p>
+      <div id="complyPreview" style="margin:10px 0"></div>
+      <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
+        <button type="button" id="complyPlanBtn" onclick="complyPlan()">Plan (count listings)</button>
+        <button type="button" id="complyStartBtn" onclick="complyStart()" disabled>Start</button>
+        <button type="button" id="complyStopBtn" class="ghost" onclick="complyStop()" disabled>Stop</button>
+      </div>
+      <div id="complyBar" style="height:14px;background:#eee;border-radius:7px;margin:12px 0;overflow:hidden;display:none"><div id="complyBarFill" style="height:100%;width:0;background:#185FA5;transition:width .2s"></div></div>
+      <p class="fixed" id="complyMsg">Click <b>Plan</b> to count the listings first.</p>
     </div>
   </div>
 </div>
@@ -985,13 +1001,15 @@
   /* ---------- #14: Sent items ---------- */
   var SENT = [];
   function switchTab(which){
-    show('newProductTab', which === 'new'); show('sentTab', which === 'sent'); show('imagesTab', which === 'images'); show('cleanTab', which === 'clean');
+    show('newProductTab', which === 'new'); show('sentTab', which === 'sent'); show('imagesTab', which === 'images'); show('complyTab', which === 'comply'); show('cleanTab', which === 'clean');
     $('tabNew').className = which === 'new' ? '' : 'ghost';
     $('tabSent').className = which === 'sent' ? '' : 'ghost';
     $('tabImages').className = which === 'images' ? '' : 'ghost';
+    $('tabComply').className = which === 'comply' ? '' : 'ghost';
     $('tabClean').className = which === 'clean' ? '' : 'ghost';
     if (which === 'sent') loadSent();
     if (which === 'images') riInit();
+    if (which === 'comply') complyInit();
   }
   async function loadSent(){
     try{ var r = await fetch('/api/etsy?action=tab1-sent-list&t=' + Date.now()); var j = await r.json(); if (j.ok){ SENT = j.items || []; renderSent(); } }catch(e){}
@@ -1433,6 +1451,47 @@
     // Pop-up so you can't miss WHY some didn't go: they're over the 20-image limit and need trimming first.
     if (over){ alert('Couldn\'t send ' + over + ' listing(s) — over the ' + riCap() + '-image limit (the ' + RI_COMMON.length + ' common images are added at the end):\n\n' + overTitles.join('\n') + '\n\nOpen each, remove images down to ' + riCap() + ' or fewer (usually the old common / size-guide ones), then send again.'); }
   }
+
+  /* ---------- Compliance photo: bulk-add common #2 to every active + draft listing ---------- */
+  var COMPLY_RUN = false, COMPLY_TOTAL = 0, COMPLY_DONE = 0;
+  async function complyInit(){
+    if (!RI_COMMON.length){ try{ await riCommonLoad(); }catch(e){} }
+    var c = RI_COMMON[1];   // common image #2
+    $('complyPreview').innerHTML = (c && c.url)
+      ? '<div class="row" style="gap:10px;align-items:center"><img src="' + esc(c.url) + '" style="width:80px;height:80px;object-fit:cover;border-radius:6px;border:1px solid var(--line)"><span class="fixed">This photo gets added to each listing (common image #2).</span></div>'
+      : '<span class="fixed" style="color:#c33">Common image #2 isn\'t set — upload it in Replace images first.</span>';
+    complyStatus();
+  }
+  function complyBar(){ $('complyBar').style.display = 'block'; $('complyBarFill').style.width = (COMPLY_TOTAL ? Math.round(COMPLY_DONE / COMPLY_TOTAL * 100) : 0) + '%'; }
+  async function complyStatus(){
+    try{ var r = await fetch('/api/etsy?action=ri-comply-status&t=' + Date.now()); var j = await r.json();
+      if (j.ok && j.hasQueue){ COMPLY_TOTAL = j.total; COMPLY_DONE = j.complied; complyBar(); $('complyMsg').innerHTML = j.complied + ' / ' + j.total + ' done so far — press <b>Start</b> to ' + (j.complied ? 'resume' : 'begin') + '.'; $('complyStartBtn').disabled = (j.complied >= j.total); }
+    }catch(e){}
+  }
+  async function complyPlan(){
+    $('complyMsg').textContent = 'Counting active + draft listings…'; $('complyPlanBtn').disabled = true;
+    try{ var r = await fetch('/api/etsy?action=ri-comply-plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); var j = await r.json();
+      if (j.ok){ COMPLY_TOTAL = j.total; COMPLY_DONE = j.complied; complyBar(); $('complyMsg').innerHTML = '<b>' + j.total + '</b> listings to do' + (j.complied ? ' (' + j.complied + ' already done)' : '') + '. Press <b>Start</b>.'; $('complyStartBtn').disabled = (j.total === 0 || j.complied >= j.total); }
+      else { $('complyMsg').innerHTML = '<span style="color:#c33">⚠ ' + esc(j.error || 'failed') + '</span>'; }
+    }catch(e){ $('complyMsg').innerHTML = '<span style="color:#c33">⚠ ' + esc(e.message) + '</span>'; }
+    $('complyPlanBtn').disabled = false;
+  }
+  async function complyStart(){
+    if (COMPLY_RUN) return;
+    COMPLY_RUN = true; $('complyStartBtn').disabled = true; $('complyStopBtn').disabled = false; $('complyPlanBtn').disabled = true;
+    while (COMPLY_RUN){
+      var j;
+      try{ var r = await fetch('/api/etsy?action=ri-comply-batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ size: 5 }) }); j = await r.json(); }
+      catch(e){ $('complyMsg').innerHTML = '<span style="color:#c33">⚠ ' + esc(e.message) + ' — stopped. Press Start to resume.</span>'; break; }
+      if (!j.ok){ $('complyMsg').innerHTML = '<span style="color:#c33">⚠ ' + esc(j.error || 'failed') + ' — stopped.</span>'; break; }
+      COMPLY_TOTAL = j.total; COMPLY_DONE = j.complied; complyBar();
+      if (j.done){ COMPLY_RUN = false; $('complyMsg').innerHTML = '✓ Finished — all <b>' + COMPLY_TOTAL + '</b> listings have the compliance photo.'; break; }
+      $('complyMsg').innerHTML = COMPLY_DONE + ' / ' + COMPLY_TOTAL + ' done…' + ((j.errors && j.errors.length) ? ' <span style="color:#c33">(some had errors — they\'ll retry)</span>' : '');
+    }
+    $('complyStopBtn').disabled = true; $('complyPlanBtn').disabled = false; $('complyStartBtn').disabled = (COMPLY_TOTAL > 0 && COMPLY_DONE >= COMPLY_TOTAL);
+    COMPLY_RUN = false;
+  }
+  function complyStop(){ COMPLY_RUN = false; $('complyMsg').innerHTML = '⏸ Stopped at ' + COMPLY_DONE + ' / ' + COMPLY_TOTAL + '. Press <b>Start</b> to resume.'; $('complyStopBtn').disabled = true; $('complyStartBtn').disabled = false; $('complyPlanBtn').disabled = false; }
 
   if (location.search.indexOf('connected=1') >= 0) { setConnected(true); }
   checkStatus();
