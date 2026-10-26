@@ -62,7 +62,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">AWA ETSY · v0.49</p>
+  <p class="ver">AWA ETSY · v0.50</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -1208,43 +1208,54 @@
       if (j.ok){ RI_SECTIONS = j.sections || []; renderSections(); } else { $('riSections').innerHTML = '<span class="fixed">' + esc(j.error || 'error') + '</span>'; }
     }catch(e){ $('riSections').innerHTML = '<span class="fixed">' + e.message + '</span>'; }
   }
-  var RI_LISTINGS = [], RI_FILTER = 'all';
+  var RI_LISTINGS = [], RI_TAB = 'start', RI_NOMATCH = false;
   function renderSections(){
     var opts = '<option value="">— pick a section —</option>' + RI_SECTIONS.map(function(s){
       return '<option value="' + esc(s.id) + '"' + (RI_SEL_SECTION === String(s.id) ? ' selected' : '') + '>' + esc(s.title) + ' (' + (s.count || 0) + ')</option>';
     }).join('');
     $('riSections').innerHTML =
-      '<select onchange="riPickSection(this.value)" style="padding:6px 8px;min-width:300px">' + opts + '</select> <span class="fixed" id="riProgress"></span>' +
-      '<div class="row" id="riFilters" style="gap:6px;margin-top:8px;display:none">' +
-        '<button type="button" id="rifall" onclick="riSetFilter(\'all\')">All</button>' +
-        '<button type="button" id="rifnomatch" class="ghost" onclick="riSetFilter(\'nomatch\')">No match</button>' +
-        '<button type="button" id="rifpending" class="ghost" onclick="riSetFilter(\'pending\')">Pending</button>' +
-      '</div>';
+      '<select onchange="riPickSection(this.value)" style="padding:6px 8px;min-width:300px">' + opts + '</select> <span class="fixed" id="riProgress"></span>';
   }
   function riProgress(){ var done = RI_LISTINGS.filter(function(x){ return x.done; }).length; var p = $('riProgress'); if (p) p.innerHTML = '<b>' + done + '</b> / ' + RI_LISTINGS.length + ' done'; }
   async function riPickSection(id){
     RI_SEL_SECTION = String(id || '');
-    if (!RI_SEL_SECTION){ $('riListings').innerHTML = ''; if ($('riProgress')) $('riProgress').textContent = ''; if ($('riFilters')) $('riFilters').style.display = 'none'; return; }
+    if (!RI_SEL_SECTION){ $('riListings').innerHTML = ''; if ($('riProgress')) $('riProgress').textContent = ''; return; }
     $('riListings').innerHTML = '<p class="sub">Loading listings… (checking Shopify matches)</p>'; if ($('riProgress')) $('riProgress').textContent = '';
+    RI_TAB = 'start'; RI_NOMATCH = false;
     try{ var r = await fetch('/api/etsy?action=ri-listings&section=' + encodeURIComponent(id) + '&t=' + Date.now()); var j = await r.json();
       if (!j.ok){ $('riListings').innerHTML = '<p class="fixed">' + esc(j.error || 'error') + '</p>'; return; }
       RI_LISTINGS = j.listings || []; riProgress();
-      if ($('riFilters')) $('riFilters').style.display = RI_LISTINGS.length ? 'flex' : 'none';
       renderListings();
     }catch(e){ $('riListings').innerHTML = '<p class="fixed">' + e.message + '</p>'; }
   }
-  function riSetFilter(f){ RI_FILTER = f; ['all','nomatch','pending'].forEach(function(x){ var b = $('rif' + x); if (b) b.className = (x === f ? '' : 'ghost'); }); renderListings(); }
+  function riSetTab(t){ RI_TAB = t; renderListings(); }
+  function riToggleNomatch(cb){ RI_NOMATCH = cb.checked; renderListings(); }
+  async function riMoveBack(id){
+    var it = RI_LISTINGS.find(function(x){ return String(x.listing_id) === String(id); });
+    try{ var r = await fetch('/api/etsy?action=ri-done-remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listing_id: id }) }); var j = await r.json();
+      if (j.ok){ if (it) it.done = false; riProgress(); renderListings(); if ($('riTopMsg')) $('riTopMsg').innerHTML = '<span style="color:#185FA5">Moved back to Start here.</span>'; }
+      else if ($('riTopMsg')) $('riTopMsg').innerHTML = '<span style="color:#c33">⚠ ' + esc(j.error || 'failed') + '</span>';
+    }catch(e){ if ($('riTopMsg')) $('riTopMsg').innerHTML = '<span style="color:#c33">⚠ ' + esc(e.message) + '</span>'; }
+  }
   function renderListings(){
-    var list = RI_LISTINGS.filter(function(l){ if (RI_FILTER === 'nomatch') return !l.matched; if (RI_FILTER === 'pending') return !l.done; return true; });
+    var startAll = RI_LISTINGS.filter(function(l){ return !l.done; });
+    var doneAll = RI_LISTINGS.filter(function(l){ return l.done; });
+    var onDone = (RI_TAB === 'done');
+    var list = onDone ? doneAll : (RI_NOMATCH ? startAll.filter(function(l){ return !l.matched; }) : startAll);
+    function tabBtn(t, label){ return '<button type="button" onclick="riSetTab(\'' + t + '\')" class="' + (RI_TAB === t ? '' : 'ghost') + '">' + label + '</button>'; }
+    var tabs = '<div class="row" style="gap:6px;margin-bottom:10px;flex-wrap:wrap">' + tabBtn('start', 'Start here (' + startAll.length + ')') + tabBtn('done', 'Done (' + doneAll.length + ')') + '</div>';
+    var nomatch = onDone ? '' : '<label class="fixed" style="display:flex;gap:6px;align-items:center;cursor:pointer;margin-bottom:8px"><input type="checkbox" ' + (RI_NOMATCH ? 'checked' : '') + ' onchange="riToggleNomatch(this)"> Show only no-match</label>';
     var bar = '<div class="row" style="gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap"><label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="riSelAll" onchange="riToggleAll(this)"> Select all</label><button type="button" id="riSendSelEtsy" onclick="riSendSelected(\'etsy\')">Send selected to Etsy</button><button type="button" id="riSendSelBoth" onclick="riSendSelected(\'both\')">Send selected to Etsy + Shopify</button><span class="fixed" id="riSendMsg"></span></div>';
-    if (!list.length){ $('riListings').innerHTML = bar + '<p class="sub">Nothing here with this filter.</p>'; return; }
-    $('riListings').innerHTML = bar + list.map(function(l){
+    var top = tabs + nomatch + bar + '<div id="riTopMsg" class="fixed" style="margin-bottom:8px"></div>';
+    if (!list.length){ $('riListings').innerHTML = top + '<p class="sub">' + (onDone ? 'Nothing done yet.' : (RI_NOMATCH ? 'No unmatched listings here.' : 'All done in this section. 🎉')) + '</p>'; riUpdateSel(); return; }
+    $('riListings').innerHTML = top + list.map(function(l){
       var badge = l.matched ? '<span style="color:#1a8a4a">✓ matched</span>' : '<span style="color:#c33">⚠ no match</span>';
-      var done = l.done ? ' <span style="background:#185FA5;color:#fff;padding:1px 8px;border-radius:10px;font-size:11px">done</span>' : '';
+      var doneBadge = l.done ? ' <span style="background:#185FA5;color:#fff;padding:1px 8px;border-radius:10px;font-size:11px">done</span>' : '';
+      var back = onDone ? '<button type="button" class="ghost" style="margin-left:auto" onclick="riMoveBack(\'' + esc(l.listing_id) + '\')">Move back to Start here</button>' : '';
       return '<div class="card" style="padding:10px"><div class="row" style="gap:10px;align-items:center">' +
         '<input type="checkbox" class="risel" data-lid="' + esc(l.listing_id) + '" onchange="riUpdateSel()">' +
         (l.image ? '<img src="' + esc(l.image) + '" style="width:60px;height:48px;object-fit:cover;border-radius:6px;border:1px solid var(--line)">' : '') +
-        '<div style="flex:1;min-width:160px;cursor:pointer" onclick="riToggle(\'' + esc(l.listing_id) + '\',\'' + esc(l.sku || '') + '\')" title="Click to open/close the editor"><b>' + esc(l.title || '') + '</b><div class="fixed">' + esc(l.sku || '(no sku)') + ' · ' + badge + done + '</div></div>' +
+        '<div style="flex:1;min-width:160px;cursor:pointer" onclick="riToggle(\'' + esc(l.listing_id) + '\',\'' + esc(l.sku || '') + '\')" title="Click to open/close the editor"><b>' + esc(l.title || '') + '</b><div class="fixed">' + esc(l.sku || '(no sku)') + ' · ' + badge + doneBadge + '</div></div>' + back +
         '</div><div class="riedit" id="riedit-' + esc(l.listing_id) + '" data-lid="' + esc(l.listing_id) + '" data-sku="' + esc(l.sku || '') + '"></div></div>';
     }).join('');
     riObserveEditors(); riUpdateSel();
@@ -1373,7 +1384,13 @@
     if (!st.gallery.length && !RI_COMMON.length){ msg.innerHTML = '<span style="color:#c33">Add at least one image.</span>'; return; }
     msg.textContent = (target === 'both') ? 'Saving to Etsy + Shopify…' : 'Saving to Etsy…';
     var j = await riApplyOne(id, target || 'etsy');
-    if (j.ok){ var p = (j.result && j.result.photos) || {}; msg.innerHTML = '✓ Done — ' + (p.uploaded || 0) + ' photos' + ((j.result && j.result.warning) ? (' <span style="color:#c33">' + esc(j.result.warning) + '</span>') : '') + riShopifyNote(j.shopify) + ' <a href="https://www.etsy.com/your/shops/me/tools/listings/' + esc(id) + '" target="_blank">Open</a>'; }
+    if (j.ok){
+      var p = (j.result && j.result.photos) || {};
+      var ttl = st.title ? '"' + esc(String(st.title).slice(0, 40)) + '" ' : '';
+      var note = '✓ ' + ttl + 'saved — ' + (p.uploaded || 0) + ' photos' + ((j.result && j.result.warning) ? (' <span style="color:#c33">' + esc(j.result.warning) + '</span>') : '') + riShopifyNote(j.shopify) + ' <a href="https://www.etsy.com/your/shops/me/tools/listings/' + esc(id) + '" target="_blank">Open</a> — moved to Done.';
+      renderListings();   // the listing is now done → it leaves Start here and appears in Done
+      if ($('riTopMsg')) $('riTopMsg').innerHTML = note;
+    }
     else { msg.innerHTML = '⚠ ' + esc(j.error || 'failed'); }
   }
   async function riSendSelected(target){
@@ -1390,8 +1407,9 @@
       var j = await riApplyOne(id, bt);
       if (j && j.ok){ ok++; if (bt === 'both'){ if (j.shopify && !j.shopify.error) shopOk++; else shopErr++; } } else failed++;
     }
-    msg.innerHTML = '✓ ' + ok + ' sent to Etsy.' + (bt === 'both' ? ' <span style="color:#1a8a4a">' + shopOk + ' also on Shopify.</span>' + (shopErr ? ' <span style="color:#c33">' + shopErr + ' Shopify failed.</span>' : '') : '') + (over ? ' <span style="color:#c33">' + over + ' over 20 — open &amp; trim them.</span>' : '') + (failed ? ' <span style="color:#c33">' + failed + ' failed.</span>' : '');
-    renderListings();
+    var summary = '✓ ' + ok + ' sent to Etsy.' + (bt === 'both' ? ' <span style="color:#1a8a4a">' + shopOk + ' also on Shopify.</span>' + (shopErr ? ' <span style="color:#c33">' + shopErr + ' Shopify failed.</span>' : '') : '') + (over ? ' <span style="color:#c33">' + over + ' over 20 — open &amp; trim them.</span>' : '') + (failed ? ' <span style="color:#c33">' + failed + ' failed.</span>' : '');
+    renderListings();   // done ones move to the Done tab
+    if ($('riTopMsg')) $('riTopMsg').innerHTML = summary;
   }
 
   if (location.search.indexOf('connected=1') >= 0) { setConnected(true); }
