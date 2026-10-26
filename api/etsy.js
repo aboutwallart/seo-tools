@@ -1,4 +1,8 @@
-// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images + Compliance photo)  ·  v0.57
+// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images + Compliance + Edit Descriptions)  ·  v0.58
+// v0.58 (2026-10-26): ri-sections now backfills each done listing's section from Etsy (finished sections grey out without
+//   opening them). New ri-skus-todo (pending SKUs grouped by section). New Edit Descriptions tab: ed-plan resolves a scope
+//   (all / skus / section) into a worklist; ed-batch previews (no write) or applies (write + backup) find/replace OR an
+//   AI rewrite of the description, batched + resumable. Replaces the old "Clean listings" strip.
 // v0.57 (2026-10-26): Replace images — ri-mark-done: mark several listings as done WITHOUT changing their images
 //   (the "Skip — mark done" bulk button, for listings that already look fine).
 // v0.56 (2026-10-26): Compliance photo tab — bulk-add common image #2 (a real, non-AI/non-mockup photo) to every active +
@@ -179,6 +183,10 @@ const RI_DONE_PATH = 'data/etsy-images-done.json';  // Replace images: listing_i
 const RI_COMPLY_QUEUE_PATH = 'data/etsy-compliance-queue.json';
 const RI_COMPLY_DONE_PATH  = 'data/etsy-compliance-done.json';
 const RI_COMPLY_UNDO_PATH  = 'data/etsy-compliance-undo.json';
+// Edit Descriptions: find/replace or AI-rewrite the description across a scope (all / SKUs / section), batched + resumable.
+const ED_QUEUE_PATH  = 'data/etsy-ed-queue.json';   // the worklist of listing_ids for the current run
+const ED_DONE_PATH   = 'data/etsy-ed-done.json';    // the ones already applied (to resume without redoing)
+const ED_BACKUP_PATH = 'data/etsy-ed-backup.json';  // original descriptions, backed up before each edit
 function ghHeaders() { return { 'Authorization': 'token ' + process.env.GITHUB_TOKEN, 'Accept': 'application/vnd.github+json', 'User-Agent': 'awa-etsy' }; }
 async function ghGet(path) {
   const r = await fetch('https://api.github.com/repos/' + REPO + '/contents/' + path + '?ref=main&t=' + Date.now(), { headers: ghHeaders() });
@@ -211,6 +219,7 @@ async function complyImageBuf() {
 }
 async function readComplyDone() { try { const f = await ghGet(RI_COMPLY_DONE_PATH); if (f.content) { const j = JSON.parse(f.content); return { ids: (j && j.ids) || [], sha: f.sha }; } } catch (e) {} return { ids: [], sha: null }; }
 async function readComplyQueue() { try { const f = await ghGet(RI_COMPLY_QUEUE_PATH); if (f.content) { const j = JSON.parse(f.content); return { ids: (j && j.ids) || [], builtAt: (j && j.builtAt) || null, sha: f.sha }; } } catch (e) {} return { ids: [], builtAt: null, sha: null }; }
+async function readEdQueue() { try { const f = await ghGet(ED_QUEUE_PATH); if (f.content) { const j = JSON.parse(f.content); return { ids: (j && j.ids) || [], sha: f.sha }; } } catch (e) {} return { ids: [], sha: null }; }
 function withCommonUrls(items) { return (items || []).map(it => Object.assign({}, it, { url: commonUrl(it.path) })); }
 async function readDone() { try { const f = await ghGet(RI_DONE_PATH); if (f.content) { const j = JSON.parse(f.content); return { ids: Array.isArray(j) ? j : (j.ids || []), sections: (j && j.sections) || {}, sha: f.sha }; } } catch (e) {} return { ids: [], sections: {}, sha: null }; }
 // Etsy variant SKUs look like "{BASE}- {size}{frame} {paper}" (the base can contain spaces, e.g. "CYANOTYPE BROWN").
@@ -1333,11 +1342,49 @@ module.exports = async (req, res) => {
     if (q.action === 'ri-sections') {
       const sec = await call('/shops/' + SHOP_ID + '/sections');
       const sections = ((sec.json && sec.json.results) || []).map(s => ({ id: s.shop_section_id, title: s.title, count: s.active_listing_count }));
-      // how many listings are done per section (from the done store's section map) — for the dropdown's x/total progress
+      // how many listings are done per section (from the done store's section map) — for the dropdown's x/total progress.
+      // Backfill: for any done listing whose section we don't know yet, ask Etsy once and record it — so finished
+      // sections grey out without having to open each one first. One-time cost; later calls have nothing to backfill.
       let doneBySection = {};
-      try { const dn = await readDone(); Object.keys(dn.sections || {}).forEach(lid => { const sid = String(dn.sections[lid]); doneBySection[sid] = (doneBySection[sid] || 0) + 1; }); } catch (e) {}
+      try {
+        const dn = await readDone();
+        const secMap = dn.sections || {}; let changed = false;
+        const missing = dn.ids.map(String).filter(id => !secMap[id]);
+        for (const id of missing) {
+          try { const lr = await call('/listings/' + id); const sid = lr.json && lr.json.shop_section_id; if (sid != null) { secMap[id] = String(sid); changed = true; } } catch (e) {}
+        }
+        if (changed) { try { await ghPut(RI_DONE_PATH, JSON.stringify({ ids: dn.ids, sections: secMap }, null, 2), dn.sha, 'ri backfill sections (dropdown)'); } catch (e) {} }
+        Object.keys(secMap).forEach(lid => { const sid = String(secMap[lid]); doneBySection[sid] = (doneBySection[sid] || 0) + 1; });
+      } catch (e) {}
       sections.forEach(s => { s.done = doneBySection[String(s.id)] || 0; });
       finish(200, { ok: true, sections });
+      return;
+    }
+    // "SKUs to do": every still-pending (not done) active listing's SKU, grouped by section — so Mae knows which SKUs
+    // still need image work across the whole shop.
+    if (q.action === 'ri-skus-todo') {
+      try {
+        const sec = await call('/shops/' + SHOP_ID + '/sections');
+        const titleById = {};
+        ((sec.json && sec.json.results) || []).forEach(s => { titleById[String(s.shop_section_id)] = s.title; });
+        const rows = []; let offset = 0;
+        for (let page = 0; page < 60; page++) {
+          const lr = await call('/shops/' + SHOP_ID + '/listings?state=active&limit=100&offset=' + offset + '&includes=Inventory');
+          const results = (lr.json && lr.json.results) || [];
+          results.forEach(l => {
+            const sku = baseSkuEtsy(([].concat(l.skus || [], ((l.inventory && l.inventory.products) || []).map(p => p.sku))).filter(Boolean)[0] || '');
+            rows.push({ id: String(l.listing_id), sku, section: String(l.shop_section_id || '') });
+          });
+          if (results.length < 100) break;
+          offset += 100;
+        }
+        const doneSet = new Set((await readDone()).ids.map(String));
+        const pending = rows.filter(r => !doneSet.has(r.id));
+        const groups = {};
+        pending.forEach(r => { const key = r.section || 'none'; (groups[key] = groups[key] || []).push(r.sku || '(no sku)'); });
+        const out = Object.keys(groups).map(sid => ({ title: titleById[sid] || (sid === 'none' ? 'No section' : 'Section ' + sid), skus: groups[sid] })).sort((a, b) => b.skus.length - a.skus.length);
+        finish(200, { ok: true, groups: out, total: pending.length });
+      } catch (e) { finish(500, { ok: false, error: String(e && e.message || e) }); }
       return;
     }
     if (q.action === 'ri-listings') {
@@ -1562,6 +1609,87 @@ module.exports = async (req, res) => {
       try { await ghPut(CLEAN_BACKUP_PATH, JSON.stringify(backup, null, 2), bk.sha, 'AWA ETSY: backup descriptions before cleanup (' + items.length + ')'); } catch (e) {}
       const failed = results.filter(r => r.error || (r.status && r.status >= 300));
       finish(200, { ok: !failed.length, updated: results.length - failed.length, failed: failed.length, results });
+      return;
+    }
+
+    // ---- Edit Descriptions: resolve the chosen scope (all / skus / section) into a worklist + return a preview sample ----
+    if (q.action === 'ed-plan' && req.method === 'POST') {
+      const b = req.body || {};
+      const scope = String(b.scope || 'all');
+      const section = String(b.section || '');
+      const skuSet = new Set((Array.isArray(b.skus) ? b.skus : []).map(s => baseSkuEtsy(String(s)).toLowerCase()).filter(Boolean));
+      try {
+        const rows = [];
+        for (const state of ['active', 'draft']) {
+          let offset = 0;
+          for (let page = 0; page < 60; page++) {
+            const r = await call('/shops/' + SHOP_ID + '/listings?state=' + state + '&limit=100&offset=' + offset + '&includes=Inventory');
+            const results = (r.json && r.json.results) || [];
+            results.forEach(l => {
+              const sku = baseSkuEtsy(([].concat(l.skus || [], ((l.inventory && l.inventory.products) || []).map(p => p.sku))).filter(Boolean)[0] || '');
+              rows.push({ id: String(l.listing_id), sku, section: String(l.shop_section_id || ''), title: l.title || '', desc: l.description || '' });
+            });
+            if (results.length < 100) break;
+            offset += 100;
+          }
+        }
+        let targets = rows;
+        if (scope === 'section') targets = rows.filter(r => r.section === section);
+        else if (scope === 'skus') targets = rows.filter(r => skuSet.has(String(r.sku).toLowerCase()));
+        const ids = targets.map(r => r.id);
+        const q0 = await readEdQueue();
+        await ghPut(ED_QUEUE_PATH, JSON.stringify({ ids, builtAt: Date.now() }, null, 2), q0.sha, 'ed queue (' + ids.length + ')');
+        const d0 = await ghGet(ED_DONE_PATH); await ghPut(ED_DONE_PATH, JSON.stringify({ ids: [] }, null, 2), d0.sha, 'ed reset done');
+        const preview = targets.slice(0, 8).map(r => ({ id: r.id, sku: r.sku, title: r.title, desc: r.desc }));
+        finish(200, { ok: true, total: ids.length, preview });
+      } catch (e) { finish(500, { ok: false, error: String(e && e.message || e) }); }
+      return;
+    }
+    // ---- Edit Descriptions: process the next N. apply:false = preview (compute, no write); apply:true = write + backup. ----
+    if (q.action === 'ed-batch' && req.method === 'POST') {
+      const b = req.body || {};
+      const mode = String(b.mode || 'find');   // 'find' (literal find/replace) or 'ai' (rewrite by instruction)
+      const find = String(b.find || ''), replace = String(b.replace || ''), instruction = String(b.instruction || '');
+      const apply = !!b.apply;
+      const size = Math.max(1, Math.min(10, parseInt(b.size, 10) || (apply ? 5 : 6)));
+      try {
+        const queue = (await readEdQueue()).ids.map(String);
+        if (!queue.length) { finish(400, { ok: false, error: 'No scope yet — run Scan first.' }); return; }
+        const doneF = await ghGet(ED_DONE_PATH); const done = doneF.content ? ((JSON.parse(doneF.content).ids) || []).map(String) : [];
+        const doneSet = new Set(done);
+        const targets = queue.filter(id => !doneSet.has(id)).slice(0, size);
+        if (!targets.length) { finish(200, { ok: true, processed: 0, changed: 0, total: queue.length, done: true, samples: [] }); return; }
+        const samples = []; let changedCount = 0;
+        let backup = {}; let bkSha = null;
+        if (apply) { const bk = await ghGet(ED_BACKUP_PATH); bkSha = bk.sha; try { if (bk.content) backup = JSON.parse(bk.content); } catch (e) {} }
+        for (const id of targets) {
+          try {
+            const lr = await call('/listings/' + id); const lj = lr.json || {};
+            const sku = baseSkuEtsy(((lj.skus || [])[0]) || '');
+            const oldDesc = lj.description || '';
+            let newDesc = oldDesc;
+            if (mode === 'ai') {
+              if (instruction) { try { const out = await claudeJSON('You are editing an Etsy product description. Apply this instruction and return ONLY JSON {"description":"..."} containing the full edited description (natural UK English, never mention the instruction itself).\n\nInstruction: ' + instruction + '\n\nDescription:\n' + oldDesc, 2500); if (out && typeof out.description === 'string') newDesc = out.description; } catch (e) {} }
+            } else {
+              if (find) newDesc = oldDesc.split(find).join(replace);
+            }
+            const changed = newDesc !== oldDesc; if (changed) changedCount++;
+            if (apply && changed) {
+              if (!(String(id) in backup)) backup[String(id)] = oldDesc;
+              const f = new URLSearchParams({ description: newDesc });
+              await call('/shops/' + SHOP_ID + '/listings/' + id, { method: 'PATCH', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: f.toString() });
+            }
+            if (apply) doneSet.add(String(id));
+            samples.push({ sku, title: lj.title || '', before: oldDesc, after: newDesc, changed });
+          } catch (e) { samples.push({ sku: '', title: String(id), before: '', after: '', changed: false, error: String(e && e.message || e) }); if (apply) doneSet.add(String(id)); }
+        }
+        if (apply) {
+          try { await ghPut(ED_DONE_PATH, JSON.stringify({ ids: Array.from(doneSet) }, null, 2), doneF.sha, 'ed done +' + targets.length); } catch (e) {}
+          try { await ghPut(ED_BACKUP_PATH, JSON.stringify(backup, null, 2), bkSha, 'ed backup descriptions'); } catch (e) {}
+        }
+        const doneNow = queue.filter(id => doneSet.has(id)).length;
+        finish(200, { ok: true, processed: targets.length, changed: changedCount, total: queue.length, complied: doneNow, done: apply ? (doneNow >= queue.length) : false, samples: apply ? [] : samples.slice(0, 8) });
+      } catch (e) { finish(500, { ok: false, error: String(e && e.message || e) }); }
       return;
     }
 
