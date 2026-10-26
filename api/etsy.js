@@ -1,4 +1,7 @@
-// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images)  ·  v0.51
+// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images)  ·  v0.52
+// v0.52 (2026-10-26): Replace images — alt text. loadShopifyMedia returns each image's Shopify altText; ri-apply /
+//   riApplyMedia pass a per-image alt and set alt_text on the Etsy upload (front sends Shopify alt, else the listing
+//   title + a number so fallbacks aren't identical; common set keeps its own alt).
 // v0.51 (2026-10-26): Replace images — FIX the "matched in the list but no match inside" bug: ri-listings used the BASE
 //   SKU but ri-detail used the VARIANT SKU. Now BOTH reduce to the base (baseSkuEtsy), and loadShopifyMedia falls back
 //   to the base if the exact SKU doesn't match. Same value matched in both places.
@@ -441,8 +444,8 @@ async function riApplyMedia(call, target, entries, video) {
   for (let i = 0; i < list.length; i++) {
     const e = list[i] || {};
     try {
-      if (e.dataBase64) bufs.push({ buf: Buffer.from(String(e.dataBase64).replace(/^data:[^,]+,/, ''), 'base64'), type: 'image/jpeg' });
-      else if (e.url) { const ir = await fetch(e.url); if (!ir.ok) { if (!firstErr) firstErr = 'fetch ' + ir.status; bufs.push(null); } else bufs.push({ buf: Buffer.from(await ir.arrayBuffer()), type: ir.headers.get('content-type') || 'image/jpeg' }); }
+      if (e.dataBase64) bufs.push({ buf: Buffer.from(String(e.dataBase64).replace(/^data:[^,]+,/, ''), 'base64'), type: 'image/jpeg', alt: e.alt || '' });
+      else if (e.url) { const ir = await fetch(e.url); if (!ir.ok) { if (!firstErr) firstErr = 'fetch ' + ir.status; bufs.push(null); } else bufs.push({ buf: Buffer.from(await ir.arrayBuffer()), type: ir.headers.get('content-type') || 'image/jpeg', alt: e.alt || '' }); }
       else bufs.push(null);
     } catch (err) { if (!firstErr) firstErr = String(err && err.message || err); bufs.push(null); }
   }
@@ -459,6 +462,7 @@ async function riApplyMedia(call, target, entries, video) {
         const fd = new FormData();
         fd.append('image', new Blob([b.buf], { type: b.type }), 'image-' + (i + 1) + '.jpg');
         fd.append('rank', String(i + 1));
+        if (b.alt) fd.append('alt_text', String(b.alt).slice(0, 250));
         const r = await call('/shops/' + SHOP_ID + '/listings/' + target + '/images', { method: 'POST', body: fd });
         if (r.status < 300) return true;
         if (!firstErr) firstErr = 'etsy upload ' + r.status + ' ' + JSON.stringify(r.json).slice(0, 120);
@@ -590,7 +594,7 @@ async function loadThumb(sku) {
 // when there is no exact match, return the closest candidates (with a thumbnail) so Mae can pick one by hand.
 async function loadShopifyMedia(sku) {
   // Same proven query as loadProduct (NO media/video — the media field broke the whole search on this API version).
-  const gq = 'query($q:String!){ products(first:25, query:$q){ nodes{ title handle images(first:50){nodes{url}} skuMf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } }';
+  const gq = 'query($q:String!){ products(first:25, query:$q){ nodes{ title handle images(first:50){nodes{url altText}} skuMf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } }';
   async function tryOne(s) {
     if (!s) return { nodes: [], n: null };
     const d = await shopGQL(gq, { q: 'metafield:custom.sku_for_print_files:' + s });
@@ -604,10 +608,10 @@ async function loadShopifyMedia(sku) {
     if (base && base.toLowerCase() !== want.toLowerCase()) { const r2 = await tryOne(base); if (r2.n) { n = r2.n; nodes = r2.nodes; } else if (!nodes.length) nodes = r2.nodes; }
   }
   if (!n) {
-    const similar = nodes.slice(0, 8).map(x => ({ sku: (x.skuMf && x.skuMf.value) || '', title: x.title, image: (x.images.nodes[0] || {}).url || '' }));
+    const similar = nodes.slice(0, 8).map(x => ({ sku: (x.skuMf && x.skuMf.value) || '', title: x.title, image: ((x.images.nodes[0]) || {}).url || '' }));
     return { noMatch: true, similar };
   }
-  return { matched: true, title: n.title, handle: n.handle, images: (n.images.nodes || []).map(i => i.url) };
+  return { matched: true, title: n.title, handle: n.handle, images: (n.images.nodes || []).map(i => ({ url: i.url, alt: i.altText || '' })) };
 }
 // Replace images: ALL Shopify sku_for_print_files values (lowercased set) — to flag each Etsy listing as matched or not
 // in the list, without one query per listing. ~5 paginated queries for the whole catalogue.
