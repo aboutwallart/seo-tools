@@ -853,8 +853,10 @@
                 <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
                     <button class="btn btn-green" id="cfixStartBtn" onclick="cfixStart()">Start</button>
                     <button class="btn btn-light" id="cfixStopBtn" onclick="cfixStopRun()" disabled>Stop</button>
+                    <button class="btn btn-light" id="cfixCheckBtn" onclick="cfixCheck()">Check channels</button>
                     <button class="btn btn-light" id="cfixUndoBtn" onclick="cfixUndo()" style="margin-left:auto;">Undo templates</button>
                 </div>
+                <div id="cfixWarn" style="margin-top:12px;"></div>
                 <div id="cfixStatus" style="margin-top:12px;"><span class="muted">No run yet.</span></div>
             </div>
         </div><!-- /tabCfix -->
@@ -962,7 +964,7 @@ async function cfixStart(){
         if (!confirm('This sets the template (home-decor-final) and publishes EVERY Collective product (active + draft) to the 6 regions and 9 channels. It only adds — never removes. Start now?')) return;
         var st = await (await fetch(API + '?action=cfix-start')).json();
         if (!st.ok){ alert('Could not start: ' + (st.error||'')); return; }
-        state = st.state;
+        state = st.state; cfixShowWarnings(st.warnings);
     }
     cfixRunning = true; cfixStop = false; cfixRender(state);
     var guard = 0;
@@ -979,6 +981,21 @@ async function cfixStart(){
     try { var s2 = await (await fetch(API + '?action=cfix-status')).json(); cfixRender(s2 && s2.state); } catch(e){}
 }
 function cfixStopRun(){ cfixStop = true; cfixRunning = false; }
+function cfixShowWarnings(warnings){
+    var box = document.getElementById('cfixWarn'); if (!box) return;
+    if (!warnings || !warnings.length){ box.innerHTML = ''; return; }
+    box.innerHTML = '<div style="background:#FFF6DA; border:1px solid #E8D48A; border-radius:8px; padding:10px 12px; font-size:13px; line-height:1.6;">'
+        + '<b>⚠️ Heads up — copy this to Claude:</b><br>' + warnings.map(function(w){ return '• ' + esc(w); }).join('<br>') + '</div>';
+}
+async function cfixCheck(){
+    var box = document.getElementById('cfixWarn'); if (box) box.innerHTML = '<span class="muted">Checking…</span>';
+    try {
+        var d = await (await fetch(API + '?action=cfix-check')).json();
+        if (!d.ok){ if (box) box.innerHTML = '<span class="muted">Check failed: ' + esc(d.error||'') + '</span>'; return; }
+        if (!d.warnings || !d.warnings.length){ if (box) box.innerHTML = '<div style="background:#E9F6EC; border:1px solid #B6DEC0; border-radius:8px; padding:10px 12px; font-size:13px;">All ' + (d.pubCount||0) + ' channels &amp; regions look correct ✓</div>'; }
+        else cfixShowWarnings(d.warnings);
+    } catch(e){ if (box) box.innerHTML = '<span class="muted">Check failed: ' + esc(String(e)) + '</span>'; }
+}
 async function cfixUndo(){
     if (!confirm('Restore the product templates this tool changed back to their previous value? (Publishing stays as-is.)')) return;
     var offset = 0, total = 0, restored = 0;
