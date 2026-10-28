@@ -148,7 +148,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v3.17 · "Collective items data" tab — per-product Category · Product type · Room type · Decor style (35) · Collections · Tags · Trend pages, by vendor/SKU. Auto-mark: Furniture tag by room, and Trend pages by Decor style (rest dimmed, still tickable). Vendor list shows only vendors with drafts. Tag match ignores upper/lowercase. Click a photo to enlarge · Recent runs (last 10) show their products; Undo moves them back to Drafts · Select all + count · Backup gate · Tabs grouped: AWA · Collective · General</div>
+            <div class="subtitle">v3.18 · NEW "Fix publishing &amp; template" tab (sets template home-decor-final + publishes to 6 regions + 9 channels on all Collective, additive) · "Collective items data" tab — per-product Category · Product type · Room type · Decor style (35) · Collections · Tags · Trend pages, by vendor/SKU. Auto-mark: Furniture tag by room, and Trend pages by Decor style (rest dimmed, still tickable). Vendor list shows only vendors with drafts. Tag match ignores upper/lowercase. Click a photo to enlarge · Recent runs (last 10) show their products; Undo moves them back to Drafts · Select all + count · Backup gate · Tabs grouped: AWA · Collective · General</div>
         </div>
 
         <!-- TOP-LEVEL GROUPS (full width) -->
@@ -162,6 +162,7 @@
             <button class="tab active" id="tabBtnAwa" onclick="switchTab('awa')">AWA Prices</button>
             <button class="tab" id="tabBtnAv" onclick="switchTab('av')">Add variants</button>
             <button class="tab" id="tabBtnCdt" onclick="switchTab('cdt')">Collective items data</button>
+            <button class="tab" id="tabBtnCfix" onclick="switchTab('cfix')">Fix publishing &amp; template</button>
             <button class="tab" id="tabBtn1" onclick="switchTab(1)">Collective Prices</button>
             <button class="tab" id="tabBtn2" onclick="switchTab(2)">Other fields</button>
             <button class="tab" id="tabBtnXl" onclick="switchTab('xl')">Excel</button>
@@ -837,6 +838,26 @@
                 </div>
             </div>
         </div><!-- /tabCdt -->
+
+        <div class="tabpanel" id="tabCfix" hidden>
+            <div class="card">
+                <h3 style="margin:0 0 6px;">🧩 Fix publishing &amp; template</h3>
+                <p class="muted" style="margin:0 0 10px;">Applies the correct setup to <b>every Collective product</b> (active + draft): sets the product template to <code>home-decor-final</code> and publishes each one to the 6 regions and 9 sales channels. It only <b>adds</b> what's missing — it never removes anything.</p>
+                <div style="background:#FDECEC; border:1px solid #E7B4B4; border-radius:8px; padding:10px 12px; font-size:13px; margin-bottom:12px; line-height:1.6;">
+                    <b>What it sets</b><br>
+                    Template: <b>home-decor-final</b><br>
+                    Regions (6): United Kingdom · European Union · Europe None EU · International · Rest of the world · Australia<br>
+                    Channels (9): Online Store · Pinterest · Google &amp; YouTube · Facebook &amp; Instagram · Shop · Click &amp; Drop · Linktree · Inbox · Buy Button<br>
+                    <span style="color:#9a3b3b;">Runs in batches and may take several minutes. Safe to leave running — you can Stop and Resume anytime.</span>
+                </div>
+                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                    <button class="btn btn-green" id="cfixStartBtn" onclick="cfixStart()">Start</button>
+                    <button class="btn btn-light" id="cfixStopBtn" onclick="cfixStopRun()" disabled>Stop</button>
+                    <button class="btn btn-light" id="cfixUndoBtn" onclick="cfixUndo()" style="margin-left:auto;">Undo templates</button>
+                </div>
+                <div id="cfixStatus" style="margin-top:12px;"><span class="muted">No run yet.</span></div>
+            </div>
+        </div><!-- /tabCfix -->
     </div>
 
     <datalist id="allTagsList"></datalist>
@@ -881,6 +902,7 @@ function switchTab(w){
     document.getElementById('tabMf').hidden = w!=='mf';
     document.getElementById('tabCsv').hidden = w!=='csv';
     document.getElementById('tabCdt').hidden = w!=='cdt';
+    document.getElementById('tabCfix').hidden = w!=='cfix';
     var _ctn=document.querySelector('.container'); if(_ctn) _ctn.classList.toggle('cdtfull', w==='cdt');
     document.getElementById('tabBtn1').classList.toggle('active', w===1);
     document.getElementById('tabBtnAwa').classList.toggle('active', w==='awa');
@@ -889,23 +911,88 @@ function switchTab(w){
     document.getElementById('tabBtnXl').classList.toggle('active', w==='xl');
     document.getElementById('tabBtnMf').classList.toggle('active', w==='mf');
     document.getElementById('tabBtnCdt').classList.toggle('active', w==='cdt');
+    document.getElementById('tabBtnCfix').classList.toggle('active', w==='cfix');
     if (w===2) loadFieldMeta(); // fresh from Shopify every time you open Other fields
     if (w==='av') { avOnGroup(); avLoadAdded(); } // Add variants tab
     if (w==='xl') { xlRenderChecks(); xlLoadUndos(); } // Excel tab
     if (w==='mf') mfInit(); // Metafields tab
     if (w==='cdt') cdtInit(); // Update Collective items data tab
+    if (w==='cfix') cfixInit(); // Fix publishing & template tab
 }
 // Top-level groups: AWA Products | Collective Products | General. Each shows only its sub-tabs.
-var TAB_SUBS = { awa:['tabBtnAwa','tabBtnAv'], collective:['tabBtnCdt','tabBtn1'], general:['tabBtn2','tabBtnXl','tabBtnMf'] };
+var TAB_SUBS = { awa:['tabBtnAwa','tabBtnAv'], collective:['tabBtnCdt','tabBtnCfix','tabBtn1'], general:['tabBtn2','tabBtnXl','tabBtnMf'] };
 var TAB_FIRST = { awa:'awa', collective:'cdt', general:2 };
 function selectGroup(g){
     ['Awa','Collective','General'].forEach(function(x){ var b=document.getElementById('grp'+x); if(b) b.classList.toggle('active', x.toLowerCase()===g); });
-    var allSubs=['tabBtnAwa','tabBtnAv','tabBtnCdt','tabBtn1','tabBtn2','tabBtnXl','tabBtnMf'];
+    var allSubs=['tabBtnAwa','tabBtnAv','tabBtnCdt','tabBtnCfix','tabBtn1','tabBtn2','tabBtnXl','tabBtnMf'];
     allSubs.forEach(function(id){ var b=document.getElementById(id); if(b) b.style.display='none'; });
     (TAB_SUBS[g]||[]).forEach(function(id){ var b=document.getElementById(id); if(b) b.style.display=''; });
     switchTab(TAB_FIRST[g]);
 }
 selectGroup('awa'); // default: AWA Products
+
+/* ===================== Fix publishing & template (Collective) ===================== */
+var cfixRunning = false, cfixStop = false;
+async function cfixInit(){
+    cfixStop = false;
+    try { const d = await (await fetch(API + '?action=cfix-status')).json(); cfixRender(d && d.state); }
+    catch(e){ cfixRender(null); }
+}
+function cfixRender(state){
+    var box = document.getElementById('cfixStatus'); if (!box) return;
+    if (!state){ box.innerHTML = '<span class="muted">No run yet.</span>'; }
+    else {
+        var pct = state.total ? Math.round(100*(state.processed||0)/state.total) : 0;
+        box.innerHTML =
+            '<div style="height:14px; background:#eee; border-radius:7px; overflow:hidden;"><div style="height:100%; width:'+pct+'%; background:#185FA5;"></div></div>'
+            + '<div style="margin-top:6px; font-size:13px;">Processed <b>'+(state.processed||0)+'</b> / '+(state.total||0)
+            + ' · Template fixed <b>'+(state.templateFixed||0)+'</b> · Published <b>'+(state.ensured||0)+'</b>'
+            + (state.done ? ' · <b style="color:#176a2e;">Done</b>' : (cfixRunning ? ' · running…' : ' · paused'))
+            + '</div>';
+    }
+    var sb = document.getElementById('cfixStartBtn'), stb = document.getElementById('cfixStopBtn');
+    if (sb){ sb.disabled = cfixRunning; sb.textContent = (state && !state.done && (state.processed>0)) ? 'Resume' : 'Start'; }
+    if (stb) stb.disabled = !cfixRunning;
+}
+async function cfixStart(){
+    if (cfixRunning) return;
+    var state = null;
+    try { var s = await (await fetch(API + '?action=cfix-status')).json(); state = s && s.state; } catch(e){}
+    if (!state || state.done){
+        if (!confirm('This sets the template (home-decor-final) and publishes EVERY Collective product (active + draft) to the 6 regions and 9 channels. It only adds — never removes. Start now?')) return;
+        var st = await (await fetch(API + '?action=cfix-start')).json();
+        if (!st.ok){ alert('Could not start: ' + (st.error||'')); return; }
+        state = st.state;
+    }
+    cfixRunning = true; cfixStop = false; cfixRender(state);
+    var guard = 0;
+    while (!cfixStop && guard < 1000){
+        guard++;
+        var r;
+        try { r = await (await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'cfix-batch' }) })).json(); }
+        catch(e){ await new Promise(function(s){ setTimeout(s, 3000); }); continue; }
+        if (!r.ok){ alert('Error: ' + (r.error||'')); break; }
+        cfixRender(r.state);
+        if (!r.hasMore) break;
+    }
+    cfixRunning = false;
+    try { var s2 = await (await fetch(API + '?action=cfix-status')).json(); cfixRender(s2 && s2.state); } catch(e){}
+}
+function cfixStopRun(){ cfixStop = true; cfixRunning = false; }
+async function cfixUndo(){
+    if (!confirm('Restore the product templates this tool changed back to their previous value? (Publishing stays as-is.)')) return;
+    var offset = 0, total = 0, restored = 0;
+    var btn = document.getElementById('cfixUndoBtn'); if (btn) btn.disabled = true;
+    while (true){
+        var r = await (await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'cfix-undo-templates', offset:offset, limit:40 }) })).json();
+        if (!r.ok){ alert('Undo error: ' + (r.error||'')); break; }
+        restored += r.restored||0; total = r.total||0; offset = r.nextOffset||offset;
+        document.getElementById('cfixStatus').innerHTML = '<span class="muted">Undo: restored ' + restored + ' / ' + total + ' templates…</span>';
+        if (!r.hasMore) break;
+    }
+    if (btn) btn.disabled = false;
+    alert('Templates restored: ' + restored);
+}
 
 /* ===================== METAFIELDS TAB ===================== */
 // Trends values accepted by the live "Decor Style" filter (from Shopify Search & Discovery — top values + grouped).
