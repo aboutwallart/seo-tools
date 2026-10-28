@@ -7,6 +7,9 @@
 //   applied; vendor list keeps vendors with applied>0). Undo runs keep last 10, store product titles/handles per run,
 //   and on full revert move products back to Drafts (removed from collective-applied.json).
 // v3.11: cdt — exclude 0-stock drafts (totalInventory>0) from vendors + products; vendor list drops fully-done vendors.
+// v3.18: NEW "Fix publishing & template" for Collective — cfix-start/cfix-batch/cfix-status/cfix-undo-templates: sets
+//   templateSuffix=home-decor-final and publishes every Collective (active+draft) product to the 6 regions + 9 channels
+//   (additive, idempotent, resumable by batch). cdt-apply now also sets the template + publishing on every save.
 // v3.10: cdt-options now splits collections into collectionsByRoom + collectionsByProduct (two sub-columns in the UI).
 // v3.9: NEW "Update Collective items data" tab. cdt-options (pick-lists: product types, live room choices, trends from
 //   config, collections+their smart-collection tag + linked-trend pages, both from the New Main Menu), cdt-vendors
@@ -2109,6 +2112,26 @@ module.exports = async function handler(req, res) {
     const CDT_UNDO_KEEP = 10;   // keep only the last 10 runs for this tab (older snapshot files are deleted)
     const CDT_MARGIN = { mode: 'floor_cost', value: 25, rounding: 'none' };   // reuses Collective Prices rule: at least cost + 25%
 
+    // ---- Collective publishing + template fix (v3.18) ----
+    const COLL_TAG = 'Shopify Collective';
+    const COLL_TEMPLATE = 'home-decor-final';
+    const COLL_CHANNEL_NAMES = ['Online Store', 'Pinterest', 'Google & YouTube', 'Facebook & Instagram', 'Shop', 'Click & Drop', 'Linktree', 'Inbox', 'Buy Button'];
+    const COLL_MARKET_NAMES = ['United Kingdom', 'European Union', 'Europe None EU', 'International', 'Rest of the world', 'Australia'];
+    const CFIX_STATE = 'data/collective-fixpub-state.json';   // { total, cursor, processed, templateFixed, ensured, done, startedAt, pubIds, undoTemplates:[{id,oldTemplate}] }
+    // Resolve the publication IDs for the 9 channels + 6 regions by name (self-healing if an app/market id ever changes).
+    async function cfixResolvePubs() {
+      const pubIds = [];
+      const d = await shopify(`query{ publications(first:50){ edges{ node{ id channels(first:1){ edges{ node{ name } } } } } } }`);
+      const chByName = {};
+      (d.publications.edges || []).forEach(e => { const n = e.node; const ch = n.channels && n.channels.edges && n.channels.edges[0] && n.channels.edges[0].node; if (ch && ch.name) chByName[ch.name] = n.id; });
+      COLL_CHANNEL_NAMES.forEach(nm => { if (chByName[nm]) pubIds.push(chByName[nm]); });
+      const m = await shopify(`query{ markets(first:50){ edges{ node{ name catalogs(first:5){ edges{ node{ publication{ id } } } } } } } }`);
+      const mkByName = {};
+      (m.markets.edges || []).forEach(e => { const n = e.node; const cat = n.catalogs && n.catalogs.edges && n.catalogs.edges[0] && n.catalogs.edges[0].node; const pid = cat && cat.publication && cat.publication.id; if (pid) mkByName[n.name] = pid; });
+      COLL_MARKET_NAMES.forEach(nm => { if (mkByName[nm]) pubIds.push(mkByName[nm]); });
+      return pubIds;
+    }
+
     // ---- cdt-options: the pick-lists for every field (product types, room choices, trends, collections+their tag, linked-trend pages) ----
     if (action === 'cdt-options') {
       const cfg = (await ghGet(CDT_CONFIG)).json || {};
@@ -2177,6 +2200,7 @@ module.exports = async function handler(req, res) {
     if (action === 'cdt-apply') {
       const items = Array.isArray(body.items) ? body.items : [];
       if (!items.length) return res.status(200).json({ ok: true, applied: 0 });
+      let COLL_PUBS = []; try { COLL_PUBS = await cfixResolvePubs(); } catch (e) {}   // v3.18: also set template + publishing on each save
       const now = new Date().toISOString(); const isFirst = !body.undoId; const undoId = body.undoId || ('cdtundo-' + now.replace(/[:.]/g, '-'));
       const ids = items.map(it => it.productId);
       const cur = {};
@@ -2197,7 +2221,7 @@ module.exports = async function handler(req, res) {
         const p = cur[it.productId]; if (!p) continue; const pid = it.productId;
         try {
           const newTags = Array.from(new Set([...(p.tags || []), ...((it.addTags || []))]));
-          let input = `id:"${pid}", tags:[${newTags.map(t => JSON.stringify(t)).join(',')}]`;
+          let input = `id:"${pid}", tags:[${newTags.map(t => JSON.stringify(t)).join(',')}], templateSuffix:${JSON.stringify(COLL_TEMPLATE)}`;
           if (it.categoryId) input += `, category:"${it.categoryId}"`;
           if (it.productType) input += `, productType:${JSON.stringify(it.productType)}`;
           const d1 = await shopify(`mutation{ productUpdate(input:{${input}}){ userErrors{ message } } }`); const ue1 = d1.productUpdate ? d1.productUpdate.userErrors : []; if (ue1 && ue1.length) ue1.forEach(e => errors.push(`${pid}: ${e.message}`));
@@ -2209,6 +2233,7 @@ module.exports = async function handler(req, res) {
           const variants = [];
           (p.variants ? p.variants.nodes : []).forEach(v => { const cost = v.inventoryItem && v.inventoryItem.unitCost ? v.inventoryItem.unitCost.amount : null; const r = computeNew(v.price, cost, CDT_MARGIN); if (r.changed && r.newPrice != null) variants.push({ id: v.id, price: String(r.newPrice) }); });
           if (variants.length) { const d3 = await shopify(`mutation($productId:ID!,$variants:[ProductVariantsBulkInput!]!){ productVariantsBulkUpdate(productId:$productId,variants:$variants){ userErrors{ message } } }`, { productId: pid, variants }); const ue3 = d3.productVariantsBulkUpdate ? d3.productVariantsBulkUpdate.userErrors : []; if (ue3 && ue3.length) ue3.forEach(e => errors.push(`${pid}: ${e.message}`)); }
+          if (COLL_PUBS && COLL_PUBS.length) { try { await shopify(`mutation{ publishablePublish(id:"${pid}", input:[${COLL_PUBS.map(id => `{publicationId:"${id}"}`).join(',')}]){ userErrors{ message } } }`); } catch (e) { errors.push(`${pid}: publish ${String(e.message || e)}`); } }
           applied++; doneIds.push(pid);
         } catch (e) { errors.push(`${pid}: ${String(e.message || e)}`); }
       }
@@ -2252,6 +2277,64 @@ module.exports = async function handler(req, res) {
         try { const idx = (await ghGet(CDT_UNDO_IDX)).json || []; const h = idx.find(x => x.id === undoId); if (h) h.reverted = true; await ghPut(CDT_UNDO_IDX, idx, `cdt reverted ${undoId}`); } catch (e) {}
         try { const allIds = snap.snapshot.map(s => s.productId); const list = (await ghGet(CDT_APPLIED)).json || []; const set = new Set(list); allIds.forEach(id => set.delete(id)); await ghPut(CDT_APPLIED, Array.from(set), `cdt undo→drafts ${allIds.length}`); } catch (e) {}
       }
+      return res.status(200).json({ ok: true, restored, total, nextOffset, hasMore, errors: errors.slice(0, 20) });
+    }
+
+    // ---- cfix-start: begin a fresh run (resolve the 9 channels + 6 regions, count the products) ----
+    if (action === 'cfix-start') {
+      const pubIds = await cfixResolvePubs();
+      let total = 0; try { const c = await shopify(`query{ productsCount(query:"tag:'${COLL_TAG}' (status:active OR status:draft)"){ count } }`); total = (c.productsCount && c.productsCount.count) || 0; } catch (e) {}
+      const state = { total, cursor: null, processed: 0, templateFixed: 0, ensured: 0, done: false, startedAt: new Date().toISOString(), pubIds, undoTemplates: [] };
+      await ghPut(CFIX_STATE, state, 'cfix start');
+      return res.status(200).json({ ok: true, state, pubCount: pubIds.length });
+    }
+    // ---- cfix-status: current progress ----
+    if (action === 'cfix-status') { return res.status(200).json({ ok: true, state: (await ghGet(CFIX_STATE)).json || null }); }
+    // ---- cfix-batch: next page — set template where missing + publish to the 9 channels + 6 regions (additive) ----
+    if (action === 'cfix-batch') {
+      const state = (await ghGet(CFIX_STATE)).json;
+      if (!state) return res.status(400).json({ ok: false, error: 'Run not started' });
+      if (state.done) return res.status(200).json({ ok: true, state, done: true });
+      const pubIds = state.pubIds || [];
+      const pubInput = pubIds.map(id => `{publicationId:"${id}"}`).join(',');
+      const PAGE = 25;
+      const d = await shopify(`query($c:String){ products(first:${PAGE}, query:"tag:'${COLL_TAG}' (status:active OR status:draft)", after:$c){ pageInfo{ hasNextPage endCursor } nodes{ id templateSuffix } } }`, { c: state.cursor });
+      const nodes = (d.products && d.products.nodes) || [];
+      const errors = [];
+      for (const p of nodes) {
+        state.processed++;
+        try {
+          if ((p.templateSuffix || null) !== COLL_TEMPLATE) {
+            const du = await shopify(`mutation{ productUpdate(input:{id:"${p.id}", templateSuffix:${JSON.stringify(COLL_TEMPLATE)}}){ userErrors{ message } } }`);
+            const ue = du.productUpdate ? du.productUpdate.userErrors : []; if (ue && ue.length) errors.push(`${p.id}: ${ue[0].message}`);
+            else { state.templateFixed++; state.undoTemplates.push({ id: p.id, oldTemplate: (p.templateSuffix || null) }); }
+          }
+          if (pubInput) {
+            const dp = await shopify(`mutation{ publishablePublish(id:"${p.id}", input:[${pubInput}]){ userErrors{ message } } }`);
+            const ue2 = dp.publishablePublish ? dp.publishablePublish.userErrors : []; if (ue2 && ue2.length) errors.push(`${p.id}: ${ue2[0].message}`);
+            else state.ensured++;
+          }
+        } catch (e) { errors.push(`${p.id}: ${String(e.message || e)}`); }
+      }
+      state.cursor = (d.products && d.products.pageInfo) ? d.products.pageInfo.endCursor : null;
+      if (!d.products || !d.products.pageInfo || !d.products.pageInfo.hasNextPage) state.done = true;
+      if (state.undoTemplates.length > 4000) state.undoTemplates = state.undoTemplates.slice(-4000);
+      await ghPut(CFIX_STATE, state, `cfix batch (${state.processed}/${state.total})`);
+      return res.status(200).json({ ok: true, state, hasMore: !state.done, errors: errors.slice(0, 20) });
+    }
+    // ---- cfix-undo-templates: restore the templates this tool changed (publishing is additive and left as-is) ----
+    if (action === 'cfix-undo-templates') {
+      const state = (await ghGet(CFIX_STATE)).json; const list = (state && state.undoTemplates) || [];
+      const offset = Number(body.offset) || 0, limit = Number(body.limit) || 40; const work = list.slice(offset, offset + limit);
+      const errors = []; let restored = 0;
+      for (const u of work) {
+        try {
+          const tv = (u.oldTemplate == null) ? 'null' : JSON.stringify(u.oldTemplate);
+          await shopify(`mutation{ productUpdate(input:{id:"${u.id}", templateSuffix:${tv}}){ userErrors{ message } } }`);
+          restored++;
+        } catch (e) { errors.push(String(e.message || e)); }
+      }
+      const total = list.length, nextOffset = offset + work.length, hasMore = nextOffset < total;
       return res.status(200).json({ ok: true, restored, total, nextOffset, hasMore, errors: errors.slice(0, 20) });
     }
 
