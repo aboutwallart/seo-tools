@@ -1,4 +1,4 @@
-// shopify-bulk.js — v3.13 (25 Oct 2026)
+// shopify-bulk.js — v3.18 (28 Oct 2026)
 // v3.13: cdt — vendor list shows only vendors with drafts>0 again (done-only vendors drop). tagGroups now also carries
 //   roomToFurniture + decorToPages (for the front's auto-mark+grey of Furniture tags by room and Trend pages by Decor style).
 //   Decor style list reduced to 35 (collective-data-config.json — dropped the 7 generic grouping values).
@@ -2115,21 +2115,57 @@ module.exports = async function handler(req, res) {
     // ---- Collective publishing + template fix (v3.18) ----
     const COLL_TAG = 'Shopify Collective';
     const COLL_TEMPLATE = 'home-decor-final';
-    const COLL_CHANNEL_NAMES = ['Online Store', 'Pinterest', 'Google & YouTube', 'Facebook & Instagram', 'Shop', 'Click & Drop', 'Linktree', 'Inbox', 'Buy Button'];
-    const COLL_MARKET_NAMES = ['United Kingdom', 'European Union', 'Europe None EU', 'International', 'Rest of the world', 'Australia'];
     const CFIX_STATE = 'data/collective-fixpub-state.json';   // { total, cursor, processed, templateFixed, ensured, done, startedAt, pubIds, undoTemplates:[{id,oldTemplate}] }
-    // Resolve the publication IDs for the 9 channels + 6 regions by name (self-healing if an app/market id ever changes).
-    async function cfixResolvePubs() {
+    // The 15 target publications (9 sales channels + 6 regions), by name + id. IDs are stable; cfixResolve() self-heals a
+    // channel id by name and warns (in plain English) about anything new/missing, so Mae can report it back to Claude.
+    const COLL_PUBS = [
+      { name: 'Online Store',         kind: 'channel', id: 'gid://shopify/Publication/113504977182' },
+      { name: 'Pinterest',            kind: 'channel', id: 'gid://shopify/Publication/131214835998' },
+      { name: 'Google & YouTube',     kind: 'channel', id: 'gid://shopify/Publication/131632693534' },
+      { name: 'Facebook & Instagram', kind: 'channel', id: 'gid://shopify/Publication/131641114910' },
+      { name: 'Shop',                 kind: 'channel', id: 'gid://shopify/Publication/133291868446' },
+      { name: 'Click & Drop',         kind: 'channel', id: 'gid://shopify/Publication/134986629406' },
+      { name: 'Linktree',             kind: 'channel', id: 'gid://shopify/Publication/143717695774' },
+      { name: 'Inbox',                kind: 'channel', id: 'gid://shopify/Publication/143751348510' },
+      { name: 'Buy Button',           kind: 'channel', id: 'gid://shopify/Publication/187072971038' },
+      { name: 'United Kingdom',       kind: 'region',  id: 'gid://shopify/Publication/113505009950' },
+      { name: 'European Union',       kind: 'region',  id: 'gid://shopify/Publication/113505075486' },
+      { name: 'Europe None EU',       kind: 'region',  id: 'gid://shopify/Publication/125843996958' },
+      { name: 'International',        kind: 'region',  id: 'gid://shopify/Publication/113505108254' },
+      { name: 'Rest of the world',    kind: 'region',  id: 'gid://shopify/Publication/135244579102' },
+      { name: 'Australia',            kind: 'region',  id: 'gid://shopify/Publication/125842653470' },
+    ];
+    // Channels that exist in the store but are intentionally left OFF for Collective (so we don't warn about them).
+    const COLL_OFF_CHANNELS = ['Better That', 'TikTok', 'Faire: Sell Wholesale', 'Ankorstore: Sell Wholesale', 'Collective: Supplier', 'Point of Sale'];
+    // Build the target publication ids. Self-heals channel ids by name; validates region ids; returns plain-English warnings.
+    async function cfixResolve() {
+      const warnings = [];
+      const channels = COLL_PUBS.filter(p => p.kind === 'channel');
+      const regions = COLL_PUBS.filter(p => p.kind === 'region');
       const pubIds = [];
-      const d = await shopify(`query{ publications(first:50){ edges{ node{ id channels(first:1){ edges{ node{ name } } } } } } }`);
-      const chByName = {};
-      (d.publications.edges || []).forEach(e => { const n = e.node; const ch = n.channels && n.channels.edges && n.channels.edges[0] && n.channels.edges[0].node; if (ch && ch.name) chByName[ch.name] = n.id; });
-      COLL_CHANNEL_NAMES.forEach(nm => { if (chByName[nm]) pubIds.push(chByName[nm]); });
-      const m = await shopify(`query{ markets(first:50){ edges{ node{ name catalogs(first:5){ edges{ node{ publication{ id } } } } } } } }`);
-      const mkByName = {};
-      (m.markets.edges || []).forEach(e => { const n = e.node; const cat = n.catalogs && n.catalogs.edges && n.catalogs.edges[0] && n.catalogs.edges[0].node; const pid = cat && cat.publication && cat.publication.id; if (pid) mkByName[n.name] = pid; });
-      COLL_MARKET_NAMES.forEach(nm => { if (mkByName[nm]) pubIds.push(mkByName[nm]); });
-      return pubIds;
+      // Live channels — read by `name` (exists in API 2025-01). If this ever fails, fall back to the saved ids.
+      let liveByName = null;
+      try {
+        const d = await shopify(`query{ publications(first:60){ edges{ node{ id name } } } }`);
+        liveByName = {}; (d.publications.edges || []).forEach(e => { const n = e.node; if (n && n.name) liveByName[n.name] = n.id; });
+      } catch (e) { warnings.push('Could not read the store channels — using the saved IDs. Tell Claude: ' + String(e.message || e)); }
+      channels.forEach(p => {
+        if (!liveByName) { pubIds.push(p.id); return; }
+        if (!(p.name in liveByName)) { warnings.push('Channel "' + p.name + '" was not found in the store (renamed or removed). Tell Claude to check it.'); pubIds.push(p.id); }
+        else { if (liveByName[p.name] !== p.id) warnings.push('Channel "' + p.name + '" has a different ID now (the app was likely reinstalled) — using the new one. Tell Claude to update it.'); pubIds.push(liveByName[p.name]); }
+      });
+      if (liveByName) {
+        const known = new Set(channels.map(p => p.name).concat(COLL_OFF_CHANNELS));
+        Object.keys(liveByName).forEach(nm => { if (!known.has(nm)) warnings.push('New channel in the store not set up here: "' + nm + '". Tell Claude whether Collective products should publish to it.'); });
+      }
+      // Regions can't be listed by name, so validate the saved ids still exist.
+      try {
+        const ids = regions.map(p => `"${p.id}"`).join(',');
+        const d = await shopify(`query{ nodes(ids:[${ids}]){ id } }`);
+        const found = new Set((d.nodes || []).filter(Boolean).map(n => n.id));
+        regions.forEach(p => { if (found.has(p.id)) pubIds.push(p.id); else warnings.push('Region "' + p.name + '" was not found (its market may have changed). Tell Claude to check it.'); });
+      } catch (e) { warnings.push('Could not check the regions — using the saved IDs. Tell Claude: ' + String(e.message || e)); regions.forEach(p => pubIds.push(p.id)); }
+      return { pubIds, warnings };
     }
 
     // ---- cdt-options: the pick-lists for every field (product types, room choices, trends, collections+their tag, linked-trend pages) ----
@@ -2200,7 +2236,7 @@ module.exports = async function handler(req, res) {
     if (action === 'cdt-apply') {
       const items = Array.isArray(body.items) ? body.items : [];
       if (!items.length) return res.status(200).json({ ok: true, applied: 0 });
-      let COLL_PUBS = []; try { COLL_PUBS = await cfixResolvePubs(); } catch (e) {}   // v3.18: also set template + publishing on each save
+      let COLL_PUB_IDS = []; try { COLL_PUB_IDS = (await cfixResolve()).pubIds; } catch (e) {}   // v3.18: also set template + publishing on each save
       const now = new Date().toISOString(); const isFirst = !body.undoId; const undoId = body.undoId || ('cdtundo-' + now.replace(/[:.]/g, '-'));
       const ids = items.map(it => it.productId);
       const cur = {};
@@ -2233,7 +2269,7 @@ module.exports = async function handler(req, res) {
           const variants = [];
           (p.variants ? p.variants.nodes : []).forEach(v => { const cost = v.inventoryItem && v.inventoryItem.unitCost ? v.inventoryItem.unitCost.amount : null; const r = computeNew(v.price, cost, CDT_MARGIN); if (r.changed && r.newPrice != null) variants.push({ id: v.id, price: String(r.newPrice) }); });
           if (variants.length) { const d3 = await shopify(`mutation($productId:ID!,$variants:[ProductVariantsBulkInput!]!){ productVariantsBulkUpdate(productId:$productId,variants:$variants){ userErrors{ message } } }`, { productId: pid, variants }); const ue3 = d3.productVariantsBulkUpdate ? d3.productVariantsBulkUpdate.userErrors : []; if (ue3 && ue3.length) ue3.forEach(e => errors.push(`${pid}: ${e.message}`)); }
-          if (COLL_PUBS && COLL_PUBS.length) { try { await shopify(`mutation{ publishablePublish(id:"${pid}", input:[${COLL_PUBS.map(id => `{publicationId:"${id}"}`).join(',')}]){ userErrors{ message } } }`); } catch (e) { errors.push(`${pid}: publish ${String(e.message || e)}`); } }
+          if (COLL_PUB_IDS && COLL_PUB_IDS.length) { try { await shopify(`mutation{ publishablePublish(id:"${pid}", input:[${COLL_PUB_IDS.map(id => `{publicationId:"${id}"}`).join(',')}]){ userErrors{ message } } }`); } catch (e) { errors.push(`${pid}: publish ${String(e.message || e)}`); } }
           applied++; doneIds.push(pid);
         } catch (e) { errors.push(`${pid}: ${String(e.message || e)}`); }
       }
@@ -2280,13 +2316,18 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ ok: true, restored, total, nextOffset, hasMore, errors: errors.slice(0, 20) });
     }
 
+    // ---- cfix-check: report whether the 9 channels + 6 regions are all present/correct (no changes) ----
+    if (action === 'cfix-check') {
+      const { pubIds, warnings } = await cfixResolve();
+      return res.status(200).json({ ok: true, pubCount: pubIds.length, warnings });
+    }
     // ---- cfix-start: begin a fresh run (resolve the 9 channels + 6 regions, count the products) ----
     if (action === 'cfix-start') {
-      const pubIds = await cfixResolvePubs();
+      const { pubIds, warnings } = await cfixResolve();
       let total = 0; try { const c = await shopify(`query{ productsCount(query:"tag:'${COLL_TAG}' (status:active OR status:draft)"){ count } }`); total = (c.productsCount && c.productsCount.count) || 0; } catch (e) {}
       const state = { total, cursor: null, processed: 0, templateFixed: 0, ensured: 0, done: false, startedAt: new Date().toISOString(), pubIds, undoTemplates: [] };
       await ghPut(CFIX_STATE, state, 'cfix start');
-      return res.status(200).json({ ok: true, state, pubCount: pubIds.length });
+      return res.status(200).json({ ok: true, state, pubCount: pubIds.length, warnings });
     }
     // ---- cfix-status: current progress ----
     if (action === 'cfix-status') { return res.status(200).json({ ok: true, state: (await ghGet(CFIX_STATE)).json || null }); }
