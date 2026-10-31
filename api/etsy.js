@@ -1,4 +1,4 @@
-// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images + Compliance + Edit Descriptions)  ·  v0.59
+// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images + Compliance + Edit Descriptions)  ·  v0.60
 // v0.58 (2026-10-26): ri-sections now backfills each done listing's section from Etsy (finished sections grey out without
 //   opening them). New ri-skus-todo (pending SKUs grouped by section). New Edit Descriptions tab: ed-plan resolves a scope
 //   (all / skus / section) into a worklist; ed-batch previews (no write) or applies (write + backup) find/replace OR an
@@ -1511,6 +1511,29 @@ module.exports = async (req, res) => {
     }
     // Replace images — list the Shopify-pending listings (Etsy OK, Shopify failed/missing).
     if (q.action === 'ri-shop-pending-list') { const p = await readShopPending(); finish(200, { ok: true, items: p.items }); return; }
+    // Replace images — fetch the Etsy + Shopify images for ONE listing, so the pending tab can show them side by side.
+    if (q.action === 'ri-shop-compare' && req.method === 'POST') {
+      const b = req.body || {};
+      if (!b.listing_id) { finish(400, { ok: false, error: 'Missing listing_id' }); return; }
+      try {
+        const ei = await call('/listings/' + b.listing_id + '/images');
+        const etsy = ((ei.json && ei.json.results) || []).slice().sort((a, c) => (a.rank || 0) - (c.rank || 0)).map(im => im.url_570xN || im.url_fullxfull);
+        let sku = String(b.sku || '');
+        if (!sku) { try { const ld = await call('/listings/' + b.listing_id); const L = ld.json || {}; sku = (Array.isArray(L.skus) && L.skus[0]) || ''; } catch (e) {} }
+        const sh = await loadShopifyMedia(sku);
+        const shopify = (sh && sh.matched && Array.isArray(sh.images)) ? sh.images.map(i => i.url) : [];
+        finish(200, { ok: true, etsy, shopify, matched: !!(sh && sh.matched) });
+      } catch (e) { finish(500, { ok: false, error: String(e && e.message || e) }); }
+      return;
+    }
+    // Replace images — dismiss a Shopify-pending item (it was intentionally Etsy-only / already fine). Just drops it from the list.
+    if (q.action === 'ri-shop-dismiss' && req.method === 'POST') {
+      const b = req.body || {};
+      if (!b.listing_id) { finish(400, { ok: false, error: 'Missing listing_id' }); return; }
+      try { const p = await readShopPending(); const i = p.items.findIndex(x => String(x.listing_id) === String(b.listing_id)); if (i >= 0) { p.items.splice(i, 1); await writeShopPending(p); } finish(200, { ok: true }); }
+      catch (e) { finish(500, { ok: false, error: String(e && e.message || e) }); }
+      return;
+    }
     // Replace images — scan the "done" listings for Etsy-vs-Shopify image-count mismatches (the historical Shopify misses), add them to pending. Resumable (offset/limit).
     if (q.action === 'ri-shop-pending-scan' && req.method === 'POST') {
       const b = req.body || {};
