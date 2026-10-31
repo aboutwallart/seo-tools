@@ -42,18 +42,19 @@ async function getStoreProducts() {
 
 async function getSupplier() {
   const byId = {};
-  for (const cat of CATEGORIES) {
-    try {
-      const r = await fetch(FEED_BASE + cat);
-      if (!r.ok) continue;
+  // (31 Oct 2026) 'all' returns the supplier's whole live list in ONE call — every category, incl. any new category
+  // they add later. No hardcoded category list to maintain, so new supplier products appear by default.
+  try {
+    const r = await fetch(FEED_BASE + 'all');
+    if (r.ok) {
       const j = await r.json();
       (j.products || []).forEach(p => {
         if (byId[p.productId]) return;
         byId[p.productId] = { id: p.productId, name: p.productName, img: p.imageUrl || '',
           vars: (p.variants || []).map(v => ({ n: v.variantName, s: v.stock, d: v.nextAvailableDays })) };
       });
-    } catch (e) { /* skip */ }
-  }
+    }
+  } catch (e) { /* skip */ }
   return Object.values(byId).sort((a,b) => a.name.localeCompare(b.name));
 }
 

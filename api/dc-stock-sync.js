@@ -19,14 +19,11 @@ function dispatchStr(days){ return days <= 14 ? `${days} days` : `${Math.round(d
 
 async function getFeed() {
   const byId = {};
-  for (const c of CATEGORIES) {
-    try {
-      const r = await fetch(FEED_BASE + c);
-      if (!r.ok) continue;
-      const j = await r.json();
-      (j.products || []).forEach(p => { if (!byId[p.productId]) byId[p.productId] = p; });
-    } catch (e) { /* skip category on error */ }
-  }
+  // (31 Oct 2026) 'all' returns the whole live list in ONE call — every category incl. new ones (no list to maintain).
+  try {
+    const r = await fetch(FEED_BASE + 'all');
+    if (r.ok) { const j = await r.json(); (j.products || []).forEach(p => { if (!byId[p.productId]) byId[p.productId] = p; }); }
+  } catch (e) { /* skip on error */ }
   return byId;
 }
 
