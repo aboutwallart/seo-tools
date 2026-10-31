@@ -64,7 +64,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">AWA ETSY · v0.55</p>
+  <p class="ver">AWA ETSY · v0.56</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -1536,10 +1536,14 @@
       + '<p class="fixed" style="color:var(--text-muted,#666)">These went to Etsy but not to Shopify. "Scan" also finds older ones by comparing image counts. "Send" re-pushes each to Shopify.</p>';
     if (!items.length) return head + '<p class="sub">None pending. 🎉</p>';
     return head + items.map(function(it){
-      return '<div class="card" style="padding:10px"><div class="row" style="gap:10px;align-items:center">'
-        + '<div style="flex:1;min-width:160px"><b>' + esc(it.title || '') + '</b><div class="fixed">' + esc(it.sku || '(no sku)') + ' · <span style="color:#c33">' + esc(it.error || '') + '</span></div></div>'
-        + '<button type="button" onclick="riSendPending(\'' + esc(it.listing_id) + '\',\'' + esc(it.sku || '') + '\',this)">Send to Shopify</button>'
-        + '</div></div>';
+      var lid = esc(it.listing_id), sku = esc(it.sku || '');
+      return '<div class="card" style="padding:10px">'
+        + '<div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">'
+        + '<div style="flex:1;min-width:160px"><b>' + esc(it.title || '') + '</b><div class="fixed">' + (sku || '(no sku)') + ' · <span style="color:#c33">' + esc(it.error || '') + '</span></div></div>'
+        + '<button type="button" class="ghost" onclick="riComparePending(\'' + lid + '\',\'' + sku + '\',this)">Compare images</button>'
+        + '<button type="button" onclick="riSendPending(\'' + lid + '\',\'' + sku + '\',this)">Send to Shopify</button>'
+        + '<button type="button" class="ghost" onclick="riDismissPending(\'' + lid + '\',this)">Dismiss</button>'
+        + '</div><div id="ricmp-' + lid + '" style="margin-top:8px"></div></div>';
     }).join('');
   }
   async function riLoadShopPending(){
@@ -1552,6 +1556,24 @@
       if (j.ok){ RI_SHOP_PENDING = RI_SHOP_PENDING.filter(function(x){ return String(x.listing_id) !== String(id); }); renderListings(); }
       else { if (btn){ btn.disabled = false; btn.textContent = 'Send to Shopify'; } var m = $('riSpMsg'); if (m) m.innerHTML = '<span style="color:#c33">⚠ ' + esc(j.error || 'failed') + '</span>'; }
     }catch(e){ if (btn){ btn.disabled = false; btn.textContent = 'Send to Shopify'; } }
+  }
+  async function riComparePending(id, sku, btn){
+    var box = document.getElementById('ricmp-' + id); if (!box) return;
+    if (box.innerHTML){ box.innerHTML = ''; if (btn) btn.textContent = 'Compare images'; return; }   // toggle off
+    if (btn){ btn.textContent = 'Loading…'; btn.disabled = true; }
+    try{ var r = await fetch('/api/etsy?action=ri-shop-compare', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ listing_id: id, sku: sku }) }); var j = await r.json();
+      if (btn){ btn.textContent = 'Hide images'; btn.disabled = false; }
+      if (!j.ok){ box.innerHTML = '<span class="fixed" style="color:#c33">⚠ ' + esc(j.error || 'error') + '</span>'; return; }
+      function row(label, urls, color){ return '<div style="margin:4px 0"><div class="fixed" style="color:' + color + '">' + label + ' (' + urls.length + ')</div><div style="display:flex;flex-wrap:wrap;gap:4px">' + urls.map(function(u){ return '<img src="' + esc(u) + '" loading="lazy" style="width:56px;height:56px;object-fit:cover;border-radius:5px;border:1px solid var(--line)">'; }).join('') + '</div></div>'; }
+      box.innerHTML = row('Etsy', j.etsy || [], '#1a8a4a') + row('Shopify', j.shopify || [], '#185FA5') + (j.matched ? '' : '<span class="fixed" style="color:#c33">No Shopify match for this SKU.</span>');
+    }catch(e){ if (btn){ btn.textContent = 'Compare images'; btn.disabled = false; } box.innerHTML = '<span class="fixed" style="color:#c33">⚠ ' + esc(e.message) + '</span>'; }
+  }
+  async function riDismissPending(id, btn){
+    if (btn){ btn.disabled = true; btn.textContent = 'Dismissing…'; }
+    try{ var r = await fetch('/api/etsy?action=ri-shop-dismiss', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ listing_id: id }) }); var j = await r.json();
+      if (j.ok){ RI_SHOP_PENDING = RI_SHOP_PENDING.filter(function(x){ return String(x.listing_id) !== String(id); }); renderListings(); }
+      else { if (btn){ btn.disabled = false; btn.textContent = 'Dismiss'; } }
+    }catch(e){ if (btn){ btn.disabled = false; btn.textContent = 'Dismiss'; } }
   }
   async function riSendAllPending(){
     var items = RI_SHOP_PENDING.slice(); var m = $('riSpMsg'); var ok = 0, fail = 0;
