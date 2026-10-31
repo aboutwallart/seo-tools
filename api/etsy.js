@@ -1,8 +1,14 @@
-// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images + Compliance + Edit Descriptions)  ·  v0.58
+// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images + Compliance + Edit Descriptions)  ·  v0.59
 // v0.58 (2026-10-26): ri-sections now backfills each done listing's section from Etsy (finished sections grey out without
 //   opening them). New ri-skus-todo (pending SKUs grouped by section). New Edit Descriptions tab: ed-plan resolves a scope
 //   (all / skus / section) into a worklist; ed-batch previews (no write) or applies (write + backup) find/replace OR an
 //   AI rewrite of the description, batched + resumable. Replaces the old "Clean listings" strip.
+// v0.59 (2026-10-31): Replace images — fixes big-save failures + Shopify-only + recovery. ri-stage-image uploads each new
+//   image to Shopify's CDN one at a time, so ri-apply is sent with only URLs (no more "Request Entity Too Large").
+//   ri-apply target now also accepts 'shopify' (push the built set to Shopify only, don't touch Etsy). Done placement is
+//   Etsy-driven; a failed Shopify push is recorded in data/etsy-images-shopify-pending.json (with the built set) instead of
+//   being lost. New actions: ri-shop-pending-list / ri-shop-pending-scan (find historical Etsy-ok/Shopify-missed by image
+//   count) / ri-shop-send (re-send a pending listing to Shopify — stored built set, else mirror the Etsy images).
 // v0.57 (2026-10-26): Replace images — ri-mark-done: mark several listings as done WITHOUT changing their images
 //   (the "Skip — mark done" bulk button, for listings that already look fine).
 // v0.56 (2026-10-26): Compliance photo tab — bulk-add common image #2 (a real, non-AI/non-mockup photo) to every active +
@@ -222,6 +228,10 @@ async function readComplyQueue() { try { const f = await ghGet(RI_COMPLY_QUEUE_P
 async function readEdQueue() { try { const f = await ghGet(ED_QUEUE_PATH); if (f.content) { const j = JSON.parse(f.content); return { ids: (j && j.ids) || [], sha: f.sha }; } } catch (e) {} return { ids: [], sha: null }; }
 function withCommonUrls(items) { return (items || []).map(it => Object.assign({}, it, { url: commonUrl(it.path) })); }
 async function readDone() { try { const f = await ghGet(RI_DONE_PATH); if (f.content) { const j = JSON.parse(f.content); return { ids: Array.isArray(j) ? j : (j.ids || []), sections: (j && j.sections) || {}, sha: f.sha }; } } catch (e) {} return { ids: [], sections: {}, sha: null }; }
+// v0.59: Replace images — listings whose Etsy save worked but Shopify failed/is missing. Shown in the "Shopify pending" tab to re-send.
+const RI_SHOP_PENDING_PATH = 'data/etsy-images-shopify-pending.json';
+async function readShopPending() { try { const f = await ghGet(RI_SHOP_PENDING_PATH); if (f.content) { const j = JSON.parse(f.content); return { items: (j && j.items) || [], sha: f.sha }; } } catch (e) {} return { items: [], sha: null }; }
+async function writeShopPending(p) { await ghPut(RI_SHOP_PENDING_PATH, JSON.stringify({ items: (p.items || []).slice(0, 500) }, null, 2), p.sha, 'ri shopify-pending (' + ((p.items || []).length) + ')'); }
 // Etsy variant SKUs look like "{BASE}- {size}{frame} {paper}" (the base can contain spaces, e.g. "CYANOTYPE BROWN").
 // The video filename gives the BASE, so group by the base code.
 function baseSkuEtsy(s) { return String(s || '').split(/\s*-\s/)[0].trim().toUpperCase(); }
@@ -1439,36 +1449,110 @@ module.exports = async (req, res) => {
       if (!b.listing_id) { finish(400, { ok: false, error: 'Missing listing_id' }); return; }
       const entries = Array.isArray(b.images) ? b.images : [];
       if (!entries.length) { finish(400, { ok: false, error: 'No images to apply' }); return; }
-      const target = String(b.target || 'etsy');   // 'etsy' or 'both' (both = also push the same set to Shopify)
-      // If pushing to Shopify too, resolve the matched product up front — it gives the id to push to AND its current
-      // images, which we back up alongside the Etsy ones.
+      const target = String(b.target || 'etsy');   // 'etsy' | 'both' | 'shopify'
+      const doEtsy = (target === 'etsy' || target === 'both');
+      const doShopify = (target === 'both' || target === 'shopify');
+      // If pushing to Shopify, resolve the matched product up front (id to push to + current images for backup).
       let shopProd = null;
-      if (target === 'both') { try { shopProd = await loadShopifyMedia(b.sku || ''); } catch (e) { shopProd = { error: String(e && e.message || e) }; } }
+      if (doShopify) { try { shopProd = await loadShopifyMedia(b.sku || ''); } catch (e) { shopProd = { error: String(e && e.message || e) }; } }
       // Back up the listing's CURRENT images + video FIRST — abort if we can't save it (same rule as the other tabs).
       try {
-        const cur = await call('/listings/' + b.listing_id + '/images');
-        const oldImages = ((cur.json && cur.json.results) || []).map(im => im.url_fullxfull);
-        let oldVideo = ''; try { const vr = await call('/listings/' + b.listing_id + '/videos'); const vids = (vr.json && (vr.json.results || vr.json.videos)) || []; if (vids[0]) oldVideo = vids[0].video_url || ''; } catch (e) {}
+        let oldImages = [], oldVideo = '';
+        if (doEtsy) {
+          const cur = await call('/listings/' + b.listing_id + '/images');
+          oldImages = ((cur.json && cur.json.results) || []).map(im => im.url_fullxfull);
+          try { const vr = await call('/listings/' + b.listing_id + '/videos'); const vids = (vr.json && (vr.json.results || vr.json.videos)) || []; if (vids[0]) oldVideo = vids[0].video_url || ''; } catch (e) {}
+        }
         const oldShopifyImages = (shopProd && shopProd.matched && Array.isArray(shopProd.images)) ? shopProd.images.map(i => i.url) : [];
         const log = await ghGet(RI_UNDO_PATH); const arr = log.content ? (JSON.parse(log.content).items || []) : [];
         arr.unshift({ listing_id: String(b.listing_id), sku: String(b.sku || ''), ts: Date.now(), oldImages, oldVideo, oldShopifyImages });
         await ghPut(RI_UNDO_PATH, JSON.stringify({ items: arr.slice(0, 200) }, null, 2), log.sha, 'ri undo ' + b.listing_id);
       } catch (e) { finish(500, { ok: false, error: 'Backup could not be saved — nothing was changed. ' + String(e && e.message || e) }); return; }
-      const r = await riApplyMedia(call, b.listing_id, entries, b.video || null);
-      // "Etsy + Shopify": replace the Shopify product's images with the same set, in the same order.
-      let shopify = null;
-      if (target === 'both') {
+      // Etsy
+      let r = null, etsyOK = true;
+      if (doEtsy) { r = await riApplyMedia(call, b.listing_id, entries, b.video || null); etsyOK = !!(r && r.photos && r.photos.uploaded > 0 && r.photos.failed === 0); }
+      // Shopify (replace the product's images with the same set, same order)
+      let shopify = null, shopifyOK = true;
+      if (doShopify) {
         if (shopProd && shopProd.matched && shopProd.id) { try { shopify = await pushImagesToShopify(shopProd.id, entries); } catch (e) { shopify = { error: String(e && e.message || e) }; } }
         else { shopify = { error: 'No matched Shopify product for SKU ' + (b.sku || '') + (shopProd && shopProd.error ? (' — ' + shopProd.error) : '') }; }
+        shopifyOK = !!(shopify && !shopify.error);
       }
-      // mark this listing as processed (for the per-section progress counter + the "done" badge), with its section
+      // Done placement is Etsy-driven. Shopify-only never changes it. Mark done only when the Etsy part succeeded.
       try {
-        const dn = await readDone(); const ids = dn.ids.map(String); const sections = dn.sections || {}; let changed = false;
-        if (ids.indexOf(String(b.listing_id)) < 0) { ids.unshift(String(b.listing_id)); changed = true; }
-        if (b.section && sections[String(b.listing_id)] !== String(b.section)) { sections[String(b.listing_id)] = String(b.section); changed = true; }
-        if (changed) await ghPut(RI_DONE_PATH, JSON.stringify({ ids, sections }, null, 2), dn.sha, 'ri done ' + b.listing_id);
+        const markDone = doEtsy && etsyOK;
+        if (markDone) {
+          const dn = await readDone(); const ids = dn.ids.map(String); const sections = dn.sections || {}; let changed = false;
+          if (ids.indexOf(String(b.listing_id)) < 0) { ids.unshift(String(b.listing_id)); changed = true; }
+          if (b.section && sections[String(b.listing_id)] !== String(b.section)) { sections[String(b.listing_id)] = String(b.section); changed = true; }
+          if (changed) await ghPut(RI_DONE_PATH, JSON.stringify({ ids, sections }, null, 2), dn.sha, 'ri done ' + b.listing_id);
+        }
       } catch (e) {}
-      finish(200, { ok: true, result: r, shopify });
+      // Shopify pending list: add on failure (keep the built set for re-send), remove on success.
+      if (doShopify) {
+        try {
+          const p = await readShopPending(); const i = p.items.findIndex(x => String(x.listing_id) === String(b.listing_id));
+          if (shopifyOK) { if (i >= 0) { p.items.splice(i, 1); await writeShopPending(p); } }
+          else { const rec = { listing_id: String(b.listing_id), sku: String(b.sku || ''), title: String(b.title || ''), section: String(b.section || ''), error: (shopify && shopify.error) || 'Shopify failed', ts: Date.now(), entries: entries }; if (i >= 0) p.items[i] = rec; else p.items.unshift(rec); await writeShopPending(p); }
+        } catch (e) {}
+      }
+      finish(200, { ok: true, result: r, shopify, etsyOK, shopifyOK });
+      return;
+    }
+    // Replace images — stage ONE image (base64) to Shopify's CDN and return its URL. Lets the front upload images one at a
+    // time (small requests) and then send ri-apply with only URLs — avoids the "Request Entity Too Large" on big image sets.
+    if (q.action === 'ri-stage-image' && req.method === 'POST') {
+      const b = req.body || {};
+      const b64 = String(b.dataBase64 || '').replace(/^data:[^;]+;base64,/, '');
+      if (!b64) { finish(400, { ok: false, error: 'No image' }); return; }
+      try { const up = await uploadImageToShopify(b64, b.fileName || ('ri-' + Date.now()), b.mimeType || 'image/jpeg', b.alt || ''); finish(200, { ok: true, url: up.url }); }
+      catch (e) { finish(500, { ok: false, error: String(e && e.message || e) }); }
+      return;
+    }
+    // Replace images — list the Shopify-pending listings (Etsy OK, Shopify failed/missing).
+    if (q.action === 'ri-shop-pending-list') { const p = await readShopPending(); finish(200, { ok: true, items: p.items }); return; }
+    // Replace images — scan the "done" listings for Etsy-vs-Shopify image-count mismatches (the historical Shopify misses), add them to pending. Resumable (offset/limit).
+    if (q.action === 'ri-shop-pending-scan' && req.method === 'POST') {
+      const b = req.body || {};
+      const dn = await readDone(); const ids = dn.ids.map(String);
+      const offset = Number(b.offset) || 0, limit = Number(b.limit) || 8;
+      const slice = ids.slice(offset, offset + limit);
+      const p = await readShopPending(); const have = new Set(p.items.map(x => String(x.listing_id)));
+      let found = 0;
+      for (const lid of slice) {
+        if (have.has(String(lid))) continue;
+        try {
+          const ei = await call('/listings/' + lid + '/images');
+          const etsyN = ((ei.json && ei.json.results) || []).length;
+          let sku = '', title = '';
+          try { const ld = await call('/listings/' + lid); const L = ld.json || {}; title = L.title || ''; sku = (Array.isArray(L.skus) && L.skus[0]) || (Array.isArray(L.sku) && L.sku[0]) || ''; } catch (e) {}
+          const sh = await loadShopifyMedia(sku);
+          if (sh && sh.matched) { const shopN = (sh.images || []).length; if (shopN !== etsyN) { p.items.unshift({ listing_id: String(lid), sku: String(sku || ''), title: String(title || sh.title || ''), section: String(dn.sections[String(lid)] || ''), error: 'Etsy ' + etsyN + ' imgs vs Shopify ' + shopN, ts: Date.now() }); have.add(String(lid)); found++; } }
+        } catch (e) {}
+      }
+      if (found) await writeShopPending(p);
+      const nextOffset = offset + slice.length, hasMore = nextOffset < ids.length;
+      finish(200, { ok: true, found, scanned: slice.length, nextOffset, hasMore, total: ids.length });
+      return;
+    }
+    // Replace images — re-send a pending listing to Shopify. Uses the stored built set if we have it (a tracked failure),
+    // else mirrors the listing's CURRENT Etsy images (a historical miss found by the scan).
+    if (q.action === 'ri-shop-send' && req.method === 'POST') {
+      const b = req.body || {};
+      if (!b.listing_id) { finish(400, { ok: false, error: 'Missing listing_id' }); return; }
+      try {
+        const p = await readShopPending(); const rec = p.items.find(x => String(x.listing_id) === String(b.listing_id));
+        const sku = String(b.sku || (rec && rec.sku) || '');
+        const sh = await loadShopifyMedia(sku);
+        if (!(sh && sh.matched && sh.id)) { finish(200, { ok: false, error: 'No matched Shopify product for SKU ' + sku }); return; }
+        let imgs = (rec && Array.isArray(rec.entries) && rec.entries.length) ? rec.entries : null;
+        if (!imgs) { const ei = await call('/listings/' + b.listing_id + '/images'); imgs = ((ei.json && ei.json.results) || []).slice().sort((a, c) => (a.rank || 0) - (c.rank || 0)).map(im => ({ url: im.url_fullxfull, alt: '' })); }
+        if (!imgs.length) { finish(200, { ok: false, error: 'No images to send' }); return; }
+        try { const log = await ghGet(RI_UNDO_PATH); const arr = log.content ? (JSON.parse(log.content).items || []) : []; arr.unshift({ listing_id: String(b.listing_id), sku, ts: Date.now(), oldImages: [], oldVideo: '', oldShopifyImages: (sh.images || []).map(i => i.url) }); await ghPut(RI_UNDO_PATH, JSON.stringify({ items: arr.slice(0, 200) }, null, 2), log.sha, 'ri undo(shop) ' + b.listing_id); } catch (e) {}
+        const pushed = await pushImagesToShopify(sh.id, imgs);
+        try { const p2 = await readShopPending(); const i = p2.items.findIndex(x => String(x.listing_id) === String(b.listing_id)); if (i >= 0) { p2.items.splice(i, 1); await writeShopPending(p2); } } catch (e) {}
+        finish(200, { ok: true, shopify: pushed });
+      } catch (e) { finish(500, { ok: false, error: String(e && e.message || e) }); }
       return;
     }
     // Replace images — "Move back to Start here": un-mark a listing as done (remove it from the done list).
