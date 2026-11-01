@@ -64,7 +64,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">AWA ETSY · v0.58</p>
+  <p class="ver">AWA ETSY · v0.59</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -1308,8 +1308,9 @@
     }catch(e){ if ($('riTopMsg')) $('riTopMsg').innerHTML = '<span style="color:#c33">⚠ ' + esc(e.message) + '</span>'; }
   }
   function renderListings(){
-    var startAll = RI_LISTINGS.filter(function(l){ return !l.done && riMatchSearch(l); });
-    var doneAll = RI_LISTINGS.filter(function(l){ return l.done && riMatchSearch(l); });
+    function bySku(a, b){ return String(a.sku || '').toLowerCase().localeCompare(String(b.sku || '').toLowerCase()); }
+    var startAll = RI_LISTINGS.filter(function(l){ return !l.done && riMatchSearch(l); }).sort(bySku);
+    var doneAll = RI_LISTINGS.filter(function(l){ return l.done && riMatchSearch(l); }).sort(bySku);
     var onDone = (RI_TAB === 'done');
     function tabBtn(t, label){ return '<button type="button" onclick="riSetTab(\'' + t + '\')" class="' + (RI_TAB === t ? '' : 'ghost') + '">' + label + '</button>'; }
     var tabs = '<div class="row" style="gap:6px;margin-bottom:10px;flex-wrap:wrap">' + tabBtn('start', 'Start here (' + startAll.length + ')') + tabBtn('done', 'Done (' + doneAll.length + ')') + '</div>';
