@@ -148,7 +148,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v3.19 · NEW temporary "Fix DC Concept descriptions" tab (cleans the multi-h1 bodies + sets the dc-concepts template on every DC Concept product — <b>delete this tab after use</b>) · DC Concept now gets the dc-concepts template + body cleanup automatically on apply and on "Fix publishing &amp; template" · v3.18 · NEW "Fix publishing &amp; template" tab (sets template home-decor-final + publishes to 6 regions + 9 channels on all Collective, additive) · "Collective items data" tab — per-product Category · Product type · Room type · Decor style (35) · Collections · Tags · Trend pages, by vendor/SKU. Auto-mark: Furniture tag by room, and Trend pages by Decor style (rest dimmed, still tickable). Vendor list shows only vendors with drafts. Tag match ignores upper/lowercase. Click a photo to enlarge · Recent runs (last 10) show their products; Undo moves them back to Drafts · Select all + count · Backup gate · Tabs grouped: AWA · Collective · General</div>
+            <div class="subtitle">v3.20 · DC Concept now gets the dc-concepts template + description cleanup (one h1, no stray code) automatically on apply and on "Fix publishing &amp; template" (temporary fix-all tab removed after use) · v3.18 · NEW "Fix publishing &amp; template" tab (sets template home-decor-final + publishes to 6 regions + 9 channels on all Collective, additive) · "Collective items data" tab — per-product Category · Product type · Room type · Decor style (35) · Collections · Tags · Trend pages, by vendor/SKU. Auto-mark: Furniture tag by room, and Trend pages by Decor style (rest dimmed, still tickable). Vendor list shows only vendors with drafts. Tag match ignores upper/lowercase. Click a photo to enlarge · Recent runs (last 10) show their products; Undo moves them back to Drafts · Select all + count · Backup gate · Tabs grouped: AWA · Collective · General</div>
         </div>
 
         <!-- TOP-LEVEL GROUPS (full width) -->
@@ -163,7 +163,6 @@
             <button class="tab" id="tabBtnAv" onclick="switchTab('av')">Add variants</button>
             <button class="tab" id="tabBtnCdt" onclick="switchTab('cdt')">Collective items data</button>
             <button class="tab" id="tabBtnCfix" onclick="switchTab('cfix')">Fix publishing &amp; template</button>
-            <button class="tab" id="tabBtnDcfix" onclick="switchTab('dcfix')">Fix DC Concept descriptions</button>
             <button class="tab" id="tabBtn1" onclick="switchTab(1)">Collective Prices</button>
             <button class="tab" id="tabBtn2" onclick="switchTab(2)">Other fields</button>
             <button class="tab" id="tabBtnXl" onclick="switchTab('xl')">Excel</button>
@@ -861,25 +860,6 @@
                 <div id="cfixStatus" style="margin-top:12px;"><span class="muted">No run yet.</span></div>
             </div>
         </div><!-- /tabCfix -->
-
-        <div class="tabpanel" id="tabDcfix" hidden>
-            <div class="card">
-                <h3 style="margin:0 0 6px;">🧹 Fix DC Concept descriptions <span style="font-size:12px; color:#9a3b3b; font-weight:700;">— TEMPORARY, delete this tab after use</span></h3>
-                <p class="muted" style="margin:0 0 10px;">Tidies the description of <b>every DC Concept product</b> (active + draft): removes the extra "Description" heading, turns the other section headings into proper subheadings (so the page has one main heading — better for Google), and removes leftover code. It also makes sure the template is <code>dc-concepts</code>. It only tidies the text — it never touches prices, images or anything else.</p>
-                <div style="background:#E9F2FB; border:1px solid #AFCBE8; border-radius:8px; padding:10px 12px; font-size:13px; margin-bottom:12px; line-height:1.6;">
-                    <b>Do this first:</b> click <b>Fix one &amp; preview</b>, open the product it gives you, and check the sections still open/close and it reads well. Then click <b>Fix all</b>.<br>
-                    <span style="color:#555;">Runs in batches and may take a couple of minutes. Safe to leave running — you can Stop, Resume, or Undo anytime.</span>
-                </div>
-                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-                    <button class="btn btn-light" id="dcfixTestBtn" onclick="dcfixTest()">Fix one &amp; preview</button>
-                    <button class="btn btn-green" id="dcfixStartBtn" onclick="dcfixStart()">Fix all</button>
-                    <button class="btn btn-light" id="dcfixStopBtn" onclick="dcfixStopRun()" disabled>Stop</button>
-                    <button class="btn btn-light" id="dcfixUndoBtn" onclick="dcfixUndo()" style="margin-left:auto;">Undo all</button>
-                </div>
-                <div id="dcfixTestBox" style="margin-top:12px;"></div>
-                <div id="dcfixStatus" style="margin-top:12px;"><span class="muted">No run yet.</span></div>
-            </div>
-        </div><!-- /tabDcfix -->
     </div>
 
     <datalist id="allTagsList"></datalist>
@@ -925,7 +905,6 @@ function switchTab(w){
     document.getElementById('tabCsv').hidden = w!=='csv';
     document.getElementById('tabCdt').hidden = w!=='cdt';
     document.getElementById('tabCfix').hidden = w!=='cfix';
-    document.getElementById('tabDcfix').hidden = w!=='dcfix';
     var _ctn=document.querySelector('.container'); if(_ctn) _ctn.classList.toggle('cdtfull', w==='cdt');
     document.getElementById('tabBtn1').classList.toggle('active', w===1);
     document.getElementById('tabBtnAwa').classList.toggle('active', w==='awa');
@@ -935,21 +914,19 @@ function switchTab(w){
     document.getElementById('tabBtnMf').classList.toggle('active', w==='mf');
     document.getElementById('tabBtnCdt').classList.toggle('active', w==='cdt');
     document.getElementById('tabBtnCfix').classList.toggle('active', w==='cfix');
-    document.getElementById('tabBtnDcfix').classList.toggle('active', w==='dcfix');
     if (w===2) loadFieldMeta(); // fresh from Shopify every time you open Other fields
     if (w==='av') { avOnGroup(); avLoadAdded(); } // Add variants tab
     if (w==='xl') { xlRenderChecks(); xlLoadUndos(); } // Excel tab
     if (w==='mf') mfInit(); // Metafields tab
     if (w==='cdt') cdtInit(); // Update Collective items data tab
     if (w==='cfix') cfixInit(); // Fix publishing & template tab
-    if (w==='dcfix') dcfixInit(); // Fix DC Concept descriptions tab (temporary)
 }
 // Top-level groups: AWA Products | Collective Products | General. Each shows only its sub-tabs.
-var TAB_SUBS = { awa:['tabBtnAwa','tabBtnAv'], collective:['tabBtnCdt','tabBtnCfix','tabBtnDcfix','tabBtn1'], general:['tabBtn2','tabBtnXl','tabBtnMf'] };
+var TAB_SUBS = { awa:['tabBtnAwa','tabBtnAv'], collective:['tabBtnCdt','tabBtnCfix','tabBtn1'], general:['tabBtn2','tabBtnXl','tabBtnMf'] };
 var TAB_FIRST = { awa:'awa', collective:'cdt', general:2 };
 function selectGroup(g){
     ['Awa','Collective','General'].forEach(function(x){ var b=document.getElementById('grp'+x); if(b) b.classList.toggle('active', x.toLowerCase()===g); });
-    var allSubs=['tabBtnAwa','tabBtnAv','tabBtnCdt','tabBtnCfix','tabBtnDcfix','tabBtn1','tabBtn2','tabBtnXl','tabBtnMf'];
+    var allSubs=['tabBtnAwa','tabBtnAv','tabBtnCdt','tabBtnCfix','tabBtn1','tabBtn2','tabBtnXl','tabBtnMf'];
     allSubs.forEach(function(id){ var b=document.getElementById(id); if(b) b.style.display='none'; });
     (TAB_SUBS[g]||[]).forEach(function(id){ var b=document.getElementById(id); if(b) b.style.display=''; });
     switchTab(TAB_FIRST[g]);
@@ -1032,82 +1009,6 @@ async function cfixUndo(){
     }
     if (btn) btn.disabled = false;
     alert('Templates restored: ' + restored);
-}
-
-/* ===================== Fix DC Concept descriptions (temporary) ===================== */
-var dcfixRunning = false, dcfixStop = false;
-async function dcfixInit(){
-    dcfixStop = false;
-    try { const d = await (await fetch(API + '?action=dcfix-status')).json(); dcfixRender(d && d.state); }
-    catch(e){ dcfixRender(null); }
-}
-function dcfixRender(state){
-    var box = document.getElementById('dcfixStatus'); if (!box) return;
-    if (!state){ box.innerHTML = '<span class="muted">No run yet.</span>'; }
-    else {
-        var pct = state.total ? Math.round(100*(state.processed||0)/state.total) : 0;
-        box.innerHTML =
-            '<div style="height:14px; background:#eee; border-radius:7px; overflow:hidden;"><div style="height:100%; width:'+pct+'%; background:#185FA5;"></div></div>'
-            + '<div style="margin-top:6px; font-size:13px;">Processed <b>'+(state.processed||0)+'</b> / '+(state.total||0)
-            + ' · Descriptions fixed <b>'+(state.bodyFixed||0)+'</b> · Template set <b>'+(state.templateFixed||0)+'</b>'
-            + (state.done ? ' · <b style="color:#176a2e;">Done</b>' : (dcfixRunning ? ' · running…' : ' · paused'))
-            + '</div>';
-    }
-    var sb = document.getElementById('dcfixStartBtn'), stb = document.getElementById('dcfixStopBtn');
-    if (sb){ sb.disabled = dcfixRunning; sb.textContent = (state && !state.done && (state.processed>0)) ? 'Resume' : 'Fix all'; }
-    if (stb) stb.disabled = !dcfixRunning;
-}
-async function dcfixTest(){
-    var box = document.getElementById('dcfixTestBox'); if (box) box.innerHTML = '<span class="muted">Fixing one…</span>';
-    try {
-        var d = await (await fetch(API + '?action=dcfix-test')).json();
-        if (!d.ok){ if (box) box.innerHTML = '<span class="muted">Failed: ' + esc(d.error||'') + '</span>'; return; }
-        if (d.none){ if (box) box.innerHTML = '<span class="muted">No DC Concept products found.</span>'; return; }
-        var url = 'https://aboutwallart.com/products/' + d.handle;
-        box.innerHTML = '<div style="background:#E9F6EC; border:1px solid #B6DEC0; border-radius:8px; padding:10px 12px; font-size:13px; line-height:1.6;">'
-            + (d.changed ? 'Fixed one product. ' : 'This one was already clean. ')
-            + 'Open it and check the sections still open/close and it reads well:<br><a href="'+esc(url)+'" target="_blank" rel="noopener"><b>'+esc(url)+'</b></a>'
-            + '<br><span style="color:#555;">Looks good? Click <b>Fix all</b>.</span></div>';
-    } catch(e){ if (box) box.innerHTML = '<span class="muted">Failed: ' + esc(String(e)) + '</span>'; }
-}
-async function dcfixStart(){
-    if (dcfixRunning) return;
-    var state = null;
-    try { var s = await (await fetch(API + '?action=dcfix-status')).json(); state = s && s.state; } catch(e){}
-    if (!state || state.done){
-        if (!confirm('This tidies the description of EVERY DC Concept product (active + draft) and sets the dc-concepts template. It only tidies the text — you can Undo. Start now?')) return;
-        var st = await (await fetch(API + '?action=dcfix-start')).json();
-        if (!st.ok){ alert('Could not start: ' + (st.error||'')); return; }
-        state = st.state;
-    }
-    dcfixRunning = true; dcfixStop = false; dcfixRender(state);
-    var guard = 0;
-    while (!dcfixStop && guard < 1000){
-        guard++;
-        var r;
-        try { r = await (await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'dcfix-batch' }) })).json(); }
-        catch(e){ await new Promise(function(s){ setTimeout(s, 3000); }); continue; }
-        if (!r.ok){ alert('Error: ' + (r.error||'')); break; }
-        dcfixRender(r.state);
-        if (!r.hasMore) break;
-    }
-    dcfixRunning = false;
-    try { var s2 = await (await fetch(API + '?action=dcfix-status')).json(); dcfixRender(s2 && s2.state); } catch(e){}
-}
-function dcfixStopRun(){ dcfixStop = true; dcfixRunning = false; }
-async function dcfixUndo(){
-    if (!confirm('Restore the ORIGINAL descriptions and templates for every DC Concept product this tab changed? This puts the old text back.')) return;
-    var offset = 0, total = 0, restored = 0;
-    var btn = document.getElementById('dcfixUndoBtn'); if (btn) btn.disabled = true;
-    while (true){
-        var r = await (await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'dcfix-undo', offset:offset, limit:30 }) })).json();
-        if (!r.ok){ alert('Undo error: ' + (r.error||'')); break; }
-        restored += r.restored||0; total = r.total||0; offset = r.nextOffset||offset;
-        document.getElementById('dcfixStatus').innerHTML = '<span class="muted">Undo: restored ' + restored + ' / ' + total + '…</span>';
-        if (!r.hasMore) break;
-    }
-    if (btn) btn.disabled = false;
-    alert('Restored: ' + restored);
 }
 
 /* ===================== METAFIELDS TAB ===================== */
