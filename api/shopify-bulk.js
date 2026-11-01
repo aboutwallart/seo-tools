@@ -1,4 +1,9 @@
-// shopify-bulk.js — v3.18 (28 Oct 2026)
+// shopify-bulk.js — v3.19 (1 Nov 2026)
+// v3.19: DC Concept — NEW temporary "Fix DC Concept descriptions" tab (dcfix-start/dcfix-test/dcfix-batch/dcfix-status/
+//   dcfix-undo): cleans the body (drops the redundant "Description" <h1>, downgrades the other section <h1> to <h2> so
+//   there is one h1, removes stray <meta>) and sets template dc-concepts, over every DC Concept product (active+draft),
+//   resumable by batch, with a full body backup (data/dcfix-undo.json). cdt-apply + cfix-batch now pick the template per
+//   vendor (DC Concept -> dc-concepts, else home-decor-final) and run the same body cleanup for DC Concept, with undo.
 // v3.13: cdt — vendor list shows only vendors with drafts>0 again (done-only vendors drop). tagGroups now also carries
 //   roomToFurniture + decorToPages (for the front's auto-mark+grey of Furniture tags by room and Trend pages by Decor style).
 //   Decor style list reduced to 35 (collective-data-config.json — dropped the 7 generic grouping values).
@@ -2115,6 +2120,26 @@ module.exports = async function handler(req, res) {
     // ---- Collective publishing + template fix (v3.18) ----
     const COLL_TAG = 'Shopify Collective';
     const COLL_TEMPLATE = 'home-decor-final';
+
+    // ---- DC Concept: its own template + body cleanup (v3.19) ----
+    const DC_VENDOR = 'DC Concept';
+    const DC_TEMPLATE = 'dc-concepts';
+    const DCFIX_STATE = 'data/dcfix-state.json';   // { total, cursor, processed, bodyFixed, templateFixed, done, startedAt }
+    const DCFIX_UNDO = 'data/dcfix-undo.json';     // [ { id, oldBody, oldTemplate } ] — full backup so the body fix is undoable
+    function templateForVendor(v) { return (v === DC_VENDOR) ? DC_TEMPLATE : COLL_TEMPLATE; }
+    // Clean a DC Concept product body: drop the redundant "Description" heading, downgrade the other <h1> to <h2>
+    // (keeping their attributes/class so the collapsible sections keep working), and remove stray <meta> tags.
+    function cleanDcBody(html) {
+      if (html == null) return { html: html, changed: false };
+      var out = String(html), before = out;
+      out = out.replace(/<meta\b[^>]*>/gi, '');
+      out = out.replace(/<h1\b([^>]*)>([\s\S]*?)<\/h1>/gi, function (m, attrs, inner) {
+        var text = inner.replace(/<[^>]*>/g, '').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+        if (text === 'description') return '';            // redundant with the product title
+        return '<h2' + attrs + '>' + inner + '</h2>';     // keep it as a section subheading
+      });
+      return { html: out, changed: out !== before };
+    }
     const CFIX_STATE = 'data/collective-fixpub-state.json';   // { total, cursor, processed, templateFixed, ensured, done, startedAt, pubIds, undoTemplates:[{id,oldTemplate}] }
     // The 15 target publications (9 sales channels + 6 regions), by name + id. IDs are stable; cfixResolve() self-heals a
     // channel id by name and warns (in plain English) about anything new/missing, so Mae can report it back to Claude.
@@ -2242,11 +2267,11 @@ module.exports = async function handler(req, res) {
       const cur = {};
       for (let i = 0; i < ids.length; i += 15) {
         const chunk = ids.slice(i, i + 15);
-        const q = 'query{ ' + chunk.map((id, j) => `p${j}: product(id:"${id}"){ id handle title tags productType category{ id } rt: metafield(namespace:"custom",key:"room_type"){ value } tr: metafield(namespace:"custom",key:"trends"){ value } lt: metafield(namespace:"custom",key:"linked_trends"){ value } variants(first:100){ nodes{ id price inventoryItem{ unitCost{ amount } } } } }`).join(' ') + ' }';
+        const q = 'query{ ' + chunk.map((id, j) => `p${j}: product(id:"${id}"){ id handle title vendor descriptionHtml tags productType category{ id } rt: metafield(namespace:"custom",key:"room_type"){ value } tr: metafield(namespace:"custom",key:"trends"){ value } lt: metafield(namespace:"custom",key:"linked_trends"){ value } variants(first:100){ nodes{ id price inventoryItem{ unitCost{ amount } } } } }`).join(' ') + ' }';
         const d = await shopify(q); chunk.forEach((id, j) => { if (d[`p${j}`]) cur[id] = d[`p${j}`]; });
       }
       const snapshot = [];
-      for (const it of items) { const p = cur[it.productId]; if (!p) continue; snapshot.push({ productId: it.productId, title: p.title || '', handle: p.handle || '', tags: p.tags || [], productType: p.productType || '', categoryId: p.category ? p.category.id : null, rooms: mfParse(p.rt ? p.rt.value : null), trends: mfParse(p.tr ? p.tr.value : null), linked: mfParse(p.lt ? p.lt.value : null), prices: (p.variants ? p.variants.nodes : []).map(v => ({ id: v.id, price: v.price })) }); }
+      for (const it of items) { const p = cur[it.productId]; if (!p) continue; snapshot.push({ productId: it.productId, title: p.title || '', handle: p.handle || '', vendor: p.vendor || '', body: (p.vendor === DC_VENDOR ? (p.descriptionHtml || '') : null), tags: p.tags || [], productType: p.productType || '', categoryId: p.category ? p.category.id : null, rooms: mfParse(p.rt ? p.rt.value : null), trends: mfParse(p.tr ? p.tr.value : null), linked: mfParse(p.lt ? p.lt.value : null), prices: (p.variants ? p.variants.nodes : []).map(v => ({ id: v.id, price: v.price })) }); }
       const snapProducts = snapshot.map(s => ({ id: s.productId, title: s.title, handle: s.handle }));
       try {
         if (isFirst) { await ghPut(`${CDT_UNDO_DIR}/${undoId}.json`, { id: undoId, createdAt: now, snapshot }, `cdt backup ${undoId}`); const idx = (await ghGet(CDT_UNDO_IDX)).json || []; idx.unshift({ id: undoId, createdAt: now, count: snapshot.length, reverted: false, products: snapProducts }); await ghPut(CDT_UNDO_IDX, idx.slice(0, CDT_UNDO_KEEP), `cdt idx ${undoId}`); await pruneUndos(CDT_UNDO_IDX, CDT_UNDO_DIR, CDT_UNDO_KEEP); }
@@ -2257,7 +2282,8 @@ module.exports = async function handler(req, res) {
         const p = cur[it.productId]; if (!p) continue; const pid = it.productId;
         try {
           const newTags = Array.from(new Set([...(p.tags || []), ...((it.addTags || []))]));
-          let input = `id:"${pid}", tags:[${newTags.map(t => JSON.stringify(t)).join(',')}], templateSuffix:${JSON.stringify(COLL_TEMPLATE)}`;
+          let input = `id:"${pid}", tags:[${newTags.map(t => JSON.stringify(t)).join(',')}], templateSuffix:${JSON.stringify(templateForVendor(p.vendor))}`;
+          if (p.vendor === DC_VENDOR) { const cb = cleanDcBody(p.descriptionHtml); if (cb.changed) input += `, descriptionHtml:${JSON.stringify(cb.html)}`; }
           if (it.categoryId) input += `, category:"${it.categoryId}"`;
           if (it.productType) input += `, productType:${JSON.stringify(it.productType)}`;
           const d1 = await shopify(`mutation{ productUpdate(input:{${input}}){ userErrors{ message } } }`); const ue1 = d1.productUpdate ? d1.productUpdate.userErrors : []; if (ue1 && ue1.length) ue1.forEach(e => errors.push(`${pid}: ${e.message}`));
@@ -2298,6 +2324,7 @@ module.exports = async function handler(req, res) {
           let input = `id:"${pid}", tags:[${(s.tags || []).map(t => JSON.stringify(t)).join(',')}]`;
           input += s.categoryId ? `, category:"${s.categoryId}"` : `, category:null`;
           if (s.productType != null) input += `, productType:${JSON.stringify(s.productType)}`;
+          if (s.body != null) input += `, descriptionHtml:${JSON.stringify(s.body)}`;
           await shopify(`mutation{ productUpdate(input:{${input}}){ userErrors{ message } } }`);
           const mfPairs = [['room_type', 'list.single_line_text_field', s.rooms || []], ['trends', 'list.single_line_text_field', s.trends || []], ['linked_trends', 'list.page_reference', s.linked || []]];
           for (const [key, type, arr] of mfPairs) {
@@ -2339,16 +2366,22 @@ module.exports = async function handler(req, res) {
       const pubIds = state.pubIds || [];
       const pubInput = pubIds.map(id => `{publicationId:"${id}"}`).join(',');
       const PAGE = 25;
-      const d = await shopify(`query($c:String){ products(first:${PAGE}, query:"tag:'${COLL_TAG}' (status:active OR status:draft)", after:$c){ pageInfo{ hasNextPage endCursor } nodes{ id templateSuffix } } }`, { c: state.cursor });
+      const d = await shopify(`query($c:String){ products(first:${PAGE}, query:"tag:'${COLL_TAG}' (status:active OR status:draft)", after:$c){ pageInfo{ hasNextPage endCursor } nodes{ id vendor templateSuffix descriptionHtml } } }`, { c: state.cursor });
       const nodes = (d.products && d.products.nodes) || [];
       const errors = [];
       for (const p of nodes) {
         state.processed++;
         try {
-          if ((p.templateSuffix || null) !== COLL_TEMPLATE) {
-            const du = await shopify(`mutation{ productUpdate(input:{id:"${p.id}", templateSuffix:${JSON.stringify(COLL_TEMPLATE)}}){ userErrors{ message } } }`);
+          const tmpl = templateForVendor(p.vendor);
+          const cb = (p.vendor === DC_VENDOR) ? cleanDcBody(p.descriptionHtml) : { changed: false };
+          const needTmpl = (p.templateSuffix || null) !== tmpl;
+          if (needTmpl || cb.changed) {
+            let inp = `id:"${p.id}"`;
+            if (needTmpl) inp += `, templateSuffix:${JSON.stringify(tmpl)}`;
+            if (cb.changed) inp += `, descriptionHtml:${JSON.stringify(cb.html)}`;
+            const du = await shopify(`mutation{ productUpdate(input:{${inp}}){ userErrors{ message } } }`);
             const ue = du.productUpdate ? du.productUpdate.userErrors : []; if (ue && ue.length) errors.push(`${p.id}: ${ue[0].message}`);
-            else { state.templateFixed++; state.undoTemplates.push({ id: p.id, oldTemplate: (p.templateSuffix || null) }); }
+            else { if (needTmpl) state.templateFixed++; if (cb.changed) state.bodyFixed = (state.bodyFixed || 0) + 1; state.undoTemplates.push({ id: p.id, oldTemplate: (p.templateSuffix || null), oldBody: (cb.changed ? p.descriptionHtml : undefined) }); }
           }
           if (pubInput) {
             const dp = await shopify(`mutation{ publishablePublish(id:"${p.id}", input:[${pubInput}]){ userErrors{ message } } }`);
@@ -2371,11 +2404,88 @@ module.exports = async function handler(req, res) {
       for (const u of work) {
         try {
           const tv = (u.oldTemplate == null) ? 'null' : JSON.stringify(u.oldTemplate);
-          await shopify(`mutation{ productUpdate(input:{id:"${u.id}", templateSuffix:${tv}}){ userErrors{ message } } }`);
+          let inp = `id:"${u.id}", templateSuffix:${tv}`;
+          if (u.oldBody !== undefined) inp += `, descriptionHtml:${JSON.stringify(u.oldBody)}`;
+          await shopify(`mutation{ productUpdate(input:{${inp}}){ userErrors{ message } } }`);
           restored++;
         } catch (e) { errors.push(String(e.message || e)); }
       }
       const total = list.length, nextOffset = offset + work.length, hasMore = nextOffset < total;
+      return res.status(200).json({ ok: true, restored, total, nextOffset, hasMore, errors: errors.slice(0, 20) });
+    }
+
+    // ---- DC Concept body fix (temporary tab) — clean the multi-h1 bodies + ensure the dc-concepts template ----
+    // Scans vendor 'DC Concept' (active + draft), resumable by batch, with a full body backup so it can be undone.
+    if (action === 'dcfix-start') {
+      let total = 0;
+      try { const c = await shopify(`query{ productsCount(query:"vendor:'${DC_VENDOR}' (status:active OR status:draft)"){ count } }`); total = (c.productsCount && c.productsCount.count) || 0; } catch (e) {}
+      const state = { total, cursor: null, processed: 0, bodyFixed: 0, templateFixed: 0, done: false, startedAt: new Date().toISOString() };
+      await ghPut(DCFIX_STATE, state, 'dcfix start');
+      await ghPut(DCFIX_UNDO, [], 'dcfix undo reset');
+      return res.status(200).json({ ok: true, state });
+    }
+    if (action === 'dcfix-status') { return res.status(200).json({ ok: true, state: (await ghGet(DCFIX_STATE)).json || null }); }
+    // dcfix-test: fix exactly ONE product so Mae can open it and confirm before running all.
+    if (action === 'dcfix-test') {
+      const d = await shopify(`query{ products(first:1, query:"vendor:'${DC_VENDOR}' (status:active OR status:draft)"){ nodes{ id handle templateSuffix descriptionHtml } } }`);
+      const p = d.products && d.products.nodes && d.products.nodes[0];
+      if (!p) return res.status(200).json({ ok: true, none: true });
+      const cb = cleanDcBody(p.descriptionHtml);
+      const needTmpl = (p.templateSuffix || null) !== DC_TEMPLATE;
+      if (cb.changed || needTmpl) {
+        let inp = `id:"${p.id}"`;
+        if (needTmpl) inp += `, templateSuffix:${JSON.stringify(DC_TEMPLATE)}`;
+        if (cb.changed) inp += `, descriptionHtml:${JSON.stringify(cb.html)}`;
+        await shopify(`mutation{ productUpdate(input:{${inp}}){ userErrors{ message } } }`);
+        const undo = (await ghGet(DCFIX_UNDO)).json || [];
+        if (!undo.find(u => u.id === p.id)) { undo.push({ id: p.id, oldBody: p.descriptionHtml, oldTemplate: (p.templateSuffix || null) }); await ghPut(DCFIX_UNDO, undo, 'dcfix test undo'); }
+      }
+      return res.status(200).json({ ok: true, handle: p.handle, changed: (cb.changed || needTmpl) });
+    }
+    if (action === 'dcfix-batch') {
+      const state = (await ghGet(DCFIX_STATE)).json;
+      if (!state) return res.status(400).json({ ok: false, error: 'Run not started' });
+      if (state.done) return res.status(200).json({ ok: true, state, done: true });
+      const PAGE = 25;
+      const d = await shopify(`query($c:String){ products(first:${PAGE}, query:"vendor:'${DC_VENDOR}' (status:active OR status:draft)", after:$c){ pageInfo{ hasNextPage endCursor } nodes{ id templateSuffix descriptionHtml } } }`, { c: state.cursor });
+      const nodes = (d.products && d.products.nodes) || [];
+      const undo = (await ghGet(DCFIX_UNDO)).json || [];
+      const undoIds = new Set(undo.map(u => u.id));
+      const errors = [];
+      for (const p of nodes) {
+        state.processed++;
+        try {
+          const cb = cleanDcBody(p.descriptionHtml);
+          const needTmpl = (p.templateSuffix || null) !== DC_TEMPLATE;
+          if (!cb.changed && !needTmpl) continue;
+          let inp = `id:"${p.id}"`;
+          if (needTmpl) inp += `, templateSuffix:${JSON.stringify(DC_TEMPLATE)}`;
+          if (cb.changed) inp += `, descriptionHtml:${JSON.stringify(cb.html)}`;
+          const du = await shopify(`mutation{ productUpdate(input:{${inp}}){ userErrors{ message } } }`);
+          const ue = du.productUpdate ? du.productUpdate.userErrors : []; if (ue && ue.length) { errors.push(`${p.id}: ${ue[0].message}`); continue; }
+          if (cb.changed) state.bodyFixed++;
+          if (needTmpl) state.templateFixed++;
+          if (!undoIds.has(p.id)) { undo.push({ id: p.id, oldBody: p.descriptionHtml, oldTemplate: (p.templateSuffix || null) }); undoIds.add(p.id); }
+        } catch (e) { errors.push(`${p.id}: ${String(e.message || e)}`); }
+      }
+      state.cursor = (d.products && d.products.pageInfo) ? d.products.pageInfo.endCursor : null;
+      if (!d.products || !d.products.pageInfo || !d.products.pageInfo.hasNextPage) state.done = true;
+      await ghPut(DCFIX_UNDO, undo, 'dcfix undo +' + nodes.length);
+      await ghPut(DCFIX_STATE, state, `dcfix batch (${state.processed}/${state.total})`);
+      return res.status(200).json({ ok: true, state, hasMore: !state.done, errors: errors.slice(0, 20) });
+    }
+    if (action === 'dcfix-undo') {
+      const undo = (await ghGet(DCFIX_UNDO)).json || [];
+      const offset = Number(body.offset) || 0, limit = Number(body.limit) || 30; const work = undo.slice(offset, offset + limit);
+      const errors = []; let restored = 0;
+      for (const u of work) {
+        try {
+          const tv = (u.oldTemplate == null) ? 'null' : JSON.stringify(u.oldTemplate);
+          await shopify(`mutation{ productUpdate(input:{id:"${u.id}", templateSuffix:${tv}, descriptionHtml:${JSON.stringify(u.oldBody == null ? '' : u.oldBody)}}){ userErrors{ message } } }`);
+          restored++;
+        } catch (e) { errors.push(String(e.message || e)); }
+      }
+      const total = undo.length, nextOffset = offset + work.length, hasMore = nextOffset < total;
       return res.status(200).json({ ok: true, restored, total, nextOffset, hasMore, errors: errors.slice(0, 20) });
     }
 
