@@ -64,7 +64,7 @@
 <body>
 <div class="wrap">
   <h1>AWA ETSY</h1>
-  <p class="ver">AWA ETSY · v0.57</p>
+  <p class="ver">AWA ETSY · v0.58</p>
 
   <div class="card">
     <h2>Etsy connection</h2>
@@ -259,6 +259,7 @@
       <h3>Listings by Etsy section</h3>
       <p class="sub">Pick a section, then edit each listing: drop images you don't want, add Shopify photos or upload new ones, reorder, pick the video, and Save. The common set is added at the end automatically. Max 20 images. <b>Editing changes a LIVE Etsy listing</b> — its old images are backed up first.</p>
       <div id="riSections" class="row" style="gap:6px;flex-wrap:wrap;margin:10px 0"></div>
+      <div class="row" style="gap:6px;align-items:center;margin:4px 0 6px;flex-wrap:wrap"><input id="riSearch" placeholder="Search all listings by SKU or title (Enter)" onkeydown="if(event.key==='Enter'){event.preventDefault();riSearch()}" style="padding:6px 8px;min-width:280px"><button type="button" onclick="riSearch()">Search</button><button type="button" class="ghost" onclick="riClearSearch()">Clear</button><span class="fixed" id="riSearchMsg"></span></div>
       <div class="row" style="gap:8px;margin:4px 0 6px"><button type="button" class="ghost" onclick="riSkusToDo()">SKUs to do (all sections)</button></div>
       <div id="riSkusBox" style="margin-bottom:10px"></div>
       <div id="riListings"></div>
@@ -1255,7 +1256,7 @@
       if (j.ok){ RI_SECTIONS = j.sections || []; renderSections(); } else { $('riSections').innerHTML = '<span class="fixed">' + esc(j.error || 'error') + '</span>'; }
     }catch(e){ $('riSections').innerHTML = '<span class="fixed">' + e.message + '</span>'; }
   }
-  var RI_LISTINGS = [], RI_TAB = 'start', RI_NOMATCH = false, RI_SHOP_PENDING = [], RI_SP_LOADED = false;
+  var RI_LISTINGS = [], RI_TAB = 'start', RI_NOMATCH = false, RI_SHOP_PENDING = [], RI_SP_LOADED = false, RI_SEARCH = '';
   function renderSections(){
     // Split: sections with work left ("To do") vs fully finished ("Done"). Finished ones go in their own group so they
     // don't look pending — you can still open them, they're just out of the way. Each shows done/total.
@@ -1269,8 +1270,25 @@
       '<select onchange="riPickSection(this.value)" style="padding:6px 8px;min-width:300px">' + opts + '</select> <span class="fixed" id="riProgress"></span>';
   }
   function riProgress(){ var done = RI_LISTINGS.filter(function(x){ return x.done; }).length; var p = $('riProgress'); if (p) p.innerHTML = '<b>' + done + '</b> / ' + RI_LISTINGS.length + ' done'; }
+  // Global search: load EVERY active listing (no section) and show only those whose SKU or title matches — so a listing
+  // can be found across all sections without picking one. renderListings() applies the filter to both Start and Done tabs.
+  function riMatchSearch(l){ if (!RI_SEARCH) return true; var s = (l.sku || '').toLowerCase(), t = (l.title || '').toLowerCase(); return s.indexOf(RI_SEARCH) >= 0 || t.indexOf(RI_SEARCH) >= 0; }
+  async function riSearch(){
+    var q = (($('riSearch') && $('riSearch').value) || '').trim();
+    if (!q){ riClearSearch(); return; }
+    RI_SEARCH = q.toLowerCase(); RI_SEL_SECTION = ''; RI_TAB = 'start'; RI_NOMATCH = false;
+    var sm = $('riSearchMsg'); if (sm) sm.textContent = 'Loading all listings…';
+    $('riListings').innerHTML = '<p class="sub">Loading all listings… (checking Shopify matches)</p>';
+    try{ var r = await fetch('/api/etsy?action=ri-listings&t=' + Date.now()); var j = await r.json();
+      if (!j.ok){ if (sm) sm.textContent = '⚠ ' + (j.error || 'error'); $('riListings').innerHTML = ''; return; }
+      RI_LISTINGS = j.listings || []; riProgress(); renderListings();
+      var n = RI_LISTINGS.filter(riMatchSearch).length; if (sm) sm.textContent = n + (n === 1 ? ' match' : ' matches');
+    }catch(e){ if (sm) sm.textContent = '⚠ ' + e.message; $('riListings').innerHTML = ''; }
+  }
+  function riClearSearch(){ RI_SEARCH = ''; if ($('riSearch')) $('riSearch').value = ''; if ($('riSearchMsg')) $('riSearchMsg').textContent = ''; RI_LISTINGS = []; $('riListings').innerHTML = ''; if ($('riProgress')) $('riProgress').textContent = ''; }
   async function riPickSection(id){
     RI_SEL_SECTION = String(id || '');
+    RI_SEARCH = ''; if ($('riSearch')) $('riSearch').value = ''; if ($('riSearchMsg')) $('riSearchMsg').textContent = '';
     if (!RI_SEL_SECTION){ $('riListings').innerHTML = ''; if ($('riProgress')) $('riProgress').textContent = ''; return; }
     $('riListings').innerHTML = '<p class="sub">Loading listings… (checking Shopify matches)</p>'; if ($('riProgress')) $('riProgress').textContent = '';
     RI_TAB = 'start'; RI_NOMATCH = false;
@@ -1280,7 +1298,7 @@
       renderListings();
     }catch(e){ $('riListings').innerHTML = '<p class="fixed">' + e.message + '</p>'; }
   }
-  function riSetTab(t){ RI_TAB = t; if (t === 'shoppending' && !RI_SP_LOADED){ riLoadShopPending(); return; } renderListings(); }
+  function riSetTab(t){ RI_TAB = t; renderListings(); }
   function riToggleNomatch(cb){ RI_NOMATCH = cb.checked; renderListings(); }
   async function riMoveBack(id){
     var it = RI_LISTINGS.find(function(x){ return String(x.listing_id) === String(id); });
@@ -1290,13 +1308,12 @@
     }catch(e){ if ($('riTopMsg')) $('riTopMsg').innerHTML = '<span style="color:#c33">⚠ ' + esc(e.message) + '</span>'; }
   }
   function renderListings(){
-    var startAll = RI_LISTINGS.filter(function(l){ return !l.done; });
-    var doneAll = RI_LISTINGS.filter(function(l){ return l.done; });
-    var onDone = (RI_TAB === 'done'), onPending = (RI_TAB === 'shoppending');
+    var startAll = RI_LISTINGS.filter(function(l){ return !l.done && riMatchSearch(l); });
+    var doneAll = RI_LISTINGS.filter(function(l){ return l.done && riMatchSearch(l); });
+    var onDone = (RI_TAB === 'done');
     function tabBtn(t, label){ return '<button type="button" onclick="riSetTab(\'' + t + '\')" class="' + (RI_TAB === t ? '' : 'ghost') + '">' + label + '</button>'; }
-    var tabs = '<div class="row" style="gap:6px;margin-bottom:10px;flex-wrap:wrap">' + tabBtn('start', 'Start here (' + startAll.length + ')') + tabBtn('done', 'Done (' + doneAll.length + ')') + tabBtn('shoppending', 'Shopify pending (' + RI_SHOP_PENDING.length + ')') + '</div>';
+    var tabs = '<div class="row" style="gap:6px;margin-bottom:10px;flex-wrap:wrap">' + tabBtn('start', 'Start here (' + startAll.length + ')') + tabBtn('done', 'Done (' + doneAll.length + ')') + '</div>';
     var topMsg = '<div id="riTopMsg" class="fixed" style="margin-bottom:8px"></div>';
-    if (onPending){ $('riListings').innerHTML = tabs + topMsg + riShopPendingHtml(); riAutoCompareAll(); return; }
     if (onDone){
       // Done tab: compact review rows only — featured image + title + SKU + "Move back". No editor, no bulk.
       if (!doneAll.length){ $('riListings').innerHTML = tabs + topMsg + '<p class="sub">Nothing done yet.</p>'; return; }
