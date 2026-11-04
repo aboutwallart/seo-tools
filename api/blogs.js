@@ -1,4 +1,4 @@
-// blogs.js — v5.3
+// blogs.js — v5.4
 // v5.2 (2026-09-27): performing-keywords-blog cleans ranking URLs (drop query) so the real page shows + URL-lock check matches.
 // v5.1 (2026-09-27): performing-keywords-blog now also hides the shared "✕ Dismiss" list (gsc-performing-dismissed.json).
 // v5.0 (2026-09-27): new GET action performing-keywords-blog — "Ya rankeás — capturá más" (blog side):
@@ -1944,47 +1944,6 @@ Include EXACTLY 3 items.`;
         const updated = updatedLines.join('\n') + '\n';
         await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Mark optimized: ${keyword} on ${url}`);
         return res.status(200).json({ success: true, keyword, url });
-      }
-
-      // ── ACTION: bulk-mark-optimized (TEMP — registry recovery) ──
-      if (req.body.action === 'bulk-mark-optimized') {
-        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
-        const { pairs } = req.body;
-        if (!Array.isArray(pairs) || !pairs.length) return res.status(400).json({ error: 'pairs array required' });
-        const registry = await getGitHubFile('data/keyword-locker-registry.csv');
-        const lines = registry.content.split('\n').map(l => l.replace(/\r/g, ''));
-        const { titleLines, header, startIdx } = findRegistryHeader(lines);
-        const today = new Date().toISOString().split('T')[0];
-        const pairSet = new Set(pairs.map(p => p.keyword.trim().toLowerCase() + '|||' + p.url.trim().toLowerCase()));
-        let count = 0;
-        const updatedLines = [...titleLines, header];
-        for (let i = startIdx; i < lines.length; i++) {
-          if (!lines[i].trim()) continue;
-          const cols = parseCSVLine(lines[i]);
-          while (cols.length < 12) cols.push('');
-          const key = (cols[0]?.trim().toLowerCase() || '') + '|||' + (cols[1]?.trim().toLowerCase() || '');
-          if (pairSet.has(key) && cols[4]?.trim() === 'TO_OPTIMIZE') {
-            cols[2] = 'LOCKED'; cols[3] = 'DONE'; cols[4] = 'OPTIMIZED';
-            cols[11] = today;
-            count++;
-          }
-          updatedLines.push(sanitizeRow(cols));
-        }
-        if (count > 0) {
-          const updated = updatedLines.join('\n') + '\n';
-          await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Bulk mark optimized: ${count} pages (registry recovery)`);
-        }
-        return res.status(200).json({ success: true, updated: count });
-      }
-
-      // ── ACTION: registry-replace (TEMP — upload merged registry) ──
-      if (req.body.action === 'registry-replace') {
-        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
-        const { content } = req.body;
-        if (!content) return res.status(400).json({ error: 'content required' });
-        const registry = await getGitHubFile('data/keyword-locker-registry.csv');
-        await updateGitHubFile('data/keyword-locker-registry.csv', content, registry.sha, 'Registry recovery: upload merged version');
-        return res.status(200).json({ success: true });
       }
 
       // ── ACTION: unmark-optimized ──
