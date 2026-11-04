@@ -286,7 +286,7 @@
             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
-                    <p class="subtitle">AI-Powered SEO Analysis · v72.9</p>
+                    <p class="subtitle">AI-Powered SEO Analysis · v73.1</p>
                     <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.12</p>
                     <button onclick="resetAllChecklists()" title="Wipe all saved checklists so every page starts fresh" style="margin-top:6px;background:#fff;color:#c62828;border:1px solid #ef9a9a;padding:4px 10px;border-radius:6px;font-size:0.72rem;cursor:pointer;">🧹 Reset all checklists (start clean)</button>
                 </div>
@@ -360,27 +360,6 @@
         <!-- Hidden: To Optimise count target kept for legacy updatePageCount() -->
         <span id="pageCount" style="display:none;">0</span>
 
-        <!-- ═══ TEMP: Registry Recovery Panel (remove after use) ═══ -->
-        <div id="tempRecoveryPanel" style="margin:12px 0; padding:16px 20px; background:linear-gradient(135deg,#fff3e0,#ffe0b2); border:2px solid #ff9800; border-radius:10px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                <h3 style="margin:0; color:#e65100;">🔧 Registry Recovery Tool</h3>
-                <button onclick="document.getElementById('tempRecoveryPanel').style.display='none'" style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:#999;" title="Hide panel">✕</button>
-            </div>
-            <p style="margin:0 0 12px; color:#555; font-size:0.9rem;">This checks each TO_OPTIMIZE blog page for the author byline link. If found, it marks the page as OPTIMIZED in the registry. One-time use — remove after recovery.</p>
-            <div style="margin-bottom:12px;">
-                <label style="font-weight:600; font-size:0.85rem; color:#333;">Step 1 (optional): Upload merged registry CSV first</label><br>
-                <input type="file" id="tempRegistryFile" accept=".csv" style="margin-top:4px; font-size:0.85rem;">
-            </div>
-            <div style="display:flex; gap:10px; align-items:center;">
-                <button id="tempRunBtn" onclick="tempRunVerifyAndFix()" style="background:#e65100; color:#fff; border:none; padding:10px 20px; border-radius:8px; font-weight:600; font-size:0.9rem; cursor:pointer;">▶ Run Verify &amp; Fix</button>
-                <span id="tempStatus" style="font-size:0.85rem; color:#666;"></span>
-            </div>
-            <div id="tempProgressBar" style="display:none; margin-top:12px; background:#fff; border-radius:6px; overflow:hidden; height:24px; border:1px solid #ddd;">
-                <div id="tempProgressFill" style="width:0%; height:100%; background:linear-gradient(90deg,#ff9800,#f57c00); transition:width 0.3s; display:flex; align-items:center; justify-content:center; font-size:0.75rem; color:#fff; font-weight:600;"></div>
-            </div>
-            <div id="tempLog" style="display:none; margin-top:12px; max-height:200px; overflow-y:auto; background:#fff; border:1px solid #ddd; border-radius:6px; padding:10px; font-size:0.8rem; font-family:monospace; color:#333;"></div>
-        </div>
-        <!-- ═══ END TEMP ═══ -->
 
         <!-- MY PAGES TAB (To Optimise) — tab button removed; panel kept hidden so its helpers don't break -->
         <div class="tab-content" id="pagesTab">
@@ -484,7 +463,7 @@
             <div id="optimizedHealthSummary" style="margin-bottom:15px;"></div>
             <div style="margin-bottom: 15px; display: flex; justify-content: flex-end; gap: 10px; flex-wrap:wrap;">
                 <button onclick="downloadRegistry()" style="background: #2196f3;">📥 Download Registry</button>
-                <button class="btn-secondary" onclick="reBaselineSnapshots(this)" title="Re-capture each page's 'before' as the 15 days right before it was optimised — both the page total AND the locked keyword — so the since-optimised numbers are a fair 15-vs-15 on the target keyword">🔄 Refresh baselines (keyword)</button>
+                <button class="btn-secondary" onclick="reBaselineSnapshots(this)" title="Re-capture each page's 'before' as the 15 days right before it was optimised — both the page total AND the locked keyword — so the since-optimised numbers are a fair 15-vs-15 on the target keyword" style="display:none;">🔄 Refresh baselines (keyword)</button>
             </div>
             <div style="margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
                 <button class="btn-secondary" style="background:#c62828;color:#fff;border-color:#c62828;" onclick="removeSelected('optimized', this)">🗑️ Remove selected</button>
@@ -2060,22 +2039,16 @@
             }).join('');
         }
 
-        // Fix D — average improvement of the LOCKED keyword across all optimised pages, for 15 / 30 / 90 days.
+        // Fix D — single “since optimised” metric: baseline vs current position for pages optimised 45+ days ago.
         function renderOptimizedHealthSummary(pages, kwPair, redCount, yellowCount, winnerPages) {
             const box = document.getElementById('optimizedHealthSummary');
             if (!box) return;
             const DAY = 86400000, now = Date.now();
-            const windows = [
-                { label: 'Last 15 days', map: gscKw15 },
-                { label: 'Last 30 days', map: gscKw30 },
-                { label: 'Last 90 days', map: gscKw90 }
-            ];
-            // How many optimised pages even have a locked-keyword baseline captured?
+            const MIN_DAYS = 45;
+
             let withBaseline = 0;
             pages.forEach(p => { const s = mpdSnapshots[p.url]; if (s && s.kwPosition != null) withBaseline++; });
 
-            // Winner & Hold pages — count their UK movement too. Prefer the REAL SERP history (the good data) once
-            // there are 2+ dated checks (first vs latest); otherwise fall back to Google's UK 90-day → 15-day.
             const winnerMoves = (winnerPages || []).map(w2 => {
                 const s = mpdWinnerSerp[serpKey(w2.url, w2.keyword)];
                 if (s && Array.isArray(s.history) && s.history.length >= 2) {
@@ -2087,65 +2060,65 @@
                 if (kw && u15 && u15.position && u90 && u90.position) return { delta: u90.position - u15.position };
                 return null;
             }).filter(Boolean);
-            const winnersWithData = winnerMoves;   // measurable winners (count + guard)
 
-            if (withBaseline === 0 && winnersWithData.length === 0) {
-                box.innerHTML = `<div style="background:#fffdf2;border:1px solid #f5e08a;border-radius:8px;padding:12px 14px;font-size:0.85rem;color:#7a5c00;">
-                    📊 <strong>Is my SEO working?</strong> — to measure by the <strong>locked keyword</strong>, click <strong>🔄 Refresh baselines (keyword)</strong> above once. Until then the results below use the page total.</div>`;
+            if (withBaseline === 0 && winnerMoves.length === 0) {
+                box.innerHTML = `<div style=”background:#fffdf2;border:1px solid #f5e08a;border-radius:8px;padding:12px 14px;font-size:0.85rem;color:#7a5c00;”>
+                    📊 <strong>Is my SEO working?</strong> — not enough data yet. Baselines are captured automatically as pages are optimised.</div>`;
                 return;
             }
 
-            const tiles = windows.map(w => {
-                let sumPos = 0, improved = 0, dropped = 0, n = 0;
-                const loading = (!w.map || Object.keys(w.map).length === 0);
-                pages.forEach(p => {
-                    const s = mpdSnapshots[p.url];
-                    if (!s || s.kwPosition == null) return;
-                    const optimizedAt = s.optimizedAt || p.optimizedAt || 0;
-                    const daysAgo = Math.floor((now - optimizedAt) / DAY);
-                    if (daysAgo < 14) return;                        // too early to judge
-                    const kw = (p.keyword || '').toLowerCase();
-                    const cur = kw && w.map ? w.map[normalizeUrlPath(p.url) + '|||' + kw] : null;
-                    if (!cur) return;
-                    if ((cur.position || 99) <= MPD_POS_GOOD && (cur.impressions || 0) < MPD_IMP_FLOOR) return;  // weak keyword — leave it out of the score
-                    const posDelta = s.kwPosition - cur.position;    // + = climbed (position number went down)
-                    sumPos += posDelta; if (posDelta > 0) improved++; else if (posDelta < 0) dropped++; n++;
-                });
-                // Winner & Hold pages — their UK movement (SERP history if available, else Google 90→15).
-                winnerMoves.forEach(mv => {
-                    const posDelta = mv.delta;   // + = climbed
-                    sumPos += posDelta; if (posDelta > 0) improved++; else if (posDelta < 0) dropped++; n++;
-                });
-                let inner;
-                if (loading && n === 0) {
-                    inner = `<div style="font-size:0.8rem;color:#999;">Loading…</div>`;
-                } else if (n === 0) {
-                    inner = `<div style="font-size:0.8rem;color:#999;">Not enough data yet</div>`;
-                } else {
-                    const avg = sumPos / n;
-                    const up = avg > 0.05, down = avg < -0.05;
-                    const col = up ? '#2e7d32' : (down ? '#c62828' : '#888');
-                    const arrow = up ? '▲' : (down ? '▼' : '—');
-                    inner = `<div style="font-size:1.25rem;font-weight:800;color:${col};">${arrow} ${Math.abs(avg).toFixed(1)}</div>
-                             <div style="font-size:0.72rem;color:#666;">avg position change · ${n} page${n===1?'':'s'}</div>`;
-                }
-                return `<div style="flex:1;min-width:140px;text-align:center;background:white;border:1px solid #e0e0e0;border-radius:8px;padding:10px 8px;">
-                            <div style="font-size:0.75rem;color:#888;font-weight:600;margin-bottom:4px;">${w.label}</div>
-                            ${inner}
-                        </div>`;
-            }).join('');
+            const curMap = (gscKw30 && Object.keys(gscKw30).length) ? gscKw30
+                         : (gscKw15 && Object.keys(gscKw15).length) ? gscKw15
+                         : gscKw90;
+            const loading = !curMap || Object.keys(curMap).length === 0;
 
-            box.innerHTML = `<div style="background:#f4f9f4;border:1px solid #cfe6cf;border-radius:10px;padding:12px 14px;">
-                <div style="font-size:0.9rem;font-weight:700;color:#2e7d32;margin-bottom:10px;">📊 Is my SEO working? — optimised pages + your top-5 UK winners</div>
-                <div style="display:flex;gap:10px;flex-wrap:wrap;">${tiles}</div>
+            let sumPos = 0, improved = 0, dropped = 0, n = 0, tooRecent = 0;
+            pages.forEach(p => {
+                const s = mpdSnapshots[p.url];
+                if (!s || s.kwPosition == null) return;
+                const optimizedAt = s.optimizedAt || p.optimizedAt || 0;
+                const daysAgo = Math.floor((now - optimizedAt) / DAY);
+                if (daysAgo < MIN_DAYS) { tooRecent++; return; }
+                const kw = (p.keyword || '').toLowerCase();
+                const cur = kw && curMap ? curMap[normalizeUrlPath(p.url) + '|||' + kw] : null;
+                if (!cur) return;
+                if ((cur.position || 99) <= MPD_POS_GOOD && (cur.impressions || 0) < MPD_IMP_FLOOR) return;
+                const posDelta = s.kwPosition - cur.position;
+                sumPos += posDelta; if (posDelta > 0) improved++; else if (posDelta < 0) dropped++; n++;
+            });
+            winnerMoves.forEach(mv => {
+                sumPos += mv.delta; if (mv.delta > 0) improved++; else if (mv.delta < 0) dropped++; n++;
+            });
+
+            let mainMetric;
+            if (loading && n === 0) {
+                mainMetric = `<div style=”font-size:1rem;color:#999;”>Loading GSC data…</div>`;
+            } else if (n === 0) {
+                mainMetric = `<div style=”font-size:1rem;color:#999;”>Not enough data yet — need pages optimised 45+ days ago</div>`;
+            } else {
+                const avg = sumPos / n;
+                const up = avg > 0.05, down = avg < -0.05;
+                const col = up ? '#2e7d32' : (down ? '#c62828' : '#888');
+                const arrow = up ? '▲' : (down ? '▼' : '—');
+                const word = up ? 'better' : (down ? 'worse' : 'unchanged');
+                mainMetric = `<div style=”text-align:center;padding:8px 0;”>
+                    <div style=”font-size:2rem;font-weight:800;color:${col};line-height:1.2;”>${arrow} ${Math.abs(avg).toFixed(1)} positions</div>
+                    <div style=”font-size:0.95rem;color:${col};font-weight:600;margin-top:2px;”>${word} since optimised</div>
+                    <div style=”font-size:0.8rem;color:#888;margin-top:6px;”>Based on ${n} page${n===1?'':'s'} optimised 45+ days ago · ${improved} climbed · ${dropped} dropped</div>
+                    ${tooRecent > 0 ? `<div style=”font-size:0.75rem;color:#aaa;margin-top:3px;”>${tooRecent} page${tooRecent===1?'':'s'} optimised less than 45 days ago — too early to count</div>` : ''}
+                </div>`;
+            }
+
+            box.innerHTML = `<div style=”background:#f4f9f4;border:1px solid #cfe6cf;border-radius:10px;padding:14px 18px;”>
+                <div style=”font-size:0.9rem;font-weight:700;color:#2e7d32;margin-bottom:8px;”>📊 Is my SEO working?</div>
+                ${mainMetric}
                 ${redCount > 0
-                    ? `<div style="margin-top:12px;font-size:0.95rem;font-weight:700;color:#A32D2D;">🔴 ${redCount} page${redCount===1?'':'s'} need a look — use the “Needs a look” filter below.</div>`
-                    : `<div style="margin-top:12px;font-size:0.95rem;font-weight:600;color:#3B6D11;">🟢 Nothing dropped that needs a look right now.</div>`}
+                    ? `<div style=”margin-top:12px;font-size:0.95rem;font-weight:700;color:#A32D2D;”>🔴 ${redCount} page${redCount===1?'':'s'} need a look — use the “Needs a look” filter below.</div>`
+                    : `<div style=”margin-top:12px;font-size:0.95rem;font-weight:600;color:#3B6D11;”>🟢 Nothing dropped that needs a look right now.</div>`}
                 ${yellowCount > 0
-                    ? `<div style="margin-top:6px;font-size:0.95rem;font-weight:600;color:#8a6d00;">🟡 ${yellowCount} page${yellowCount===1?'':'s'} have a weak keyword — use the “Better change keyword” filter below.</div>`
+                    ? `<div style=”margin-top:6px;font-size:0.95rem;font-weight:600;color:#8a6d00;”>🟡 ${yellowCount} page${yellowCount===1?'':'s'} have a weak keyword — use the “Better change keyword” filter below.</div>`
                     : ''}
-                ${winnersWithData.length ? `<div style="margin-top:6px;font-size:0.9rem;font-weight:600;color:#1f6f43;">🏆 Includes ${winnersWithData.length} winner page${winnersWithData.length===1?'':'s'} (top 5 in the UK) — counted by their Google movement.</div>` : ''}
-                <div style="font-size:0.72rem;color:#999;margin-top:8px;">A higher position number is worse, so “▲” means the keyword climbed. The number to act on is the red one above.</div>
+                ${winnerMoves.length ? `<div style=”margin-top:6px;font-size:0.9rem;font-weight:600;color:#1f6f43;”>🏆 Includes ${winnerMoves.length} winner page${winnerMoves.length===1?'':'s'} (top 5 in the UK) — counted by their Google movement.</div>` : ''}
             </div>`;
         }
 
@@ -7359,444 +7332,6 @@ Rules:
             showToast(`✅ "${keyword}" added to To Optimise.`);
         }
 
-        // ═══ TEMP: Registry Recovery — verify & fix (remove after use) ═══
-        const TEMP_SKIP_SET = new Set([
-"above fireplace artwork|||https://aboutwallart.com/products/teal-living-room-artwork-set-of-3-wall-art-prints",
-"above toilet decor|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/bathroom-above-toilet-decor-transform-that-empty-space",
-"abstract art painting|||https://aboutwallart.com/products/abstract-art-painting-brown-marble-fluid-stone-wall-art-prints-set-of-3",
-"abstract art prints|||https://aboutwallart.com/products/abstract-art-prints-swirling-lavender-rose-gold-marble-wall-art-set-of-3",
-"abstract wall art|||https://aboutwallart.com/products/abstract-wall-art-brown-beige-gold-fluid-marble-art-prints-set-of-3",
-"arabic calligraphy art|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/dive-into-the-rich-history-of-islamic-calligraphy-wall-art",
-"arabic calligraphy|||https://aboutwallart.com/products/arabic-calligraphy-prints-for-bedroom-set-of-2-wall-art-prints",
-"art for a grey wall|||https://aboutwallart.com/products/art-for-a-grey-wall-shabby-chic-grey-gold-tone-botanical-floral-wall-art-prints-set-of-3",
-"art for an office|||https://aboutwallart.com/products/art-for-an-office-tropical-botanical-wall-art-prints-purple-aquamarine-leaves-flowers-set-of-3",
-"art for living room|||https://aboutwallart.com/products/art-for-living-room-shabby-chic-botanical-floral-wall-art-prints-set-of-3",
-"art for small spaces|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/choosing-art-for-small-spaces-7-smart-tips",
-"artwork for an office|||https://aboutwallart.com/products/artwork-for-an-office-shabby-chic-muted-floral-botanical-wall-art-prints-set-of-3",
-"artwork for bathroom|||https://aboutwallart.com/products/framed-bathroom-prints-set-of-2-wall-art-prints",
-"arzum ar3070 dallah arabic coffee maker|||https://aboutwallart.com/products/arzum-dallah-electric-arabic-coffee-maker",
-"asian decor|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/asian-home-decor-ideas-for-tranquil-nature-led-interiors",
-"asian wall art|||https://aboutwallart.com/products/asian-wall-art-blue-green-abstract-ink-landscape-with-lone-boat-tree-set-of-3",
-"asian wall painting|||https://aboutwallart.com/products/wall-art-paint-set-of-2-asian-inspired-wall-art-prints",
-"bathroom frame decor|||https://aboutwallart.com/products/wall-art-for-bathroom-set-of-3-farmhouse-botanical-wall-art",
-"bathroom safe artwork|||https://aboutwallart.com/products/prints-for-a-bathroom-wall-set-of-3-tropical-wall-art",
-"bathroom wall decor|||https://aboutwallart.com/products/bathroom-wall-decor-tropical-botanical-watercolour-leaves-flowers-art-prints-set-of-3",
-"bedroom decor ideas|||https://aboutwallart.com/products/bedroom-wall-decor-set-of-3-wall-art-prints",
-"best art for bedroom|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/the-best-art-for-bedrooms-relaxing-pieces-and-placement-tips",
-"black and white prints set of 3|||https://aboutwallart.com/products/white-and-black-prints-set-of-3-wall-art-prints",
-"black and white|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/black-and-white-magic-creating-galleries-framed-wall-art",
-"black enamel bread bin|||https://aboutwallart.com/products/liberty-black-enamel-bread-bin",
-"black framed wall art|||https://aboutwallart.com/products/black-framed-wall-art-sun-and-moon-celestial-art-prints-set-of-2",
-"black wall art for living room|||https://aboutwallart.com/products/black-wall-art-for-living-room-set-of-3-wall-art-prints",
-"blue wall art|||https://aboutwallart.com/products/blue-wall-art-shabby-chic-botanical-floral-cascade-art-prints-set-of-3",
-"botanical art|||https://aboutwallart.com/products/botanical-art-prints-navy-blue-sage-floral-bouquet-wall-art-set-of-3",
-"botanical prints for wall|||https://aboutwallart.com/products/botanical-prints-for-wall-daffodil-fern-watercolour-navy-white-yellow-set-of-2",
-"botanical prints framed|||https://aboutwallart.com/products/botanical-prints-framed-purple-pressed-flower-fern-farmhouse-wall-art-set-of-3",
-"botanical prints|||https://aboutwallart.com/products/botanical-prints-boho-dried-floral-bouquet-wall-art-set-of-3",
-"botanical themed bedroom|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/master-botanical-themed-bedroom-like-a-professional-designer",
-"botanical wall art|||https://aboutwallart.com/products/botanical-wall-art-navy-blue-wildflower-fern-prints-set-of-3",
-"canvas for living room|||https://aboutwallart.com/products/canvas-for-living-room-corinthians-13-4-5-peter-4-8-ephesians-4-2-botanical-bible-verse-wall-art-prints-set-of-3",
-"childrens room decor|||https://aboutwallart.com/products/childrens-bedroom-decorations-llama-wall-art-for-nursery",
-"chinoiserie art prints|||https://aboutwallart.com/products/chinoiserie-art-prints-grey-mauve-tropical-botanical-with-birds-butterflies-set-of-2",
-"chinoiserie pictures|||https://aboutwallart.com/products/chinoiserie-prints-set-of-2-japanese-crane-art-wall-art",
-"chinoiserie wall art|||https://aboutwallart.com/products/chinoiserie-wall-art-botanical-birds-blossoms-teal-beige-set-of-3",
-"christian bedroom wall art|||https://aboutwallart.com/products/christian-art-wall-for-bedroom-set-of-3-wall-art-prints",
-"christmas wall decorations indoor|||https://aboutwallart.com/products/christmas-wall-decorations-for-indoor",
-"coffee artwork|||https://aboutwallart.com/products/coffee-artwork-irish-coffee-flat-coffee-watercolour-illustration-wall-art-prints-set-of-3",
-"coffee wall art for kitchen|||https://aboutwallart.com/products/coffee-decor-for-kitchen-set-of-3-wall-art-prints",
-"color psychology in art|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/color-psychology-in-art-how-shades-shape-emotion",
-"contemporary art prints|||https://aboutwallart.com/products/contemporary-art-prints-blue-beige-abstract-marble-fluid-swirl-wall-art-set-of-3",
-"contemporary wall art large|||https://aboutwallart.com/products/contemporary-wall-art-large-brown-grey-fluid-marble-abstract-art-prints-set-of-3",
-"contemporary wall art uk|||https://aboutwallart.com/products/modern-wall-art-for-living-room-uk-set-of-3-urban-skyscrappers-wall-art-prints",
-"contemporary wall art|||https://aboutwallart.com/products/contemporary-wall-art-black-light-blue-misty-mountain-landscape-set-of-3",
-"cool wall decor|||https://aboutwallart.com/products/cool-wall-decor-for-teens-set-of-3-pop-wall-art-prints",
-"decorating above toilet|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/decorating-above-toilet-stylish-ideas-to-elevate-your-bathroom",
-"decoration for bathroom wall|||https://aboutwallart.com/products/pictures-for-bathrooms-wall-set-of-3-wall-art",
-"decoration murale islam|||https://aboutwallart.com/products/wall-art-islamic-set-of-2-gold-wall-art",
-"deep winter colour palette|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/lighting-challenges-when-using-a-deep-winter-colour-palette",
-"design and trends 2026|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/design-and-decor-trends-for-2026",
-"design for small bathroom|||https://aboutwallart.com/products/design-for-small-bathroom-coastal-seashell-wall-art-prints-relax-soak-unwind-set-of-3",
-"design lounge room|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/design-lounge-room-feels-effortlessly-stylish",
-"design trends interior|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/interior-design-trends-for-2026-key-looks-to-try",
-"designer wall art for living room|||https://aboutwallart.com/products/living-room-pictures-for-the-walls-set-of-3-art-prints",
-"different type of interior design|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/a-guide-to-a-different-type-of-interior-design-for-a-calming",
-"digital vs handmade wall art|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/whats-the-difference-between-digital-and-handmade-wall-art",
-"dining room decor|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/solving-dull-vibes-add-personality-with-easy-dining-room-dec",
-"dua of forgiveness|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/elegant-ways-to-incorporate-the-dua-of-forgiveness-into-mode",
-"earth colour trends|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/earth-inspired-living-the-volcano-and-forest-palettes-down-t",
-"easy decoration for toilet|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/stylish-ideas-for-your-smallest-room-easy-decoration-for-toi",
-"eclectic maximalist decor|||https://aboutwallart.com/collections/eclectic-maximalist-decor",
-"entryway decor ideas|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/entryway-decor-ideas-for-a-welcoming-first-impression",
-"essential tips for moving house|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/essential-tips-for-moving-house-a-stress-free-guide",
-"extra large wall art for living room|||https://aboutwallart.com/products/extra-large-wall-art-for-living-room-set-of-3-boho-women-wall-art-prints",
-"farmhouse living room ideas|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/farmhouse-living-room-ideas-for-cosy",
-"farmhouse wall art|||https://aboutwallart.com/products/farmhouse-wall-art-botanical-eucalyptus-wildflower-sprigs-in-white-mink-purple-set-of-3",
-"feng shui home design|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/how-can-i-incorporate-feng-shui-principles-into-my-home-design",
-"first home decor|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/elevate-your-just-married-first-home-decor-with-wall-art-abo",
-"flat essentials|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/first-apartment-essentials-ultimate-guide",
-"floral art wall|||https://aboutwallart.com/products/floral-art-wall-prints-purple-grey-botanical-lilac-clusters-set-of-3",
-"floral prints for bedroom|||https://aboutwallart.com/products/gold-floral-bedroom-wall-art-set-of-3-wall-art-prints",
-"floral wall art|||https://aboutwallart.com/products/floral-wall-art-shabby-chic-botanical-sprays-in-soft-plum-aquamarine-white-set-of-3",
-"focal point gallery wall|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/how-to-create-a-focal-point-gallery-wall-in-any-room",
-"frame size|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/step-by-step-guide-determining-what-frame-size-do-i-need-for-my-space",
-"framed gold wall art|||https://aboutwallart.com/products/framed-gold-wall-art-sun-and-moon-japanese-wave-black-gold-set-of-3",
-"framed prints for bedroom|||https://aboutwallart.com/products/japanese-wall-art-set-of-3-framed-wall-art",
-"framed wall art|||https://aboutwallart.com/pages/wall-hanging-pictures-shop-by-style",
-"french country interior decor|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/charming-home-with-timeless-french-country-interior-decor",
-"galleries with framed wall art|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/black-and-white-magic-creating-bold-galleries-with-framed-wa",
-"games room art|||https://aboutwallart.com/collections/games-room-decor",
-"glam 1920s-style ideas|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/modern-art-deco-home-decor-glam-1920s-style-ideas-for-modern",
-"gold wall art decor|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/gilded-opulence-elevate-your-space-with-gold-wall-art-decor",
-"gold wall art|||https://aboutwallart.com/products/gold-geometric-abstract-beige-black-mid-century-wall-art-prints-set-of-3",
-"greige colours|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/greige-colours-how-to-decorate-with-the-timeless-blend-of-gr",
-"hippo bookends|||https://aboutwallart.com/products/boho-hippo-bookends",
-"hiring an interior decorator|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/is-hiring-an-interior-decorator-worth-it",
-"hiring an interior designer|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/how-can-i-get-the-most-value-from-hiring-an-interior-designer-1",
-"home decor essentials|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/what-home-decor-essentials-should-i-invest-in",
-"home decor styles|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/how-to-find-your-perfect-home-decor-styles",
-"home decor themes|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/what-is-the-3-5-7-rule-in-decorating-a-simple-formula-for-stylish-spaces",
-"home decor trends 2025|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/home-decor-trends-2025-7",
-"home office artwork|||https://aboutwallart.com/products/home-office-art-wall-set-of-3-wall-art-prints",
-"homedecor|||https://aboutwallart.com/pages/cosy-minimalism-home-decor-trend",
-"how to choose canvas art for a small bathroom|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/canvas-painting-for-living-room",
-"how to decorate a master bedroom|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/how-to-decorate-a-master-bedroom-stylish-ideas-for-comfort-a",
-"how to decorate a really small bedroom|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/how-to-decorate-a-really-small-bedroom-10-space-saving-tips-",
-"how to find canvas art that promotes relaxation|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/how-i-used-canvas-pictures-for-living-rooms-to-create-my-calm-sanctuary",
-"how to find your decorating style|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/how-to-find-your-decorating-style",
-"how to live a minimalist life|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/how-to-live-a-minimalist-life-and-thrive-with-simplicity",
-"ideas for a teenage bedroom|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/fun-and-stylish-decorating-ideas-for-a-teenage-bedroom",
-"ideas for decorating the home|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/ideas-for-decorating-the-home-7",
-"ideas for lounge|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/stylish-ideas-for-lounge-create-comfort-and-elegance",
-"industrial wall art|||https://aboutwallart.com/collections/industrial-home-decor/living-room-art",
-"inspiration for home decor|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/8-fresh-ideas-for-inspiration-for-home-decor",
-"inspiration for home décor|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/inspiration-for-home-decor-8-fresh-ideas",
-"inspiring interior design ideas for bedrooms|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/inspiring-interior-design-ideas-for-bedrooms-creating-your-c",
-"inspiring laundry room decor|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/inspiring-laundry-room-decor-tips-for-a-functional-and-beaut",
-"interior color scheme|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/how-to-match-prints-for-the-wall-with-your-interior-color-sc",
-"interior decor ideas for living room|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/fresh-interior-decor-ideas-for-living-room-updates",
-"interior decorator vs designer|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/whats-the-difference-between-an-interior-decorator-and-designer",
-"interior design ideas small spaces|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/what-are-the-best-interior-design-ideas-for-small-spaces",
-"interior design of house|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/transform-your-interior-design-of-house-how-wall-art-creates-a-calm-home",
-"interior design trends 2026|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/interior-design-trends-for-2026-and-what-continues-into-2026",
-"interior designer budget|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/how-can-an-interior-designer-help-maximize-my-budget",
-"interior designer consultation|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/how-can-i-prepare-my-home-for-an-interior-designer-consultation",
-"interior designer rental apartment|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/should-i-hire-an-interior-designer-for-my-rental-apartment",
-"interior styles list|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/your-ultimate-interior-styles-list-for-a-beautiful-home",
-"islamic calligraphy|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/dive-into-the-history-of-islamic-calligraphy-wall-art-and-it",
-"islamic wall art for living room|||https://aboutwallart.com/products/islamic-wall-art-with-frame-for-living-room-set-of-3-wall-art-prints",
-"islamic wall art with frame|||https://aboutwallart.com/products/islamic-framed-wall-art-print",
-"japandi art prints|||https://aboutwallart.com/products/landscape-painting-japan-set-of-3-wall-art-prints-for-living-room",
-"japandi art|||https://aboutwallart.com/products/japandi-art-for-bedroom-set-of-3-wall-art-prints",
-"japandi style wall art|||https://aboutwallart.com/products/living-room-framed-prints-set-of-3-japandi-wall-art",
-"japandi style|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/decorating-trend-japandi-style---how-to-create-a-calm-home",
-"japanese art 3 pack|||https://aboutwallart.com/products/japanese-art-prints-set-of-3-framed-wall-art",
-"japanese art for bedroom|||https://aboutwallart.com/products/japanese-landscape-art-pictures-for-bedroom-set-of-3-wall-art-prints",
-"japanese art prints|||https://aboutwallart.com/products/japanese-art-prints-ink-wash-mountain-landscape-with-lone-tree-rowing-boat-set-of-3",
-"japanese art|||https://aboutwallart.com/products/japanese-art-black-ink-wash-landscape-with-gold-tone-sun-wall-art-prints-set-of-3",
-"japanese minimalism|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/the-fusion-of-japanese-minimalism-scandinavian-simplicity",
-"japanese wall decor|||https://aboutwallart.com/products/japanese-landscape-paintings-set-of-3-wall-art-prints",
-"just married first home decor|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/just-married-first-home-decor-with-wall-art-about-love",
-"kids prints for bedroom|||https://aboutwallart.com/products/jungle-nursery-set-of-3-wall-art-prints",
-"kitchen art work|||https://aboutwallart.com/products/artwork-for-the-kitchen-set-of-3-framed-wall-art",
-"kitchen pictures for walls|||https://aboutwallart.com/products/floral-kitchen-prints-for-walls-set-of-2-wall-art-prints",
-"kitchen typography wall art|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/how-to-use-typography-for-a-playful-kitchen-wall-art-decor",
-"kitchen wall decor ideas modern|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/10-creative-kitchen-wall-decor-ideas",
-"kitchen wall ideas|||https://aboutwallart.com/products/kitchen-wall-ideas-shabby-chic-botanical-watercolour-leaf-art-prints-set-of-3",
-"large dining rooms|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/how-can-you-make-large-dining-rooms-feel-more-inviting",
-"large wall art for living room|||https://aboutwallart.com/products/large-modern-wall-art-set-of-3-chinoiserie-wall-art-prints",
-"lemon wall art|||https://aboutwallart.com/products/lemons-print-set-of-2-wall-art-prints",
-"line drawing prints|||https://aboutwallart.com/products/faces-line-art-drawings-for-living-room-set-of-2-wall-art-prints",
-"living room art|||https://aboutwallart.com/products/living-room-art-shabby-chic-wildflower-botanical-cascades-in-blue-grey-set-of-3",
-"living room decor ideas|||https://aboutwallart.com/products/living-room-decor-ideas-purple-grey-tropical-botanical-wall-art-prints-set-of-3",
-"living room decor wall space|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/designing-a-living-room-decor-wall-space",
-"living room fireplace decor ideas|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/living-room-fireplace-decor-ideas-step-by-step-guide-to-a-ma",
-"living room prints set of 3|||https://aboutwallart.com/products/living-room-prints-set-of-3-wall-art-prints",
-"living room wall art decor|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/how-to-create-a-wow-factor-with-the-right-living-room-wall-a",
-"living room wall art|||https://aboutwallart.com/products/floral-wall-art-for-large-living-room-wall-set-of-3-wall-art-prints",
-"livingroom pictures|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/how-to-effortlessly-mix-and-blend-different-art-style-types-in-a-living-room",
-"local wall art|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/what-are-the-benefits-of-buying-local-wall-art",
-"lounge pictures|||https://aboutwallart.com/products/wall-pictures-for-lounge-room-set-of-2-italian-lifestyle-wall-art-prints",
-"luxe play mats|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/upgrade-your-interiors-with-luxe-play-mats-and-elegant-grey-rugs",
-"main bedroom decoration ideas|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/inspiring-main-bedroom-decoration-ideas-for-comfort-and-style",
-"man cave decor|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/how-can-man-cave-decor-create-your-perfect-personal-sanctuary",
-"master bedroom wall art above bed|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/wall-art-above-bed-choosing-the-perfect-master-bedroom-piece",
-"modern abstract wall art|||https://aboutwallart.com/products/modern-abstract-wall-art-dark-blue-fluid-marble-swirl-art-prints-set-of-3",
-"modern art pictures for living room|||https://aboutwallart.com/products/pictures-for-living-room-walls-set-of-3-wall-art-prints",
-"modern art|||https://aboutwallart.com/products/modern-art-beige-grey-fluid-marble-wall-art-prints-set-of-3",
-"modern christian wall art for living room|||https://aboutwallart.com/products/christian-modern-art-for-bedroom-set-of-3-wall-art-prints",
-"modern islamic art|||https://aboutwallart.com/products/modern-islamic-artwork-wall-art-print",
-"modern islamic decor|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/incorporate-the-dua-of-forgiveness-into-modern-islamic-decor",
-"modern islamic wall decor|||https://aboutwallart.com/products/islamic-decoration-items-set-of-3-wall-art-prints",
-"modern japanese wall art|||https://aboutwallart.com/products/modern-japanese-wall-art-blue-mountain-mist-watercolour-landscape-set-of-3",
-"modern master bedroom decor ideas|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/the-art-of-decorating-modern-master-bedroom-decor-ideas",
-"modern wall art|||https://aboutwallart.com/pages/modern-art-wall-decoration-shop-by-room",
-"nature-inspired art|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/how-nature-inspired-art-can-transform-your-walls-into-a-soul",
-"neutral wall art for living room|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/wall-art-pictures-for-living-room-grounded-neutral-colours",
-"neutral wall art set of 3|||https://aboutwallart.com/products/neutral-wall-art-set-of-3-framed-wall-art-prints",
-"neutral wall art set of 3|||https://aboutwallart.com/products/wall-art-neutral-set-of-3-framed-wall-art-prints",
-"neutral wall decor|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/elevate-your-space-with-neutral-wall-decor",
-"newest decorating trends|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/newest-decorating-trends-for-2026-you-can-try-now",
-"nursery decor style|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/how-to-use-a-nursery-decor-style-that-grows-with-your-child",
-"nursery decor wall|||https://aboutwallart.com/products/nursery-decor-wall-art-prints-unicorn-rainbow-balloons-pastel-pink-set-of-3",
-"nursery prints set of 3|||https://aboutwallart.com/products/nursery-prints-set-of-3-wall-art-prints",
-"nursery wall art decor|||https://aboutwallart.com/products/nursery-wall-art-decor-fairy-snail-deer-whimsical-prints-set-of-3",
-"office art work|||https://aboutwallart.com/products/office-art-work-botanical-foliage-watercolour-blue-green-wall-art-prints-set-of-3",
-"office artwork for walls|||https://aboutwallart.com/products/office-paintings-ideas-set-of-3-wall-art-prints",
-"office art|||https://aboutwallart.com/products/office-art-zen-buddha-do-dharma-good-karma-black-gold-wall-art-prints-set-of-3",
-"office decor inspiration|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/home-office-decor-inspiration-work-from-home-in-style",
-"office paintings|||https://aboutwallart.com/products/office-paintings-shabby-chic-pastel-botanical-floral-wall-art-prints-set-of-3",
-"office pictures for wall|||https://aboutwallart.com/products/minimalist-office-decor-set-of-3-wall-art-prints",
-"office prints for wall|||https://aboutwallart.com/products/prints-for-office-walls-set-of-3-wall-art-prints",
-"office wall art prints|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/exploring-office-wall-art-prints-when-designing-a-home-offic",
-"office wall design|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/creative-office-wall-design-ideas-to-inspire-productivity",
-"office wall pictures|||https://aboutwallart.com/products/office-wall-pictures-chinoiserie-birds-botanical-garden-wall-art-prints-set-of-3",
-"oriental wall art|||https://aboutwallart.com/products/oriental-wall-art-set-of-3-wall-art-prints",
-"paintings for home office|||https://aboutwallart.com/products/paintings-for-home-office-japandi-mountain-lake-wall-art-prints-set-of-3",
-"paris poster vintage|||https://aboutwallart.com/products/paris-vintage-posters-travel-art-prints-set-of-3-wall-art-prints",
-"picture for living room|||https://aboutwallart.com/products/picture-for-living-room-farmhouse-botanical-eucalyptus-wild-herb-sprigs-in-mink-white-purple-wall-art-prints-set-of-3",
-"pictures for a living room wall|||https://aboutwallart.com/products/pictures-for-a-living-room-wall-corinthians-13-2-romans-12-10-ephesians-4-2-white-floral-christian-wall-art-set-of-3",
-"pictures for a living room|||https://aboutwallart.com/products/large-living-room-wall-art-set-of-3-wall-art-prints",
-"pictures for bedroom walls|||https://aboutwallart.com/products/wall-art-for-the-bedroom-set-of-3-prints",
-"pictures for lounge rooms|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/solving-wall-blankness-with-pictures-for-lounge-rooms",
-"pictures for the living room|||https://aboutwallart.com/products/pictures-for-the-living-room-farmhouse-wildflower-botanical-wall-art-prints-set-of-3",
-"pink preppy room ideas|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/chic-pink-preppy-room-ideas-for-a-stylish-and-fun-space",
-"pink room ideas|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/chic-pink-room-ideas-for-a-stylish-and-fun-space",
-"playroom your kids will adore|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/my-friendly-guide-to-designing-a-playroom-your-kids-will-ado",
-"playroom|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/designing-a-clutter-free-kids-playroom-childrens-playroom-ideas",
-"playroom|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/designing-a-kids-playroom-childrens-playroom-ideas",
-"powder room bathroom decorating ideas|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/stylish-powder-room-bathroom-decorating-ideas-to-elevate-you",
-"prepare for interior decorator meeting|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/how-to-prepare-for-your-first-meeting-with-an-interior-decorator",
-"print for nursery|||https://aboutwallart.com/products/print-for-nursery-unicorn-hot-air-balloon-wall-art-prints-sophie-sleeps-here-set-of-3",
-"prints for bathroom|||https://aboutwallart.com/products/prints-for-bathroom-botanical-floral-wall-art-get-naked-relax-soak-and-unwind-blue-green-set-of-3",
-"prints japanese art|||https://aboutwallart.com/products/prints-japanese-art-black-ink-botanicals-red-peony-set-of-2",
-"prints nursery|||https://aboutwallart.com/products/prints-nursery-unicorn-rainbow-balloons-pastel-pink-wall-art-set-of-3",
-"questions to ask interior designer|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/what-questions-should-i-ask-before-hiring-an-interior-designer",
-"religious posters|||https://aboutwallart.com/products/christian-religious-posters-for-bedroom-set-of-3-wall-art-prints",
-"religious wall pictures|||https://aboutwallart.com/products/christian-religious-wall-art-set-of-3-prints-for-bedroom-walls",
-"rental décor|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/how-to-make-a-rental-decor-feel-like-home",
-"rental decor|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/rental-decor-how-to-make-a-rental-feel-like-home-without-get",
-"role of art in interior design|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/understanding-the-role-of-art-in-interior-design",
-"role of wall art in mood setting|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/the-role-of-wall-art-in-mood-setting-enhance-your-space-with",
-"rustic decoration for home|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/rustic-decoration-for-home-that-doesnt-feel-dated",
-"san francisco art prints|||https://aboutwallart.com/products/san-francisco-print-set-of-2-wall-art-travel-posters",
-"scandi style home decor|||https://aboutwallart.com/collections/scandi-home-decor-1",
-"scandi wall art|||https://aboutwallart.com/products/scandi-artwork-prints-set-of-3-framed-prints",
-"scandinavian wall art|||https://aboutwallart.com/products/scandinavian-wall-art-misty-mountain-landscape-with-trees-birds-set-of-3",
-"set of 3 floral wall art|||https://aboutwallart.com/products/art-prints-floral-set-of-3-wall-art-prints",
-"set of 3 japanese prints|||https://aboutwallart.com/products/wall-picture-for-living-room-set-of-3-japanese-art-prints",
-"set of 3 small pictures|||https://aboutwallart.com/products/small-pictures-for-bathrooms-set-of-3-framed-wall-art",
-"set of 3 wall art black and white|||https://aboutwallart.com/products/white-and-black-wall-art-set-of-3-prints",
-"shabby chic bathroom pictures|||https://aboutwallart.com/products/framed-pictures-for-bathroom-set-of-3-wall-art-prints",
-"shabby chic wall decor|||https://aboutwallart.com/products/wall-art-sets-of-3-for-living-room-shabby-chic-wall-art-prints",
-"shabby chic|||https://aboutwallart.com/products/shabby-chic-vintage-floral-botanical-wall-art-prints-muted-rose-earth-tone-bouquets-set-of-3",
-"small bathroom wall decor ideas|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/elevate-your-space-small-bathroom-wall-art-ideas",
-"small space interior design|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/design-tips-for-compact-homes",
-"small studio apartment decor|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/small-studio-apartment-decor-10-genius-tips-hacks-for-maximi",
-"small studio apartment interior design ideas|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/small-studio-apartment-decor-10-genius-tips-hacks-for-maximising-space",
-"solving extra large wall art|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/solving-extra-large-wall-art-placement-anxiety-where-and-how",
-"spa pictures for bathroom|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/bathroom-wall-decor-ideas-for-spa-like-spaces",
-"space temporary cultural|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/space-temporary-cultural-practical-design-insights-for-modern-interiors",
-"style trends|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/style-trends-add-a-dash-of-drama-with-the-wild-side-look-for",
-"stylish ideas for lounge|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/stylish-ideas-for-lounge-to-create-comfort-and-elegance",
-"stylish interior for dining room|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/how-can-you-create-a-stylish-interior-for-dining-room",
-"stylish prints for living room|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/stylish-prints-for-living-room-inspire-your-space",
-"stylish practical decorating tips|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/stylish-practical-decorating-tips-for-family-room",
-"summer design ideas|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/summer-design-ideas-made-easy-complete-beginners-guide",
-"support mental health at work|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/how-to-create-a-relaxing-workspace-practical-ways-to-support",
-"sustainable interior design materials|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/how-to-incorporate-sustainable-materials-in-your-interior-design",
-"sustainable interior design|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/how-can-i-incorporate-sustainable-design-into-my-home",
-"teal color wall art|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/elevate-your-space-with-teal-color-wall-art",
-"teal painting|||https://aboutwallart.com/products/teal-painting-japandi-watercolour-mountains-birds-boat-wall-art-prints-set-of-3",
-"travel-inspired decor ideas|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/home-trotters-style-travel-inspired-decor-ideas-for-every-ro",
-"tropical wall art|||https://aboutwallart.com/products/tropical-wall-art-moody-botanical-bouquets-in-blue-pink-white-set-of-3",
-"types of wall art for every space|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/10-popular-types-of-wall-art-for-every-space",
-"types of wall art|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/types-of-wall-art",
-"understanding wall art size|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/understanding-wall-art-size-guide-for-your-space",
-"unique art prints for wall|||https://aboutwallart.com/products/unique-wall-art-for-living-room-set-of-3-wall-art-prints",
-"unique bathroom wall decor|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/bathroom-art-ideas-to-transform-your-small-bathroom-into-an-oasis",
-"unique birthday presents|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/unique-birthday-presents-to-celebrate-in-style",
-"unusual wall art for living room|||https://aboutwallart.com/products/unusual-wall-art-for-living-room-dark-tropical-leaves-soft-pink-botanical-prints-set-of-3",
-"value of interior designer|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/how-can-i-get-the-most-value-from-hiring-an-interior-designer",
-"wabi sabi wall art|||https://aboutwallart.com/products/wabi-sabi-wall-art-set-of-3-framed-wall-art-prints",
-"wall art bedroom|||https://aboutwallart.com/collections/wall-art-for-a-bedroom",
-"wall art bundle|||https://aboutwallart.com/collections/bundles",
-"wall art color matching guide|||https://aboutwallart.com/pages/color-matching-guide-wall-art",
-"wall art for grey living room|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/why-wall-art-for-grey-living-room-is-the-must-have-trend-right-now",
-"wall art for kitchen|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/are-your-kitchen-walls-begging-for-a-makeover-that-s-both-chic-and-practical",
-"wall art for kitchen|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/can-the-right-art-for-the-kitchen-turn-it-into-an-inviting-space",
-"wall art for living room|||https://aboutwallart.com/products/floral-wall-art-gold-for-living-room-set-of-3-wall-art-prints",
-"wall art for stairs|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/how-to-hang-wall-art-for-stairs-without-a-straight-wall",
-"wall art for the bathroom|||https://aboutwallart.com/products/shabby-chic-prints-for-bathroom-wall-set-of-3-wall-prints",
-"wall art interior styling|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/wall-art-interior-styling-how-to-create-cohesive-calm-beautiful-home-interiors",
-"wall art living room|||https://aboutwallart.com/products/art-wall-for-living-room-set-of-3-wall-art-prints",
-"wall art material|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/types-of-wall-art-materials-guide-to-choosing-the-one",
-"wall art mediums|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/what-wall-art-mediums-are-available",
-"wall art pictures for living room|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/trending-now-wall-art-pictures-for-living-room-in-grounded-c",
-"wall art placement guide|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/the-ultimate-wall-art-placement-guide-where-to-hang-art-in-every-room-of-your-home",
-"wall art size calculator free|||https://aboutwallart.com/pages/wall-art-size-calculator",
-"wall art trends|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/wall-art-trends-for-2026-styles-designers-are-loving",
-"wall decor christmas|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/transform-your-home-with-wall-decor-christmas",
-"wall decor for living room|||https://aboutwallart.com/products/wall-decor-for-living-room-soft-purple-botanical-floral-art-prints-set-of-3",
-"wall decoration office ideas|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/never-too-small-wall-decoration-office-ideas-for-tiny-apartm",
-"wall pictures black and white|||https://aboutwallart.com/products/wall-pictures-black-and-white-marble-fluid-art-with-warm-gold-tones-set-of-3",
-"wallpaper vs wall art|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/wall-arts-for-living-room-wallpaper-vs-wall-art",
-"walnut chest of drawers and bedside table|||https://aboutwallart.com/products/wright-walnut-bedside-table",
-"waterproof bathroom picture frames|||n/a",
-"ways to support mental health at work|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/how-to-create-a-relaxing-workspace-practical-ways-to-support-mental-health-at-work",
-"what colour goes best with grey|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/choosing-the-right-palette-what-colour-goes-with-grey-walls-",
-"what frame size do i need for my space|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/step-by-step-guide-what-frame-size-do-i-need-for-my-space",
-"what is canvas art?|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/what-is-canvas-art-understanding-the-beauty-and-impact",
-"what is canvas art|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/what-is-canvas-art",
-"what is wall art|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/what-is-wall-art-guide",
-"what to do when your home lacks natural light|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/what-to-do-when-your-home-lacks-natural-light-decorate-livin",
-"white wall art for bathroom|||https://aboutwallart.com/products/bathroom-framed-pictures-set-of-3-shabby-chic-wall-art",
-"white wall art for bathroom|||https://aboutwallart.com/products/floral-art-for-bathroom-walls-uk-set-of-2-wall-art-prints-3",
-"why art matters in offices|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/why-art-matters-in-offices-boost-productivity-and-inspire-cr",
-"work office wall art|||https://aboutwallart.com/products/work-office-wall-art-japandi-misty-mountain-landscape-with-pine-trees-lone-boat-set-of-3",
-"working with an interior decorator|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/what-to-expect-when-working-with-an-interior-decorator",
-"write for us home decor|||https://aboutwallart.com/pages/write-for-us",
-"xmas decorations personalised|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/last-minute-gifting-with-xmas-decorations-personalised",
-"zen decor idea|||https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/zen-decor-ideas-calm-serenity-in-your-living-space"
-        ]);
-
-        async function tempRunVerifyAndFix() {
-            const btn = document.getElementById('tempRunBtn');
-            const status = document.getElementById('tempStatus');
-            const progressBar = document.getElementById('tempProgressBar');
-            const progressFill = document.getElementById('tempProgressFill');
-            const log = document.getElementById('tempLog');
-            const fileInput = document.getElementById('tempRegistryFile');
-
-            btn.disabled = true;
-            btn.style.opacity = '0.5';
-            log.style.display = 'block';
-            log.innerHTML = '';
-            const addLog = (msg) => { log.innerHTML += msg + '<br>'; log.scrollTop = log.scrollHeight; };
-
-            try {
-                // Step 1: Upload merged CSV if file selected
-                let csvText = null;
-                if (fileInput.files.length > 0) {
-                    addLog('📄 Reading uploaded CSV file...');
-                    csvText = await new Promise((resolve, reject) => {
-                        const reader = new FileReader();
-                        reader.onload = () => resolve(reader.result);
-                        reader.onerror = reject;
-                        reader.readAsText(fileInput.files[0]);
-                    });
-                    addLog('⬆️ Uploading merged registry to GitHub...');
-                    status.textContent = 'Uploading registry...';
-                    const uploadRes = await fetch('/api/blogs', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action: 'registry-replace', content: csvText })
-                    });
-                    const uploadData = await uploadRes.json();
-                    if (!uploadData.success) throw new Error('Upload failed: ' + (uploadData.error || 'unknown'));
-                    addLog('✅ Registry uploaded to GitHub.');
-                } else {
-                    addLog('📥 Downloading registry from GitHub...');
-                    status.textContent = 'Downloading registry...';
-                    const res = await fetch('https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/keyword-locker-registry.csv?t=' + Date.now());
-                    csvText = await res.text();
-                    addLog('✅ Registry downloaded.');
-                }
-
-                // Step 2: Parse CSV to find TO_OPTIMIZE blog URLs
-                const lines = csvText.split('\n');
-                let headerIdx = -1;
-                for (let i = 0; i < Math.min(lines.length, 10); i++) {
-                    if (lines[i].includes('Keyword') && lines[i].includes('Page URL')) { headerIdx = i; break; }
-                }
-                if (headerIdx < 0) throw new Error('Cannot find CSV header row');
-
-                const toCheck = [];
-                for (let i = headerIdx + 1; i < lines.length; i++) {
-                    const line = lines[i].trim();
-                    if (!line) continue;
-                    const cols = line.split(',').map(c => c.replace(/^"|"$/g, '').trim());
-                    const keyword = (cols[0] || '').trim();
-                    const url = (cols[1] || '').trim();
-                    const action = (cols[4] || '').trim();
-                    if (action !== 'TO_OPTIMIZE') continue;
-                    if (!url.includes('/blogs/')) continue;
-                    const key = keyword.toLowerCase() + '|||' + url.toLowerCase();
-                    if (TEMP_SKIP_SET.has(key)) continue;
-                    toCheck.push({ keyword, url });
-                }
-
-                addLog(`🔍 Found ${toCheck.length} blog TO_OPTIMIZE pages to check (after skipping ${TEMP_SKIP_SET.size} protected rows).`);
-                if (toCheck.length === 0) {
-                    status.textContent = 'Nothing to check.';
-                    btn.disabled = false; btn.style.opacity = '1';
-                    return;
-                }
-
-                // Step 3: Check each page for the author byline link
-                progressBar.style.display = 'block';
-                const matched = [];
-                const pattern = /Interior Design Consultant[^<]{0,30}<a /;
-
-                for (let i = 0; i < toCheck.length; i++) {
-                    const { keyword, url } = toCheck[i];
-                    const pct = Math.round(((i + 1) / toCheck.length) * 100);
-                    progressFill.style.width = pct + '%';
-                    progressFill.textContent = pct + '%';
-                    status.textContent = `Checking ${i + 1}/${toCheck.length}...`;
-
-                    try {
-                        const res = await fetch('/api/fetch-html', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ url })
-                        });
-                        const data = await res.json();
-                        if (data.html && pattern.test(data.html)) {
-                            matched.push({ keyword, url });
-                            addLog(`✅ MATCH: "${keyword}"`);
-                        } else {
-                            addLog(`⬜ no match: "${keyword}"`);
-                        }
-                    } catch (err) {
-                        addLog(`❌ ERROR fetching "${keyword}": ${err.message}`);
-                    }
-
-                    // Small delay to avoid hammering Vercel
-                    if (i < toCheck.length - 1) await new Promise(r => setTimeout(r, 500));
-                }
-
-                addLog(`\n📊 Results: ${matched.length} matched out of ${toCheck.length} checked.`);
-
-                // Step 4: Bulk mark matched pages as OPTIMIZED
-                if (matched.length > 0) {
-                    addLog('⬆️ Sending bulk-mark-optimized...');
-                    status.textContent = 'Marking optimized...';
-                    const markRes = await fetch('/api/blogs', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action: 'bulk-mark-optimized', pairs: matched })
-                    });
-                    const markData = await markRes.json();
-                    if (markData.success) {
-                        addLog(`✅ Done! ${markData.updated} rows marked OPTIMIZED in the registry.`);
-                        status.textContent = `Done — ${markData.updated} rows recovered.`;
-                    } else {
-                        addLog(`❌ Bulk mark failed: ${markData.error || 'unknown'}`);
-                        status.textContent = 'Error during bulk mark.';
-                    }
-                } else {
-                    status.textContent = 'Done — no pages matched the byline pattern.';
-                }
-
-            } catch (err) {
-                addLog(`❌ Fatal error: ${err.message}`);
-                status.textContent = 'Error — see log.';
-            }
-
-            btn.disabled = false;
-            btn.style.opacity = '1';
-        }
-        // ═══ END TEMP ═══
 
         // Initialize on page load
         window.addEventListener('DOMContentLoaded', async () => {
