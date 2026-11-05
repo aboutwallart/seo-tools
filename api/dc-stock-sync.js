@@ -1,4 +1,7 @@
-// DC Concept daily stock sync (Vercel serverless + cron).
+// DC Concept daily stock sync (Vercel serverless + cron). — v1.1 (5 Nov 2026)
+// v1.1: variant-level stock. Each match can carry a chosen `variantName` (set in the picker). When present,
+//   the sync reads ONLY that option's stock, instead of guessing the variant by title and over-reporting
+//   "in stock" from any in-stock sibling variant (e.g. a Brown/Black item showing in stock because White was).
 // Reads the supplier's live stock list + data/dc-matches.json (from GitHub), then
 // writes each matched product's availability into metafields
 // (custom.dc_status / dc_production / dc_delivery_time). The dc-concepts theme block reads those.
@@ -36,8 +39,16 @@ function pickVariants(storeTitle, variants) {
   return hit.length ? hit : (variants || []);
 }
 
-function computeFields(storeTitle, supplierProduct) {
-  const vars = pickVariants(storeTitle, supplierProduct.variants || []);
+function computeFields(match, supplierProduct) {
+  const all = supplierProduct.variants || [];
+  let vars;
+  if (match.variantName) {
+    const want = String(match.variantName).toLowerCase().trim();
+    vars = all.filter(v => (v.variantName || '').toLowerCase().trim() === want);
+    if (!vars.length) vars = all;   // chosen option not found (supplier renamed it) -> safe fallback
+  } else {
+    vars = pickVariants(match.storeTitle, all);   // legacy: no option chosen yet
+  }
   if (vars.some(v => v.stock > 0)) {
     return { dc_status: 'in_stock', dc_production: IN_STOCK_PRODUCTION, dc_delivery_time: IN_STOCK_DELIVERY };
   }
@@ -122,7 +133,7 @@ module.exports = async (req, res) => {
       if (!m.supplierId || m.notFromSupplier) continue;
       const sp = feed[m.supplierId];
       if (!sp) { missing++; continue; }
-      const f = computeFields(m.storeTitle, sp);
+      const f = computeFields(m, sp);
       if (f.dc_status === 'in_stock') inStock++; else if (f.dc_status === 'dispatch') dispatch++; else mto++;
       entries.push({ ownerId: m.storeId, key: 'dc_status', value: f.dc_status });
       entries.push({ ownerId: m.storeId, key: 'dc_production', value: f.dc_production });
