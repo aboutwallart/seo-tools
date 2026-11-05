@@ -33,9 +33,10 @@ img.ph{width:100%;aspect-ratio:1/1;object-fit:contain;background:#f6f6f8;border-
 .center{text-align:center;padding:60px 20px;color:#6b7280;font-size:16px}
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#111827;color:#fff;padding:10px 18px;border-radius:10px;font-weight:600;opacity:0;transition:.2s;z-index:50;pointer-events:none}
 .toast.show{opacity:1}
+.varpick{margin-top:8px;font-size:12.5px;color:#374151}.varpick select{margin-top:4px;padding:6px 8px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;max-width:100%}.varpick.need,.varpick.need b{color:#b45309}
 </style></head><body>
 <div class=top><div class=r>
-  <h1>🪑 DC Concepts Picker</h1><div class=prog id=prog>Loading…</div>
+  <h1>🪑 DC Concepts Picker <span style="font-size:12px;color:#9ca3af;font-weight:500">v1.1</span></h1><div class=prog id=prog>Loading…</div>
   <div><button class=b-save id=bSave disabled>💾 Save to store</button><button class=b-dl id=bDl>⬇ Backup</button></div>
 </div><div class=bar><i id=barfill></i></div></div>
 <div class=wrap id=list><div class=center>Loading your products and the supplier list…</div></div>
@@ -64,17 +65,22 @@ function candsHTML(st){const m=matches[st.id];const list=candidates(termById[st.
       (sp.img?'<img loading=lazy src="'+esc(sp.img)+'">':'')+'<span><span class=t>'+esc(sp.name)+'</span><br><span class=sub>'+stockSub(sp)+'</span></span></label>';}).join('');
 }
 function savedHTML(st){const m=matches[st.id];if(!m)return '';if(m.none)return '<span class=no>✕ Not from this supplier</span>';return '<span class=ok>✓ Linked: '+esc(m.supplierName)+'</span>';}
+function variantHTML(st){const m=matches[st.id];if(!m||m.none||!m.supplierId)return '';
+  const sp=DATA.supplier.find(x=>x.id===m.supplierId);if(!sp||!sp.vars||sp.vars.length<=1)return '';
+  const need=!m.variantName;
+  const opts=sp.vars.map(v=>'<option value="'+esc(v.n)+'"'+(m.variantName===v.n?' selected':'')+'>'+esc(v.n)+' — '+(v.s>0?'in stock':(v.d>0?('in '+v.d+' days'):'made to order'))+'</option>').join('');
+  return '<div class="varpick'+(need?' need':'')+'">Which option is this product?'+(need?' <b>— pick one</b>':'')+'<br><select class=varsel data-sid="'+st.id+'"><option value="">— choose —</option>'+opts+'</select></div>';}
 function itemHTML(st,idx){const m=matches[st.id];
   return '<div class="item'+(m?(m.none?' none':' done'):'')+'" id="it-'+st.id+'">'+
     '<div><div class=tag>MY PRODUCT '+(idx+1)+' / '+DATA.store.length+'</div>'+(st.status==='DRAFT'?'<span class=draft>DRAFT</span>':'')+
       (st.img?'<img class=ph src="'+esc(st.img)+'">':'')+'<div class=nm>'+esc(st.title)+'</div></div>'+
-    '<div><div class=saved data-saved="'+st.id+'">'+savedHTML(st)+'</div>'+
+    '<div><div class=saved data-saved="'+st.id+'">'+savedHTML(st)+variantHTML(st)+'</div>'+
       '<label class=nostore><input type=checkbox class=cbnone data-sid="'+st.id+'"'+(m&&m.none?' checked':'')+'> Not from this supplier</label>'+
       '<input class=search data-sid="'+st.id+'" value="'+esc(termById[st.id])+'" placeholder="search supplier list…">'+
       '<div class=cands data-cands="'+st.id+'">'+candsHTML(st)+'</div></div></div>';
 }
 function refresh(id){const st=DATA.store.find(x=>x.id===id);
-  document.querySelector('[data-saved="'+id+'"]').innerHTML=savedHTML(st);
+  document.querySelector('[data-saved="'+id+'"]').innerHTML=savedHTML(st)+variantHTML(st);
   document.querySelector('[data-cands="'+id+'"]').innerHTML=candsHTML(st);
   const el=document.getElementById('it-'+id);const m=matches[id];
   el.classList.toggle('done',!!(m&&!m.none));el.classList.toggle('none',!!(m&&m.none));
@@ -93,11 +99,12 @@ list.addEventListener('change',e=>{
     if(e.target.checked){const sp=DATA.supplier.find(x=>x.id===supid);matches[id]={supplierId:supid,supplierName:sp.name};}else delete matches[id];refresh(id);}
   else if(e.target.classList.contains('cbnone')){const id=e.target.dataset.sid;
     if(e.target.checked)matches[id]={none:true};else delete matches[id];refresh(id);}
+  else if(e.target.classList.contains('varsel')){const id=e.target.dataset.sid;if(matches[id]){if(e.target.value)matches[id].variantName=e.target.value;else delete matches[id].variantName;}refresh(id);}
 });
 list.addEventListener('input',e=>{if(e.target.classList.contains('search')){const id=e.target.dataset.sid;termById[id]=e.target.value;userTerms[id]=e.target.value;cache();
   document.querySelector('[data-cands="'+id+'"]').innerHTML=candsHTML(DATA.store.find(x=>x.id===id));}});
 
-function exportArray(){return DATA.store.map(st=>{const m=matches[st.id];return{storeId:st.id,storeTitle:st.title,supplierId:m&&!m.none?m.supplierId:null,supplierName:m&&!m.none?m.supplierName:null,notFromSupplier:!!(m&&m.none),term:userTerms[st.id]!==undefined?userTerms[st.id]:null};});}
+function exportArray(){return DATA.store.map(st=>{const m=matches[st.id];return{storeId:st.id,storeTitle:st.title,supplierId:m&&!m.none?m.supplierId:null,supplierName:m&&!m.none?m.supplierName:null,notFromSupplier:!!(m&&m.none),term:userTerms[st.id]!==undefined?userTerms[st.id]:null,variantName:(m&&!m.none&&m.variantName)?m.variantName:null};});}
 document.getElementById('bDl').onclick=()=>{const b=new Blob([JSON.stringify(exportArray(),null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='dc-concepts-matches.json';a.click();};
 document.getElementById('bSave').onclick=async()=>{
   const btn=document.getElementById('bSave');btn.disabled=true;btn.textContent='Saving…';
@@ -114,7 +121,7 @@ document.getElementById('bSave').onclick=async()=>{
     DATA.store=j.store||[];DATA.supplier=j.supplier||[];
     matches={};
     (j.matches||[]).forEach(m=>{
-      if(m.notFromSupplier)matches[m.storeId]={none:true};else if(m.supplierId)matches[m.storeId]={supplierId:m.supplierId,supplierName:m.supplierName};
+      if(m.notFromSupplier)matches[m.storeId]={none:true};else if(m.supplierId){matches[m.storeId]={supplierId:m.supplierId,supplierName:m.supplierName};if(m.variantName)matches[m.storeId].variantName=m.variantName;}
       if(m.term)userTerms[m.storeId]=m.term;
     });
     try{const c=JSON.parse(localStorage.getItem(CACHE)||'null');if(c){Object.assign(matches,c.matches||{});Object.assign(userTerms,c.userTerms||{});}}catch(e){}
