@@ -1,63 +1,18 @@
-// DC Concept daily stock sync (Vercel serverless + cron). — v1.1 (5 Nov 2026)
-// v1.1: variant-level stock. Each match can carry a chosen `variantName` (set in the picker). When present,
-//   the sync reads ONLY that option's stock, instead of guessing the variant by title and over-reporting
-//   "in stock" from any in-stock sibling variant (e.g. a Brown/Black item showing in stock because White was).
-// Reads the supplier's live stock list + data/dc-matches.json (from GitHub), then
-// writes each matched product's availability into metafields
-// (custom.dc_status / dc_production / dc_delivery_time). The dc-concepts theme block reads those.
+// DC Concept daily stock sync (Vercel serverless + cron). — v1.2 (5 Nov 2026)
+// v1.2: SIMPLIFIED. Every DC Concept product is sold made-to-order with a fixed production time.
+//   No supplier feed, no per-variant stock, no matches file. The daily cron just makes sure every
+//   DC Concept product shows: "THIS PIECE IS MADE TO ORDER" + "Production Time: 6 weeks" and sits on
+//   the dc-concepts theme template (so new ones are caught automatically).
+//   To change the wording, edit PRODUCTION_TIME below.
 // Reuses the Shopify token already in Vercel — nothing to copy.
 // Triggered daily by the cron in vercel.json. Add ?dry=1 to preview without writing.
 
 const STORE = process.env.SHOPIFY_STORE_DOMAIN;
 const TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
 const API_VERSION = '2024-10';
-const FEED_BASE = 'https://stock-list-inventory-system.vercel.app/api/customer-stock?category=';
-const MATCHES_URL = 'https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/dc-matches.json';
-const CATEGORIES = ['armchair','sofa','office','dining','coffee','outdoor','dressing','cabinet','wardrobe','other','clearance'];
 
 // ---- wording (edit here to change what customers see) ----
-const IN_STOCK_PRODUCTION = 'In stock';
-const IN_STOCK_DELIVERY = '3–5 working days';
-function dispatchStr(days){ return days <= 14 ? `${days} days` : `${Math.round(days/7)} weeks`; }
-
-async function getFeed() {
-  const byId = {};
-  // (31 Oct 2026) 'all' returns the whole live list in ONE call — every category incl. new ones (no list to maintain).
-  try {
-    const r = await fetch(FEED_BASE + 'all');
-    if (r.ok) { const j = await r.json(); (j.products || []).forEach(p => { if (!byId[p.productId]) byId[p.productId] = p; }); }
-  } catch (e) { /* skip on error */ }
-  return byId;
-}
-
-function pickVariants(storeTitle, variants) {
-  const t = (storeTitle || '').toLowerCase();
-  const hit = (variants || []).filter(v => {
-    const n = (v.variantName || '').toLowerCase().trim();
-    return n && n.length > 1 && t.includes(n);
-  });
-  return hit.length ? hit : (variants || []);
-}
-
-function computeFields(match, supplierProduct) {
-  const all = supplierProduct.variants || [];
-  let vars;
-  if (match.variantName) {
-    const want = String(match.variantName).toLowerCase().trim();
-    vars = all.filter(v => (v.variantName || '').toLowerCase().trim() === want);
-    if (!vars.length) vars = all;   // chosen option not found (supplier renamed it) -> safe fallback
-  } else {
-    vars = pickVariants(match.storeTitle, all);   // legacy: no option chosen yet
-  }
-  if (vars.some(v => v.stock > 0)) {
-    return { dc_status: 'in_stock', dc_production: IN_STOCK_PRODUCTION, dc_delivery_time: IN_STOCK_DELIVERY };
-  }
-  const withDate = vars.filter(v => v.nextAvailableDays && v.nextAvailableDays > 0).sort((a,b) => a.nextAvailableDays - b.nextAvailableDays);
-  if (withDate.length) {
-    return { dc_status: 'dispatch', dc_production: dispatchStr(withDate[0].nextAvailableDays), dc_delivery_time: '' };
-  }
-  return { dc_status: '', dc_production: '', dc_delivery_time: '' }; // made-to-order default
-}
+const PRODUCTION_TIME = '6 weeks';
 
 async function shopifyGraphQL(query) {
   const r = await fetch(`https://${STORE}/admin/api/${API_VERSION}/graphql.json`, {
@@ -85,7 +40,8 @@ async function setMetafields(entries) {
   return errors;
 }
 
-// Shopify won't "set" a blank value — to revert to the made-to-order default we DELETE the metafield.
+// Shopify won't "set" a blank value — to revert dc_status / dc_delivery_time to the made-to-order
+// default (so the theme shows "THIS PIECE IS MADE TO ORDER") we DELETE those metafields.
 async function deleteMetafields(entries) {
   const errors = [];
   for (let i = 0; i < entries.length; i += 25) {
@@ -97,61 +53,53 @@ async function deleteMetafields(entries) {
   return errors;
 }
 
-// Make sure every DC Concept product sits on the dc-concepts template (catches newly added ones).
-async function ensureTemplates(dry) {
-  let after = null, checked = 0;
-  const toMove = [];
+// Walk every DC Concept product: collect its id and whether it already sits on the dc-concepts template.
+async function getDcProducts() {
+  let after = null;
+  const products = [];
   while (true) {
     const q = `query { products(first: 100, after: ${after ? `"${after}"` : 'null'}, query: "vendor:'DC Concept'") { pageInfo { hasNextPage endCursor } edges { node { id templateSuffix } } } }`;
     const c = (await shopifyGraphQL(q)).products;
-    c.edges.forEach(e => { checked++; if (e.node.templateSuffix !== 'dc-concepts') toMove.push(e.node.id); });
+    c.edges.forEach(e => products.push({ id: e.node.id, templateSuffix: e.node.templateSuffix }));
     if (!c.pageInfo.hasNextPage) break;
     after = c.pageInfo.endCursor;
   }
-  if (!dry) {
-    for (let i = 0; i < toMove.length; i += 25) {
-      const chunk = toMove.slice(i, i + 25);
-      const m = `mutation { ${chunk.map((id, j) => `m${j}: productUpdate(input:{id:"${id}", templateSuffix:"dc-concepts"}){ userErrors { message } }`).join(' ')} }`;
-      await shopifyGraphQL(m);
-    }
+  return products;
+}
+
+async function moveTemplates(ids) {
+  for (let i = 0; i < ids.length; i += 25) {
+    const chunk = ids.slice(i, i + 25);
+    const m = `mutation { ${chunk.map((id, j) => `m${j}: productUpdate(input:{id:"${id}", templateSuffix:"dc-concepts"}){ userErrors { message } }`).join(' ')} }`;
+    await shopifyGraphQL(m);
   }
-  return { checked, moved: toMove.length };
 }
 
 module.exports = async (req, res) => {
   try {
     const dry = req.query && (req.query.dry === '1' || req.query.dry === 'true');
-    if (!dry && (!STORE || !TOKEN)) return res.status(500).json({ error: 'Missing SHOPIFY_STORE_DOMAIN or SHOPIFY_ACCESS_TOKEN' });
+    if (!STORE || !TOKEN) return res.status(500).json({ error: 'Missing SHOPIFY_STORE_DOMAIN or SHOPIFY_ACCESS_TOKEN' });
 
-    const matches = await (await fetch(MATCHES_URL)).json();
-    const feed = await getFeed();
+    const products = await getDcProducts();
+    const needTemplate = products.filter(p => p.templateSuffix !== 'dc-concepts').map(p => p.id);
 
-    const entries = [];
-    const preview = [];
-    let inStock = 0, dispatch = 0, mto = 0, missing = 0;
-    for (const m of matches) {
-      if (!m.supplierId || m.notFromSupplier) continue;
-      const sp = feed[m.supplierId];
-      if (!sp) { missing++; continue; }
-      const f = computeFields(m, sp);
-      if (f.dc_status === 'in_stock') inStock++; else if (f.dc_status === 'dispatch') dispatch++; else mto++;
-      entries.push({ ownerId: m.storeId, key: 'dc_status', value: f.dc_status });
-      entries.push({ ownerId: m.storeId, key: 'dc_production', value: f.dc_production });
-      entries.push({ ownerId: m.storeId, key: 'dc_delivery_time', value: f.dc_delivery_time });
-      preview.push({ product: m.storeTitle, status: f.dc_status || 'made-to-order', production: f.dc_production, delivery: f.dc_delivery_time });
-    }
+    // Every product: set the fixed production time, clear status + delivery (made-to-order default).
+    const toSet = products.map(p => ({ ownerId: p.id, key: 'dc_production', value: PRODUCTION_TIME }));
+    const toDelete = [];
+    products.forEach(p => {
+      toDelete.push({ ownerId: p.id, key: 'dc_status' });
+      toDelete.push({ ownerId: p.id, key: 'dc_delivery_time' });
+    });
 
-    const templates = await ensureTemplates(dry);
+    const summary = { dcProducts: products.length, productionTime: PRODUCTION_TIME, templateMoved: needTemplate.length };
+    if (dry) return res.status(200).json({ dryRun: true, summary });
 
-    const summary = { feedProducts: Object.keys(feed).length, matched: preview.length, inStock, dispatch, madeToOrder: mto, supplierItemMissing: missing, dcProducts: templates.checked, templateMoved: templates.moved };
-    if (dry) return res.status(200).json({ dryRun: true, summary, preview });
-
-    const toSet = entries.filter(e => e.value !== '');
-    const toDelete = entries.filter(e => e.value === '');
     const errors = [];
-    if (toSet.length) errors.push(...await setMetafields(toSet));
-    if (toDelete.length) errors.push(...await deleteMetafields(toDelete));
-    return res.status(200).json({ ok: errors.length === 0, updated: preview.length, summary, errors });
+    errors.push(...await setMetafields(toSet));
+    errors.push(...await deleteMetafields(toDelete));
+    await moveTemplates(needTemplate);
+
+    return res.status(200).json({ ok: errors.length === 0, summary, errors });
   } catch (e) {
     return res.status(500).json({ error: String(e && e.message || e) });
   }
