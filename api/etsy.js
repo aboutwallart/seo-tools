@@ -1,6 +1,8 @@
-// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images + Compliance + Edit Descriptions)  ·  v0.61
-// v0.61 (2026-11-07): SKU search now quotes values containing spaces so Shopify GraphQL treats the whole string as one
-//   token (fixes "No exact Shopify match" for SKUs like "NURSERYBOHO 5"). Affects loadProduct, loadThumb, loadShopifyMedia.
+// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images + Compliance + Edit Descriptions)  ·  v0.62
+// v0.62 (2026-11-07): SKU-with-spaces fix — Shopify GraphQL metafield search cannot find values that contain spaces
+//   (no quoting syntax works). Fix: allShopifySkus() now also builds a SKU→GID map; loadProduct, loadThumb and
+//   loadShopifyMedia fall back to fetching by product ID when the metafield search returns 0 results. Affects ~10
+//   NURSERYBOHO / NURSERYSAFARI / NURSERY FAIRIES products.
 // v0.58 (2026-10-26): ri-sections now backfills each done listing's section from Etsy (finished sections grey out without
 //   opening them). New ri-skus-todo (pending SKUs grouped by section). New Edit Descriptions tab: ed-plan resolves a scope
 //   (all / skus / section) into a worklist; ed-batch previews (no write) or applies (write + backup) find/replace OR an
@@ -586,12 +588,18 @@ async function loadProduct(sku) {
   // Bring several candidates (Shopify's metafield search is partial, so it can return products that merely contain a
   // piece of the SKU). We then keep ONLY the one whose sku_for_print_files metafield equals the SKU exactly.
   const gq = 'query($q:String!){ products(first:25, query:$q){ nodes{ id title handle tags productType descriptionHtml images(first:50){nodes{url}} collections(first:60){nodes{id title}} variants(first:100){nodes{sku price selectedOptions{name value}}} room:metafield(namespace:"custom",key:"room_type"){value} col:metafield(namespace:"custom",key:"primary_colour"){value} skuMf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } }';
-  const skuQ = sku.includes(' ') ? '"' + sku + '"' : sku;
-  const d = await shopGQL(gq, { q: 'metafield:custom.sku_for_print_files:' + skuQ });
-  const nodes = d.products.nodes || [];
-  const n = nodes.find(x => eqSku(x.skuMf && x.skuMf.value, sku));
+  const d = await shopGQL(gq, { q: 'metafield:custom.sku_for_print_files:' + sku });
+  let nodes = d.products.nodes || [];
+  let n = nodes.find(x => eqSku(x.skuMf && x.skuMf.value, sku));
+  if (!n && nodes.length === 0) {
+    const gid = await findGidBySku(sku);
+    if (gid) {
+      const gqById = 'query($id:ID!){ product(id:$id){ id title handle tags productType descriptionHtml images(first:50){nodes{url}} collections(first:60){nodes{id title}} variants(first:100){nodes{sku price selectedOptions{name value}}} room:metafield(namespace:"custom",key:"room_type"){value} col:metafield(namespace:"custom",key:"primary_colour"){value} skuMf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } }';
+      const d2 = await shopGQL(gqById, { id: gid });
+      if (d2.product && eqSku(d2.product.skuMf && d2.product.skuMf.value, sku)) { n = d2.product; nodes = [n]; }
+    }
+  }
   if (!n) {
-    // No exact match — hand back the closest candidates (with featured image) so Mae can spot a typo and pick one.
     const similar = nodes.slice(0, 8).map(x => ({ sku: (x.skuMf && x.skuMf.value) || '', title: x.title, image: (x.images.nodes[0] || {}).url || '' }));
     return { noMatch: true, similar };
   }
@@ -637,10 +645,16 @@ async function loadProduct(sku) {
 // Lightweight preview for the family list: featured image + title + exact-match flag for one SKU.
 async function loadThumb(sku) {
   const gq = 'query($q:String!){ products(first:25, query:$q){ nodes{ title images(first:1){nodes{url}} skuMf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } }';
-  const skuQ = sku.includes(' ') ? '"' + sku + '"' : sku;
-  const d = await shopGQL(gq, { q: 'metafield:custom.sku_for_print_files:' + skuQ });
+  const d = await shopGQL(gq, { q: 'metafield:custom.sku_for_print_files:' + sku });
   const nodes = d.products.nodes || [];
-  const hit = nodes.find(x => eqSku(x.skuMf && x.skuMf.value, sku));
+  let hit = nodes.find(x => eqSku(x.skuMf && x.skuMf.value, sku));
+  if (!hit && nodes.length === 0) {
+    const gid = await findGidBySku(sku);
+    if (gid) {
+      const d2 = await shopGQL('query($id:ID!){ product(id:$id){ title images(first:1){nodes{url}} skuMf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } }', { id: gid });
+      if (d2.product && eqSku(d2.product.skuMf && d2.product.skuMf.value, sku)) hit = d2.product;
+    }
+  }
   if (hit) return { exact: true, title: hit.title, image: (hit.images.nodes[0] || {}).url || '' };
   return { exact: false, title: '', image: '' };
 }
@@ -651,10 +665,17 @@ async function loadShopifyMedia(sku) {
   const gq = 'query($q:String!){ products(first:25, query:$q){ nodes{ id title handle images(first:50){nodes{url altText}} skuMf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } }';
   async function tryOne(s) {
     if (!s) return { nodes: [], n: null };
-    const sQ = s.includes(' ') ? '"' + s + '"' : s;
-    const d = await shopGQL(gq, { q: 'metafield:custom.sku_for_print_files:' + sQ });
+    const d = await shopGQL(gq, { q: 'metafield:custom.sku_for_print_files:' + s });
     const nodes = d.products.nodes || [];
-    return { nodes, n: nodes.find(x => eqSku(x.skuMf && x.skuMf.value, s)) };
+    let n = nodes.find(x => eqSku(x.skuMf && x.skuMf.value, s));
+    if (!n && nodes.length === 0) {
+      const gid = await findGidBySku(s);
+      if (gid) {
+        const d2 = await shopGQL('query($id:ID!){ product(id:$id){ id title handle images(first:50){nodes{url altText}} skuMf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } }', { id: gid });
+        if (d2.product && eqSku(d2.product.skuMf && d2.product.skuMf.value, s)) { n = d2.product; nodes.push(n); }
+      }
+    }
+    return { nodes, n };
   }
   const want = String(sku || '').trim();
   let { nodes, n } = await tryOne(want);
@@ -715,15 +736,23 @@ async function pushImagesToShopify(productGid, entries) {
 }
 // Replace images: ALL Shopify sku_for_print_files values (lowercased set) — to flag each Etsy listing as matched or not
 // in the list, without one query per listing. ~5 paginated queries for the whole catalogue.
+// Also populates _skuToGid (lowercase SKU → product GID) so loadProduct/loadThumb/loadShopifyMedia can fall back to
+// fetching by ID when the metafield search fails (SKUs with spaces are not searchable via Shopify GraphQL).
+let _skuToGid = null;
 async function allShopifySkus() {
-  const set = new Set(); let after = null;
+  const set = new Set(); const map = new Map(); let after = null;
   for (let p = 0; p < 30; p++) {
-    const d = await shopGQL('query($after:String){ products(first:250, after:$after){ pageInfo{ hasNextPage endCursor } nodes{ skuMf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } }', { after });
-    (d.products.nodes || []).forEach(n => { const v = n.skuMf && n.skuMf.value; if (v) set.add(String(v).trim().toLowerCase()); });
+    const d = await shopGQL('query($after:String){ products(first:250, after:$after){ pageInfo{ hasNextPage endCursor } nodes{ id skuMf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } }', { after });
+    (d.products.nodes || []).forEach(n => { const v = n.skuMf && n.skuMf.value; if (v) { const k = String(v).trim().toLowerCase(); set.add(k); map.set(k, n.id); } });
     if (!d.products.pageInfo.hasNextPage) break;
     after = d.products.pageInfo.endCursor;
   }
+  _skuToGid = map;
   return set;
+}
+async function findGidBySku(sku) {
+  if (!_skuToGid) await allShopifySkus();
+  return _skuToGid.get(String(sku).trim().toLowerCase()) || null;
 }
 async function runApify(seeds) {
   const APIFY = process.env.APIFY_TOKEN;
