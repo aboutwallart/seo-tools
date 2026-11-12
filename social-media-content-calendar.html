@@ -211,7 +211,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.80 · 11 Oct 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.81 · 12 Nov 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -1621,7 +1621,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   });
 })();
 
-/* ===== Content Board tab (v9.8) — monthly follow-up dashboard, self-contained ===== */
+/* ===== Content Board tab (v9.9) — monthly follow-up dashboard, self-contained ===== */
 (function(){
   var wrap=document.getElementById('cbWrap'); if(!wrap) return;
   var msg=document.getElementById('cbMsg');
@@ -1701,17 +1701,17 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   // and download a blog-only Metricool file. The video is never re-sent, so nothing duplicates.
   function cbFillBlogs(month, btn){
     if(!confirm('This will generate the missing blogs for '+month+' and download a file with ONLY those blogs (the videos are not re-sent). Then import it into Metricool. Continue?')) return;
-    var o=btn.textContent; btn.disabled=true; btn.textContent='Generando… (puede tardar)';
+    var o=btn.textContent; btn.disabled=true; btn.textContent='Generating… (may take a while)';
     cbPost({action:'metricool-file', fillMissingMonth:month, blogsOnly:true}).then(function(res){
       btn.disabled=false; btn.textContent=o;
-      if(!res || !res.ok){ alert((res&&res.error)||'No se pudo generar.'); return; }
+      if(!res || !res.ok){ alert((res&&res.error)||'Could not generate.'); return; }
       if(!res.csv || !res.count){ alert(res.message||('No blogs to complete in '+month+'.')); return; }
       var blob=new Blob([res.csv],{type:'text/csv;charset=utf-8;'});
       var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='metricool-blogs-'+month+'.csv'; document.body.appendChild(a); a.click(); a.remove();
       setTimeout(function(){ URL.revokeObjectURL(a.href); },5000);
       alert('Done: '+res.count+' blog(s) generated and downloaded. Import them into Metricool (Date = YYYY-MM-DD). They are now marked as done.');
       if(window.__reloadBoard) window.__reloadBoard();
-    }).catch(function(){ btn.disabled=false; btn.textContent=o; alert('Error al generar.'); });
+    }).catch(function(){ btn.disabled=false; btn.textContent=o; alert('Could not generate.'); });
   }
   function buildGrid(m){
     var card=document.createElement('div'); card.className='cbcard';
@@ -1720,7 +1720,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     var _bl = m.rows && m.rows.blogs;
     if(_bl && _bl.total && _bl.done < _bl.total){
       var fb=document.createElement('button'); fb.type='button';
-      fb.textContent='📝 Completar blogs que faltan';
+      fb.textContent='📝 Complete missing blogs';
       fb.style.cssText='margin:2px 0 8px;font-size:13px;padding:5px 12px;border:1px solid #e6d18a;border-radius:8px;background:#fff8e6;color:#8a6d00;cursor:pointer;font-family:inherit;';
       fb.addEventListener('click',function(){ cbFillBlogs(m.month, fb); });
       card.appendChild(fb);
@@ -1742,6 +1742,13 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         var ap=applic[ci];
         if(ap==='N'){ g.appendChild(makeCell('set')); continue; }
         if(ap==='E'){ g.appendChild(makeCell('ext', r.key, m.month)); continue; }
+        // Blog creation marked done by hand → green check you can click to undo.
+        if(r.key==='blogCreation' && rowData && rowData.markedDone){
+          var dc=document.createElement('div'); dc.className='cell c-done'; dc.title='Marked done by hand — click to undo';
+          dc.innerHTML='<i class="ti ti-check"></i>';
+          dc.addEventListener('click',(function(mo){ return function(){ if(!confirm('Undo "mark as done" for '+monthLabel(mo)+' blog creation?')) return; msg.textContent='Saving…'; cbPost({action:'board-manual-set',month:mo,key:'blog-creation',value:false}).then(function(){ msg.textContent=''; load(); }); }; })(m.month));
+          g.appendChild(dc); continue;
+        }
         var st=trackedState(r.key, rowData);
         if(st && st.part){ g.appendChild(makePart(st.part, r.key, m.month)); }
         else { g.appendChild(makeCell(st, r.key, m.month)); }
@@ -1756,10 +1763,37 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     b.addEventListener('click',function(){ if(open){ if(grid){grid.remove();grid=null;} open=false; } else { grid=buildGrid(m); b.parentNode.insertBefore(grid,b.nextSibling); open=true; } });
     return b;
   }
+  // ⚠ To do now — any month still missing a blog, pulled to the very top so it is not buried in the month cards.
+  function buildUrgentStrip(months){
+    var pending=months.filter(function(m){ var b=m.rows&&m.rows.blogCreation; return b && b.total>0 && b.done<b.total && !b.markedDone; });
+    if(!pending.length) return;
+    var box=document.createElement('div'); box.className='cb-urgent';
+    box.style.cssText='border:1px solid #f0c0c0;background:#fff4f4;border-radius:12px;padding:12px 14px;margin:0 0 18px;';
+    var t=document.createElement('div'); t.style.cssText='font-weight:800;color:#a11;margin-bottom:6px;font-size:15px;'; t.textContent='⚠ To do now';
+    box.appendChild(t);
+    pending.forEach(function(m){
+      var b=m.rows.blogCreation; var have=(b.realDone!=null?b.realDone:b.done); var miss=b.total-have;
+      var row=document.createElement('div'); row.style.cssText='display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 0;border-top:1px solid #f3dede;';
+      var lbl=document.createElement('div'); lbl.style.cssText='flex:1;min-width:170px;color:#7a1414;font-size:14px;';
+      lbl.innerHTML='<b>'+monthLabel(m.month)+'</b> — Blog creation '+have+'/'+b.total+' · '+miss+' missing';
+      row.appendChild(lbl);
+      var wb=document.createElement('button'); wb.type='button'; wb.textContent='Write blog';
+      wb.style.cssText='font-size:13px;padding:5px 12px;border:1px solid #c33;border-radius:8px;background:#c33;color:#fff;cursor:pointer;font-family:inherit;';
+      wb.addEventListener('click',function(){ window.open(EXTURL.blogCreation,'_blank'); });
+      row.appendChild(wb);
+      var md=document.createElement('button'); md.type='button'; md.textContent='Mark as done';
+      md.style.cssText='font-size:13px;padding:5px 12px;border:1px solid #ccc;border-radius:8px;background:#fff;color:#555;cursor:pointer;font-family:inherit;';
+      md.addEventListener('click',(function(mo){ return function(){ if(!confirm('Mark '+monthLabel(mo)+' blog creation as done? The board will stop flagging it even if the count is short.')) return; msg.textContent='Saving…'; cbPost({action:'board-manual-set',month:mo,key:'blog-creation',value:true}).then(function(){ msg.textContent=''; load(); }); }; })(m.month));
+      row.appendChild(md);
+      box.appendChild(row);
+    });
+    wrap.appendChild(box);
+  }
   function render(months){
     wrap.innerHTML='';
     months.sort(function(a,b){ return a.month.localeCompare(b.month); });
     if(!months.length){ wrap.innerHTML='<p class="cbrow">No months to show yet.</p>'; return; }
+    buildUrgentStrip(months);
     months.forEach(function(m){ wrap.appendChild(monthComplete(m)?buildBar(m):buildGrid(m)); });
   }
   function load(){
