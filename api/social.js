@@ -2678,7 +2678,7 @@ module.exports = async (req, res) => {
         const eduN = bWeekdayCount(Y, Mo, 3) || bWeekdayCount(Y, Mo, 1);
         const liDone = liUsed.filter(function (u) { return bYM(u.date) === M; }).length;
         const liN = bWeekdayCount(Y, Mo, 2);
-        const blogTotal = 15; // monthly blog target — green once 15 are made (16 also shows green)
+        const blogTotal = Math.floor(bDaysInMonth(Y, Mo) / 2); // every-other-day target (Feb = 14, 30/31-day months = 15)
         let blogMadeDone = blogCounts[M] || 0; if (blogMadeDone > blogTotal) blogMadeDone = blogTotal;
         let pubVidDone = 0; days.forEach(function (d) { if (bVideoPushed(d.sku)) pubVidDone++; });
         // promo emails this calendar month
@@ -2705,7 +2705,7 @@ module.exports = async (req, res) => {
             tiktokPost: { manual: true, done: man['tiktok-posttag'] ? 1 : 0, total: 1 },
             edu: { done: eduDone, total: eduN },
             linkedin: { done: liDone, total: liN },
-            blogCreation: { done: blogMadeDone, total: blogTotal },
+            blogCreation: { done: (man['blog-creation'] ? blogTotal : blogMadeDone), total: blogTotal, realDone: blogMadeDone, markedDone: !!man['blog-creation'] },
             publishVideos: { done: pubVidDone, total: planN },
             emailNewsletter: { manual: true, done: man['email-newsletter'] ? 1 : 0, total: 1 },
             emailPromos: (promoTotal > 0 ? { done: promoDoneN, total: promoTotal } : { manual: true, done: man['email-promos'] ? 1 : 0, total: 1 })
