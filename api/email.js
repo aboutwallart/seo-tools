@@ -1,4 +1,7 @@
 // Email Marketing — backend for the "Email Marketing" tab (Newsletters + Monthly Promos).
+// v1.7 (2026-11-13): NEW campaigns now snapshot product images to stable Shopify Files copies at creation
+//   (snapshotProductImagesInHtml, called in the newsletter + promo create flows) → future campaigns never
+//   break when a product image is changed. Never blocks creation (returns original HTML on any error).
 // v1.6 (2026-11-13): + action 'reschedule-campaigns' — re-schedules drafts to their ORIGINAL future time
 //   (Create Campaign Send Job), with a safety guard (only draft + future time, never immediate) + verify.
 // v1.5 (2026-11-13): repair-scheduled-images — PATCH sends only { html } ('editor_type' is rejected on update).
@@ -107,6 +110,58 @@ module.exports = async (req, res) => {
     var w = targetW || 1200;
     if (/[?&]width=/.test(url)) return url.replace(/([?&])width=\d+/, '$1width=' + w);
     return url + (url.indexOf('?') >= 0 ? '&' : '?') + 'width=' + w;
+  }
+
+  // Snapshot each product-card image to a STABLE Shopify Files copy (by product handle) and swap the email
+  // <img src> to it, so re-uploading a product image later never breaks the email. Runs at campaign creation
+  // (and by the repair action). NEVER blocks creation — on any error it returns the original HTML untouched.
+  // Cache + cleanup map: data/email-image-snapshots.json.
+  async function snapshotProductImagesInHtml(html) {
+    try {
+      if (!html || html.indexOf('/products/') < 0) return html;
+      var SNAP_FILE = 'data/email-image-snapshots.json';
+      var snapDoc = { byHandle: {}, byCampaign: {} }, snapSha = null;
+      try { var sf = await ghReadFile(SNAP_FILE); if (sf && sf.json && typeof sf.json === 'object') { snapDoc = sf.json; snapSha = sf.sha; } } catch (e) {}
+      if (!snapDoc.byHandle) snapDoc.byHandle = {};
+      var tStart = Date.now();
+      async function snapFor(handle) {
+        if (snapDoc.byHandle[handle] && snapDoc.byHandle[handle].url) return snapDoc.byHandle[handle].url;
+        var pq = await shopifyGraphQL('query($q:String!){ products(first:1, query:$q){ edges{ node{ featuredImage{ url } } } } }', { q: 'handle:' + handle });
+        var fe = pq && pq.products && pq.products.edges && pq.products.edges[0] && pq.products.edges[0].node && pq.products.edges[0].node.featuredImage;
+        var cur = fe && fe.url; if (!cur) return null;
+        var fid = null, url = null;
+        try {
+          var fc = await shopifyGraphQL('mutation($f:[FileCreateInput!]!){ fileCreate(files:$f){ files{ id ... on MediaImage { image{ url } } } userErrors{ message } } }', { f: [{ originalSource: cur, contentType: 'IMAGE', alt: 'email-snap-' + handle }] });
+          var node = fc && fc.fileCreate && fc.fileCreate.files && fc.fileCreate.files[0];
+          fid = node && node.id; url = node && node.image && node.image.url;
+          var tries = 0;
+          while (fid && !url && tries < 8 && (Date.now() - tStart) < 45000) {
+            await new Promise(function (r) { setTimeout(r, 1500); });
+            var q2 = await shopifyGraphQL('query($id:ID!){ node(id:$id){ ... on MediaImage { image{ url } } } }', { id: fid });
+            url = q2 && q2.node && q2.node.image && q2.node.image.url; tries++;
+          }
+        } catch (e) {}
+        if (!url) url = cur; // fallback: current CDN url (correct now, just not snapshotted)
+        snapDoc.byHandle[handle] = { fileId: fid || null, url: url, at: new Date().toISOString() };
+        return url;
+      }
+      var re = /<a\b[^>]*href="https?:\/\/[^"]*?\/products\/([^"?#]+)[^"]*"[^>]*>\s*<img\b[^>]*\bsrc="([^"]+)"/gi;
+      var matches = [], m;
+      while ((m = re.exec(html)) !== null) { matches.push({ handle: m[1], src: m[2] }); }
+      var changed = false;
+      for (var k = 0; k < matches.length; k++) {
+        if ((Date.now() - tStart) > 50000) break;
+        var mt = matches[k];
+        if (mt.src.indexOf('cdn.shopify.com') < 0) continue;
+        var handle = decodeURIComponent(mt.handle);
+        var snap = await snapFor(handle); if (!snap) continue;
+        var newSrc = retinaImg(snap, 600).replace(/&/g, '&amp;');
+        if (newSrc === mt.src) continue;
+        html = html.split(mt.src).join(newSrc); changed = true;
+      }
+      if (changed) { try { await ghWriteFile(SNAP_FILE, snapDoc, snapSha, 'Email image snapshots: new campaign'); } catch (e) {} }
+      return html;
+    } catch (e) { return html; } // never block campaign creation
   }
 
   // force a square crop (center) so portrait + square images all render the same in the email
@@ -581,7 +636,8 @@ module.exports = async (req, res) => {
       }
       async function kvJson(r) { var t = await r.text(); var j = null; try { j = JSON.parse(t); } catch (e) {} return { ok: r.ok, status: r.status, json: j, text: t }; }
 
-      // 1) create the HTML template
+      // 1) create the HTML template — first snapshot product images to stable Files copies (never breaks later)
+      html = await snapshotProductImagesInHtml(html);
       var tRes = await kvJson(await kv('/api/templates/', 'POST', { data: { type: 'template', attributes: { name: cName + ' (tool)', editor_type: 'CODE', html: html } } }));
       if (!tRes.ok || !tRes.json || !tRes.json.data) { res.status(502).json({ ok: false, error: 'Template create failed (' + tRes.status + '): ' + (tRes.text || '').slice(0, 250) }); return; }
       var templateId = tRes.json.data.id;
@@ -1350,6 +1406,7 @@ module.exports = async (req, res) => {
       var REVP = '2024-10-15';
       function kvp(path, method, payload) { return fetch('https://a.klaviyo.com' + path, { method: method, headers: { 'Authorization': 'Klaviyo-API-Key ' + KLAVIYO_KEY, 'revision': REVP, 'accept': 'application/vnd.api+json', 'content-type': 'application/vnd.api+json' }, body: payload ? JSON.stringify(payload) : undefined }); }
       async function kvpJson(r) { var t = await r.text(); var j = null; try { j = JSON.parse(t); } catch (e) {} return { ok: r.ok, status: r.status, json: j, text: t }; }
+      html = await snapshotProductImagesInHtml(html); // stable product-image copies so it never breaks later
       var tR = await kvpJson(await kvp('/api/templates/', 'POST', { data: { type: 'template', attributes: { name: name + ' (tool)', editor_type: 'CODE', html: html } } }));
       if (!tR.ok || !tR.json || !tR.json.data) { res.status(502).json({ ok: false, error: 'Template create failed (' + tR.status + '): ' + (tR.text || '').slice(0, 250) }); return; }
       var tId = tR.json.data.id;
