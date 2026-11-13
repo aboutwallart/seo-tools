@@ -12,6 +12,7 @@
     "api/dc-stock-sync.js": { "maxDuration": 60 },
     "api/klaviyo-bot-guard.js": { "maxDuration": 300 },
     "api/email.js": { "maxDuration": 60 },
+    "api/email-snapshot-cleanup.js": { "maxDuration": 300 },
     "api/countdown.js": { "maxDuration": 30, "includeFiles": "assets/fonts/**" },
     "api/promo-image.js": { "maxDuration": 30, "includeFiles": "assets/fonts/**" }
   },
@@ -20,7 +21,8 @@
     { "path": "/api/price-guard", "schedule": "0 7 * * *" },
     { "path": "/api/gsc?action=refresh-opportunities", "schedule": "0 8 * * *" },
     { "path": "/api/klaviyo-bot-guard?slot=day", "schedule": "0 9 * * *" },
-    { "path": "/api/klaviyo-bot-guard?slot=night", "schedule": "0 21 * * *" }
+    { "path": "/api/klaviyo-bot-guard?slot=night", "schedule": "0 21 * * *" },
+    { "path": "/api/email-snapshot-cleanup", "schedule": "0 5 1 * *" }
   ],
   "redirects": [
     {
