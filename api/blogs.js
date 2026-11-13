@@ -1,4 +1,7 @@
-// blogs.js — v5.6
+// blogs.js — v5.7
+// v5.7 (2026-11-13): find-fusion-groups — compact output {groups:[[..]], covered:[{k,blog}]} so the AI stops
+//   listing every keyword (which overflowed tokens → 0 results). Keeps existing/scheduled-blog detection as
+//   the priority. JSON-only, max_tokens 8000. Parse normalises the object into the group/covered entries.
 // v5.6 (2026-11-13): find-fusion-groups prompt rewritten — groups by GENERAL vs SPECIFIC (same style and/or
 //   same room; a specific can roll into a general of its style or room; two specifics need style+room match;
 //   never across a different room/style). FIXES the "0 groups" bug where the AI returned every keyword as a
@@ -3291,13 +3294,14 @@ WORKED EXAMPLES (About Wall Art):
 
 ALSO: for each group, and for any SINGLE keyword already fully answered by an EXISTING blog below, set "covered_by" to that blog's NUMBER; otherwise null.
 
-OUTPUT — return ONLY compact JSON (an array, nothing else). Refer to each keyword by its NUMBER and each blog by its NUMBER:
-[{"members":[3,17],"suggested_primary":3,"covered_by":null,"reason":"short"},{"members":[5],"suggested_primary":5,"covered_by":4,"reason":"covered by blog 4"}]
+THE MOST IMPORTANT JOB: flag any keyword already answered by an EXISTING blog below, so we never rewrite something we already published or scheduled.
 
-HARD RULES (important):
-- Output an entry ONLY if it is a REAL group of 2+ members, OR a SINGLE keyword with covered_by set (already covered by an existing blog).
-- NEVER output a single-member entry with covered_by null. A unique, not-covered keyword must be OMITTED entirely — do not list it.
-- "suggested_primary" is the clearest / most general phrasing in the group. Never put the same keyword in two entries.
+OUTPUT — return ONLY compact JSON, ONE object, NOTHING else (no preamble, no explanation — start your reply with "{"). Use keyword NUMBERS and blog NUMBERS:
+{"groups":[[3,17],[5,9]],"covered":[{"k":22,"blog":4},{"k":31,"blog":7}]}
+- "groups" = clusters of 2+ keyword numbers that should share ONE blog (per the rules above). List ONLY real clusters of 2 or more. NEVER list a keyword that clusters with nothing.
+- "covered" = ONLY the keyword numbers already answered by an EXISTING blog, each with that blog's number. List ONLY covered ones. NEVER list an uncovered keyword.
+- Each keyword appears in AT MOST one place. If a cluster is already covered by an existing blog, put its members in "covered" (not "groups").
+- Most keywords will appear in NEITHER list — that is correct and expected. Omit them. Do NOT output one entry per keyword.
 
 KEYWORDS (numbered)${existingBlogs.length ? '' : ' — (no existing blogs loaded, so covered_by will be null)'}:
 ${pool.map((p, i) => (i + 1) + '. ' + p.keyword + (p.source === 'rank' ? ' [already ranks elsewhere]' : '')).join('\n')}
@@ -3306,16 +3310,26 @@ EXISTING BLOGS (numbered — published or scheduled):
 ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).join('\n') : '(none)'}`;
 
         let aiText = '';
-        try { aiText = await callClaudeText(prompt, 4000); } catch (e) { return res.status(500).json({ error: 'AI grouping failed: ' + e.message }); }
+        try { aiText = await callClaudeText(prompt, 8000); } catch (e) { return res.status(500).json({ error: 'AI grouping failed: ' + e.message }); }
         // Always persist the raw response — never guess at a failure, read this file instead.
         try {
           await writeJsonFile('data/blog-fusion-last-raw.json', { at: new Date().toISOString(), poolSize: pool.length, rawText: aiText }, 'Fusion: save raw AI response for debugging');
         } catch (e) { /* debug file only — never blocks the real run */ }
         const raw = aiText.replace(/```json\n?/g, '').replace(/```\n?/g, '');
-        const m = raw.match(/\[[\s\S]*\]/);
-        let aiGroups = [];
-        try { aiGroups = m ? JSON.parse(m[0]) : []; } catch (e) { aiGroups = []; }
-        const aiProposedCount = Array.isArray(aiGroups) ? aiGroups.length : 0;
+        const m = raw.match(/\{[\s\S]*\}/);
+        let aiObj = {};
+        try { aiObj = m ? JSON.parse(m[0]) : {}; } catch (e) { aiObj = {}; }
+        // Normalise the compact {groups, covered} output into the entry shape the loop below expects.
+        const aiGroups = [];
+        (Array.isArray(aiObj.groups) ? aiObj.groups : []).forEach(arr => {
+          const members = (Array.isArray(arr) ? arr : []).map(n => parseInt(n, 10)).filter(n => Number.isInteger(n));
+          if (members.length >= 2) aiGroups.push({ members: members, suggested_primary: members[0], covered_by: null, reason: '' });
+        });
+        (Array.isArray(aiObj.covered) ? aiObj.covered : []).forEach(c => {
+          const k = parseInt(c && c.k, 10), b = parseInt(c && c.blog, 10);
+          if (Number.isInteger(k) && Number.isInteger(b)) aiGroups.push({ members: [k], suggested_primary: k, covered_by: b, reason: 'already covered' });
+        });
+        const aiProposedCount = aiGroups.length;
 
         const newGroups = [];
         const nowGroupedLc = new Set();
