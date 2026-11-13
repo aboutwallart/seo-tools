@@ -1,4 +1,5 @@
 // Email Marketing — backend for the "Email Marketing" tab (Newsletters + Monthly Promos).
+// v1.5 (2026-11-13): repair-scheduled-images — PATCH sends only { html } ('editor_type' is rejected on update).
 // v1.4 (2026-11-13): repair-scheduled-images — save by PATCHing the template's HTML in place (the old
 //   create-template + assign-template endpoint is deprecated → 404). Snapshots already worked in v1.3.
 // v1.3 (2026-11-13): repair-scheduled-images — use a CURRENT Klaviyo API revision (2024-10-15 was deprecated:
@@ -936,7 +937,7 @@ module.exports = async (req, res) => {
           }
           if (swapped > 0) {
             // Update the template's HTML in place (PATCH) — avoids the deprecated assign-template endpoint.
-            var up = await kvrJson(await kvr('/api/templates/' + tid + '/', 'PATCH', { data: { type: 'template', id: tid, attributes: { editor_type: 'CODE', html: out } } }));
+            var up = await kvrJson(await kvr('/api/templates/' + tid + '/', 'PATCH', { data: { type: 'template', id: tid, attributes: { html: out } } }));
             snapDoc.byCampaign[cid] = { handles: Object.keys(handlesUsed), repairedAt: new Date().toISOString() };
             report.push({ campaignId: cid, swapped: swapped, saved: up.ok, failed: failed, err: up.ok ? undefined : (up.text || '').slice(0, 300) });
           } else {
