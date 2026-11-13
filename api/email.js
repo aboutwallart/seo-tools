@@ -1,4 +1,6 @@
 // Email Marketing — backend for the "Email Marketing" tab (Newsletters + Monthly Promos).
+// v1.4 (2026-11-13): repair-scheduled-images — save by PATCHing the template's HTML in place (the old
+//   create-template + assign-template endpoint is deprecated → 404). Snapshots already worked in v1.3.
 // v1.3 (2026-11-13): repair-scheduled-images — use a CURRENT Klaviyo API revision (2024-10-15 was deprecated:
 //   "revision date before the earliest available"), which is what made it return nothing. Wider diagnostics.
 // v1.2 (2026-11-13): repair-scheduled-images — resolve message + template via the filter+include path
@@ -933,12 +935,10 @@ module.exports = async (req, res) => {
             handlesUsed[handle] = true; swapped++;
           }
           if (swapped > 0) {
-            var ct = await kvrJson(await kvr('/api/templates/', 'POST', { data: { type: 'template', attributes: { name: 'Image fix ' + cid + ' ' + Date.now(), editor_type: 'CODE', html: out } } }));
-            var newTid = ct.json && ct.json.data && ct.json.data.id;
-            if (!newTid) { report.push({ campaignId: cid, swapped: swapped, saved: false, err: 'template create failed: ' + (ct.text || '').slice(0, 150) }); continue; }
-            var asg = await kvrJson(await kvr('/api/campaign-message-assign-template/', 'POST', { data: { type: 'campaign-message', id: mid, relationships: { template: { data: { type: 'template', id: newTid } } } } }));
+            // Update the template's HTML in place (PATCH) — avoids the deprecated assign-template endpoint.
+            var up = await kvrJson(await kvr('/api/templates/' + tid + '/', 'PATCH', { data: { type: 'template', id: tid, attributes: { editor_type: 'CODE', html: out } } }));
             snapDoc.byCampaign[cid] = { handles: Object.keys(handlesUsed), repairedAt: new Date().toISOString() };
-            report.push({ campaignId: cid, swapped: swapped, saved: asg.ok, failed: failed, err: asg.ok ? undefined : (asg.text || '').slice(0, 200) });
+            report.push({ campaignId: cid, swapped: swapped, saved: up.ok, failed: failed, err: up.ok ? undefined : (up.text || '').slice(0, 300) });
           } else {
             report.push({ campaignId: cid, swapped: 0, failed: failed, note: 'no product images to fix' });
           }
