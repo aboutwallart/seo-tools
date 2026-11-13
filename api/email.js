@@ -1,4 +1,6 @@
 // Email Marketing — backend for the "Email Marketing" tab (Newsletters + Monthly Promos).
+// v1.6 (2026-11-13): + action 'reschedule-campaigns' — re-schedules drafts to their ORIGINAL future time
+//   (Create Campaign Send Job), with a safety guard (only draft + future time, never immediate) + verify.
 // v1.5 (2026-11-13): repair-scheduled-images — PATCH sends only { html } ('editor_type' is rejected on update).
 // v1.4 (2026-11-13): repair-scheduled-images — save by PATCHing the template's HTML in place (the old
 //   create-template + assign-template endpoint is deprecated → 404). Snapshots already worked in v1.3.
@@ -947,6 +949,49 @@ module.exports = async (req, res) => {
       }
       try { await ghWriteFile(SNAP_FILE, snapDoc, snapSha, 'Email image snapshots: repair run'); } catch (e) {}
       res.status(200).json({ ok: true, report: report });
+      return;
+    }
+
+    // ---- re-schedule campaigns that are back in draft (after the image repair) to their ORIGINAL time.
+    //      SAFETY: only acts on campaigns whose status is 'draft' AND whose saved send_time is in the FUTURE
+    //      (and not an immediate strategy) — so a Black Friday email can never go out early. Verifies each
+    //      lands on 'scheduled' and flags anything that unexpectedly started sending. Body: { campaignIds:[...] }.
+    if (action === 'reschedule-campaigns') {
+      var KLAVIYO_KEY = process.env.KLAVIYO_KEY;
+      if (!KLAVIYO_KEY) { res.status(500).json({ ok: false, error: 'KLAVIYO_KEY not configured' }); return; }
+      var ids = Array.isArray(body.campaignIds) ? body.campaignIds : (body.campaignId ? [body.campaignId] : []);
+      if (!ids.length) { res.status(400).json({ ok: false, error: 'campaignIds required' }); return; }
+      var REVX = '2026-10-15';
+      function kx(path, method, payload) { return fetch('https://a.klaviyo.com' + path, { method: method, headers: { 'Authorization': 'Klaviyo-API-Key ' + KLAVIYO_KEY, 'revision': REVX, 'accept': 'application/vnd.api+json', 'content-type': 'application/vnd.api+json' }, body: payload ? JSON.stringify(payload) : undefined }); }
+      async function kxJson(r) { var t = await r.text(); var j = null; try { j = JSON.parse(t); } catch (e) {} return { ok: r.ok, status: r.status, json: j, text: t }; }
+      var nowMs = Date.now();
+      var out = [];
+      for (var i = 0; i < ids.length; i++) {
+        var cid = ids[i];
+        try {
+          var cm = await kxJson(await kx('/api/campaign-messages/?filter=' + encodeURIComponent('equals(campaign.id,"' + cid + '")'), 'GET'));
+          var msg = cm.json && cm.json.data && cm.json.data[0];
+          if (!msg) { out.push({ campaignId: cid, done: false, reason: 'no message', status: cm.status }); continue; }
+          var def = (msg.attributes && msg.attributes.definition) || {};
+          var st = def.status;
+          var so = def.send_options || {};
+          var sendTime = so.send_time;
+          var strat = so.send_strategy;
+          if (st !== 'draft') { out.push({ campaignId: cid, done: false, reason: 'not a draft (status=' + st + ') — skipped' }); continue; }
+          var ts = sendTime ? Date.parse(sendTime) : NaN;
+          if (!ts || isNaN(ts) || ts <= nowMs) { out.push({ campaignId: cid, done: false, reason: 'send_time not in the future (' + (sendTime || 'none') + ') — reschedule by hand', sendTime: sendTime }); continue; }
+          if (strat && String(strat).toLowerCase().indexOf('immediate') >= 0) { out.push({ campaignId: cid, done: false, reason: 'send_strategy is immediate — skipped for safety' }); continue; }
+          // schedule it again — honours the campaign's retained send_options (same time)
+          var sj = await kxJson(await kx('/api/campaign-send-jobs', 'POST', { data: { type: 'campaign-send-job', id: cid } }));
+          if (!sj.ok) { out.push({ campaignId: cid, done: false, reason: 'send-job failed', status: sj.status, raw: (sj.text || '').slice(0, 300) }); continue; }
+          // verify the new status
+          var v = await kxJson(await kx('/api/campaign-messages/?filter=' + encodeURIComponent('equals(campaign.id,"' + cid + '")'), 'GET'));
+          var vmsg = v.json && v.json.data && v.json.data[0];
+          var vst = vmsg && vmsg.attributes && vmsg.attributes.definition && vmsg.attributes.definition.status;
+          out.push({ campaignId: cid, done: vst === 'scheduled', status: vst, sendTime: sendTime, warning: (vst === 'sending' || vst === 'sent') ? 'STARTED SENDING — check immediately!' : undefined });
+        } catch (e) { out.push({ campaignId: cid, done: false, reason: (e.message || String(e)) }); }
+      }
+      res.status(200).json({ ok: true, report: out });
       return;
     }
 
