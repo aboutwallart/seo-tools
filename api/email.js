@@ -1,4 +1,6 @@
 // Email Marketing — backend for the "Email Marketing" tab (Newsletters + Monthly Promos).
+// v1.2 (2026-11-13): repair-scheduled-images — resolve message + template via the filter+include path
+//   (the old /campaigns/{id}/campaign-messages/ path returned nothing); added raw diagnostics on failures.
 // v1.1 (2026-11-13): + action 'repair-scheduled-images' — snapshots each product's CURRENT featured image
 //   into Shopify Files (stable copy) and repoints scheduled-campaign email <img> tags at it, so a later
 //   image change never breaks the email again. Caches per product in data/email-image-snapshots.json.
@@ -900,15 +902,17 @@ module.exports = async (req, res) => {
         var cid = ids[ci];
         if (timeLeft() < 8000) { report.push({ campaignId: cid, partial: true, note: 'time budget — rerun to finish this one' }); break; }
         try {
-          var cm = await kvrJson(await kvr('/api/campaigns/' + cid + '/campaign-messages/', 'GET'));
+          // Message + template id in one call (the proven filter+include path).
+          var cm = await kvrJson(await kvr('/api/campaign-messages/?filter=' + encodeURIComponent('equals(campaign.id,"' + cid + '")') + '&include=campaign-variations', 'GET'));
           var mid = cm.json && cm.json.data && cm.json.data[0] && cm.json.data[0].id;
-          if (!mid) { report.push({ campaignId: cid, error: 'no message' }); continue; }
-          var mm = await kvrJson(await kvr('/api/campaign-messages/' + mid + '/', 'GET'));
-          var tid = mm.json && mm.json.data && mm.json.data.relationships && mm.json.data.relationships.template && mm.json.data.relationships.template.data && mm.json.data.relationships.template.data.id;
-          if (!tid) { report.push({ campaignId: cid, error: 'no template' }); continue; }
+          if (!mid) { report.push({ campaignId: cid, error: 'no message', status: cm.status, raw: (cm.text || '').slice(0, 200) }); continue; }
+          var tid = null;
+          var inc = (cm.json && cm.json.included) || [];
+          for (var vi = 0; vi < inc.length; vi++) { var vd = inc[vi] && inc[vi].attributes && inc[vi].attributes.definition && inc[vi].attributes.definition.details; if (vd && vd.template_id) { tid = vd.template_id; break; } }
+          if (!tid) { report.push({ campaignId: cid, error: 'no template id', status: cm.status }); continue; }
           var tr = await kvrJson(await kvr('/api/templates/' + tid + '/', 'GET'));
           var html = tr.json && tr.json.data && tr.json.data.attributes && tr.json.data.attributes.html;
-          if (!html) { report.push({ campaignId: cid, error: 'no html' }); continue; }
+          if (!html) { report.push({ campaignId: cid, error: 'no html', status: tr.status, raw: (tr.text || '').slice(0, 200) }); continue; }
           // product-card images only: <a href="…/products/HANDLE…"> … <img … src="CDNURL">
           var re = /<a\b[^>]*href="https?:\/\/[^"]*?\/products\/([^"?#]+)[^"]*"[^>]*>\s*<img\b[^>]*\bsrc="([^"]+)"/gi;
           var matches = [], m;
