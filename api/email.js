@@ -1,4 +1,6 @@
 // Email Marketing — backend for the "Email Marketing" tab (Newsletters + Monthly Promos).
+// v1.3 (2026-11-13): repair-scheduled-images — use a CURRENT Klaviyo API revision (2024-10-15 was deprecated:
+//   "revision date before the earliest available"), which is what made it return nothing. Wider diagnostics.
 // v1.2 (2026-11-13): repair-scheduled-images — resolve message + template via the filter+include path
 //   (the old /campaigns/{id}/campaign-messages/ path returned nothing); added raw diagnostics on failures.
 // v1.1 (2026-11-13): + action 'repair-scheduled-images' — snapshots each product's CURRENT featured image
@@ -860,7 +862,7 @@ module.exports = async (req, res) => {
       if (!KLAVIYO_KEY) { res.status(500).json({ ok: false, error: 'KLAVIYO_KEY not configured' }); return; }
       var ids = Array.isArray(body.campaignIds) ? body.campaignIds : (body.campaignId ? [body.campaignId] : []);
       if (!ids.length) { res.status(400).json({ ok: false, error: 'campaignIds required' }); return; }
-      var REVR = '2024-10-15';
+      var REVR = '2026-10-15'; // 2024-10-15 is deprecated ("before the earliest available"); use a current revision
       function kvr(path, method, payload) { return fetch('https://a.klaviyo.com' + path, { method: method, headers: { 'Authorization': 'Klaviyo-API-Key ' + KLAVIYO_KEY, 'revision': REVR, 'accept': 'application/vnd.api+json', 'content-type': 'application/vnd.api+json' }, body: payload ? JSON.stringify(payload) : undefined }); }
       async function kvrJson(r) { var t = await r.text(); var j = null; try { j = JSON.parse(t); } catch (e) {} return { ok: r.ok, status: r.status, json: j, text: t }; }
 
@@ -905,14 +907,14 @@ module.exports = async (req, res) => {
           // Message + template id in one call (the proven filter+include path).
           var cm = await kvrJson(await kvr('/api/campaign-messages/?filter=' + encodeURIComponent('equals(campaign.id,"' + cid + '")') + '&include=campaign-variations', 'GET'));
           var mid = cm.json && cm.json.data && cm.json.data[0] && cm.json.data[0].id;
-          if (!mid) { report.push({ campaignId: cid, error: 'no message', status: cm.status, raw: (cm.text || '').slice(0, 200) }); continue; }
+          if (!mid) { report.push({ campaignId: cid, error: 'no message', status: cm.status, raw: (cm.text || '').slice(0, 500) }); continue; }
           var tid = null;
           var inc = (cm.json && cm.json.included) || [];
           for (var vi = 0; vi < inc.length; vi++) { var vd = inc[vi] && inc[vi].attributes && inc[vi].attributes.definition && inc[vi].attributes.definition.details; if (vd && vd.template_id) { tid = vd.template_id; break; } }
           if (!tid) { report.push({ campaignId: cid, error: 'no template id', status: cm.status }); continue; }
           var tr = await kvrJson(await kvr('/api/templates/' + tid + '/', 'GET'));
           var html = tr.json && tr.json.data && tr.json.data.attributes && tr.json.data.attributes.html;
-          if (!html) { report.push({ campaignId: cid, error: 'no html', status: tr.status, raw: (tr.text || '').slice(0, 200) }); continue; }
+          if (!html) { report.push({ campaignId: cid, error: 'no html', status: tr.status, raw: (tr.text || '').slice(0, 500) }); continue; }
           // product-card images only: <a href="…/products/HANDLE…"> … <img … src="CDNURL">
           var re = /<a\b[^>]*href="https?:\/\/[^"]*?\/products\/([^"?#]+)[^"]*"[^>]*>\s*<img\b[^>]*\bsrc="([^"]+)"/gi;
           var matches = [], m;
