@@ -1,4 +1,10 @@
-// blogs.js — v5.4
+// blogs.js — v5.5
+// v5.5 (2026-11-13): UNIFIED duplicate check. find-fusion-groups now pools To Write + "You already rank"
+//   in one run AND cross-checks published + scheduled blogs (new helpers fetchBlogsPubAndSched + getRankPool).
+//   A group can be a merge (new blog) or "covered" (already in a published/scheduled blog). New actions:
+//   remove-covered, add-angle-preview, add-angle-apply (Shopify articleUpdate + backup to
+//   data/blog-angle-backups.json), add-angle-undo. apply-fusion-group now also adds a rank winner as a
+//   TO_WRITE row and hides folded ranked keywords (gsc-performing-dismissed.json).
 // v5.2 (2026-09-27): performing-keywords-blog cleans ranking URLs (drop query) so the real page shows + URL-lock check matches.
 // v5.1 (2026-09-27): performing-keywords-blog now also hides the shared "✕ Dismiss" list (gsc-performing-dismissed.json).
 // v5.0 (2026-09-27): new GET action performing-keywords-blog — "Ya rankeás — capturá más" (blog side):
@@ -469,6 +475,82 @@ If you genuinely cannot find one of the two, leave its two fields as empty strin
       if (!cursor) break;
     }
     return out;
+  }
+
+  // Helper: published AND future-scheduled blog articles (id + title + handle + status) — used by the
+  // unified duplicate check (to flag a topic already covered) and by "add angle to an existing blog".
+  async function fetchBlogsPubAndSched() {
+    const out = [];
+    let cursor = null;
+    const now = Date.now();
+    for (let page = 0; page < 12; page++) {
+      const data = await shopifyGraphQL(
+        `query($cursor:String){ articles(first:250, after:$cursor, sortKey:PUBLISHED_AT, reverse:true, query:"published_status:any"){ edges{ cursor node{ id title handle publishedAt blog{ handle } } } pageInfo{ hasNextPage } } }`,
+        { cursor }
+      );
+      const conn = data.articles; if (!conn) break;
+      const edges = conn.edges || [];
+      for (const e of edges) {
+        const n = e.node; if (!n) continue;
+        const t = n.publishedAt ? new Date(n.publishedAt).getTime() : null;
+        const status = (t == null) ? 'draft' : (t > now ? 'scheduled' : 'published');
+        if (status === 'draft') continue; // tool-side drafts are handled separately
+        const blogHandle = (n.blog && n.blog.handle) || 'news-articles-home-decor-inspiration';
+        out.push({ id: n.id, title: n.title || '', handle: n.handle || '', status, url: `https://aboutwallart.com/blogs/${blogHandle}/${n.handle || ''}` });
+      }
+      if (!conn.pageInfo || !conn.pageInfo.hasNextPage) break;
+      cursor = edges.length ? edges[edges.length - 1].cursor : null;
+      if (!cursor) break;
+    }
+    return out;
+  }
+
+  // Helper: the "You already rank" pool (informational keywords you already get clicks on, not locked,
+  // not already a blog, not dismissed) — mirrors the performing-keywords-blog action, returns ALL of them
+  // with the ranking URL + whether that URL is free. Used to fold "You already rank" into the duplicate check.
+  async function getRankPool() {
+    let list = [];
+    try {
+      const rr = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/gsc-performing-keywords.json?t=${Date.now()}`);
+      if (rr.ok) { const j = await rr.json(); list = Array.isArray(j.keywords) ? j.keywords : []; }
+    } catch (e) { /* no list yet */ }
+    const lockedSet = new Set(); const blogKws = []; const urlLock = {};
+    const cleanU = u => String(u || '').split(/[?#]/)[0];
+    const nrm = u => cleanU(u).trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
+    try {
+      const rc = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/keyword-locker-registry.csv?t=${Date.now()}`);
+      if (rc.ok) {
+        const txt = await rc.text();
+        txt.split('\n').forEach((line, i) => {
+          if (i === 0 || !line.trim()) return;
+          const c = parseCSVLine(line.replace(/\r/g, ''));
+          const kw = (c[0] || '').toLowerCase(); const url = (c[1] || '').trim(); const lk = (c[2] || '').toUpperCase(); const src = (c[9] || '');
+          if (kw && lk === 'LOCKED') lockedSet.add(kw);
+          if (url && url !== 'N/A' && lk === 'LOCKED') { const k = nrm(url); if (!urlLock[k]) urlLock[k] = c[0] || ''; }
+          if ((src === 'Published Blog' || src === 'To_Write_Blog') && c[0]) blogKws.push(kw);
+        });
+      }
+    } catch (e) { /* ignore */ }
+    let dismissed = [];
+    try { const df = await getGitHubFile('data/gsc-blog-dismissed.json'); dismissed = (JSON.parse(df.content) || []).map(s => String(s).toLowerCase()); } catch (e) { dismissed = []; }
+    let perfDismissed = [];
+    try { const pf = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/gsc-performing-dismissed.json?t=${Date.now()}`); if (pf.ok) { const j = await pf.json(); perfDismissed = (Array.isArray(j) ? j : []).map(s => String(s).toLowerCase()); } } catch (e) { perfDismissed = []; }
+    const lockedArr = [...lockedSet];
+    return list
+      .filter(k => k && k.keyword && k.intent === 'blog')
+      .filter(k => { const kw = k.keyword.toLowerCase();
+        if (lockedSet.has(kw)) return false;
+        if (lockedArr.some(lk => lk.includes(kw))) return false;
+        if (blogKws.some(bk => bk === kw || bk.includes(kw))) return false;
+        if (dismissed.includes(kw)) return false;
+        if (perfDismissed.includes(kw)) return false;
+        return true;
+      })
+      .map(k => {
+        const cleanRanking = k.rankingUrl ? cleanU(k.rankingUrl) : null;
+        const lockedTo = cleanRanking ? urlLock[nrm(cleanRanking)] : null;
+        return { keyword: k.keyword, impressions: k.impressions || null, pageUrl: cleanRanking || null, urlFree: !!(cleanRanking && !lockedTo), lockedToKeyword: lockedTo || null };
+      });
   }
 
   // Helper: for each working title, derive the TRUE short main keyword and flag cannibalisation
@@ -3134,7 +3216,7 @@ Include EXACTLY 3 items.`;
         if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
         const ideasFile = await getGitHubFile('data/blog_ideas.csv');
         const lines = ideasFile.content.split('\n');
-        const poolMap = new Map(); // lowercase keyword -> { keyword, title }
+        const poolMap = new Map(); // lowercase keyword -> { keyword, title, source }
         lines.forEach((line, i) => {
           if (i === 0) return;
           const trimmed = line.trim().replace(/\r/g, '');
@@ -3143,16 +3225,31 @@ Include EXACTLY 3 items.`;
           const status = (cols[6] || '').trim().toUpperCase();
           const kw = (cols[0] || '').trim();
           if (!kw || (status !== 'TO_WRITE' && status !== 'TO_WRITE_PENDING')) return;
-          poolMap.set(kw.toLowerCase(), { keyword: kw, title: cols[1] || '' });
+          poolMap.set(kw.toLowerCase(), { keyword: kw, title: cols[1] || '', source: 'towrite' });
         });
+        // Also fold the "You already rank" keywords into the SAME run (unified dedup). They are not in
+        // blog_ideas.csv; each carries its ranking URL so the review card can add the link via MPD.
+        try {
+          const rankPool = await getRankPool();
+          rankPool.forEach(r => {
+            const lc = r.keyword.toLowerCase();
+            if (poolMap.has(lc)) return; // a To Write row already covers this keyword
+            poolMap.set(lc, { keyword: r.keyword, title: '', source: 'rank', pageUrl: r.pageUrl, urlFree: r.urlFree, lockedToKeyword: r.lockedToKeyword, impressions: r.impressions });
+          });
+        } catch (e) { /* if the rank list fails, To Write still runs */ }
 
         const checked = await readJsonFileSafe('data/blog-fusion-checked.json', { singletons: [], grouped: [] });
         const groupedSet = new Set((checked.grouped || []).map(s => String(s).toLowerCase()));
         const pool = [...poolMap.values()].filter(p => !groupedSet.has(p.keyword.toLowerCase()));
 
-        if (pool.length < 2) {
-          return res.status(200).json({ success: true, newGroups: [], checkedCount: pool.length, message: 'Nothing new to check.' });
+        if (!pool.length) {
+          return res.status(200).json({ success: true, newGroups: [], checkedCount: 0, message: 'Nothing new to check.' });
         }
+
+        // Existing blogs (published + scheduled) — so the AI can flag a topic that is ALREADY covered
+        // (→ "Remove" or "Add angle"), instead of proposing a duplicate new blog.
+        let existingBlogs = [];
+        try { existingBlogs = await fetchBlogsPubAndSched(); } catch (e) { existingBlogs = []; }
 
         // Best-effort volume/impressions data — never blocks the run if missing.
         let metrics = {};
@@ -3170,19 +3267,24 @@ Include EXACTLY 3 items.`;
         // silently vanish during exact-text matching. Numbers can't drift.
         const prompt = `You are grouping SEO keywords for a UK wall-art & home-decor blog (About Wall Art) to avoid writing two blog posts that would compete with each other in Google (keyword cannibalisation).
 
-Group keywords ONLY when a single blog post answering one of them would fully satisfy someone searching any of the others in the SAME group — they must be the SAME underlying question/intent, just phrased differently (spelling variants like colour/color, singular/plural, different word order, or an obvious synonym for the exact same question).
+You have TWO jobs:
 
-WORKED EXAMPLE (group these — same intent, different phrasing): "what colour goes with grey", "what colors go with grey", "colours that go with grey", "what color goes with grey" — ALL the same question, just UK/US spelling and word-order variants. Group them together.
+JOB 1 — GROUP duplicates. Group keywords ONLY when a single blog post answering one of them would fully satisfy someone searching any of the others in the SAME group — they must be the SAME underlying question/intent, just phrased differently (spelling variants like colour/color, singular/plural, different word order, or an obvious synonym for the exact same question).
+WORKED EXAMPLE (group these — same intent, different phrasing): "what colour goes with grey", "what colors go with grey", "colours that go with grey" — ALL the same question. Group them.
+Do NOT group keywords merely on a similar TOPIC but asking a DIFFERENT question (e.g. "grey walls" vs "grey and beige" — different questions). When unsure, do NOT group.
 
-Do NOT group keywords that are merely on a similar TOPIC but ask a DIFFERENT question (e.g. "grey walls" and "grey and beige" are related topics but different questions — do not group them). When genuinely unsure, do NOT group — leave it out.
+JOB 2 — FLAG already covered. For EACH group OR single keyword, check the EXISTING BLOGS list below. If an existing blog already fully answers that search (same intent), set "covered_by" to that blog's number. A keyword that is already covered must STILL appear in the output, even alone (members with one number), with covered_by set. If nothing covers it, set covered_by to null.
 
-Return ONLY compact JSON, no other text: an array of groups (2+ members each), referring to each keyword by its NUMBER from the list below (not its text). "suggested_primary" is the number of the clearest, most natural phrasing in that group.
-[{"members":[3,17],"suggested_primary":3,"reason":"short reason"}]
+Return ONLY compact JSON, no other text: an array. Refer to each keyword by its NUMBER (KEYWORDS list) and each blog by its NUMBER (EXISTING BLOGS list):
+[{"members":[3,17],"suggested_primary":3,"covered_by":null,"reason":"short reason"},{"members":[5],"suggested_primary":5,"covered_by":4,"reason":"already covered by blog 4"}]
 
-Keywords that don't share intent with anything else must NOT appear in the output at all.
+Rules: a keyword that is neither grouped NOR covered must NOT appear. Never put the same keyword in two entries.
 
-KEYWORDS (numbered):
-${pool.map((p, i) => (i + 1) + '. ' + p.keyword).join('\n')}`;
+KEYWORDS (numbered)${existingBlogs.length ? '' : ' — (no existing blogs loaded, so covered_by will be null)'}:
+${pool.map((p, i) => (i + 1) + '. ' + p.keyword + (p.source === 'rank' ? ' [already ranks elsewhere]' : '')).join('\n')}
+
+EXISTING BLOGS (numbered — published or scheduled):
+${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).join('\n') : '(none)'}`;
 
         let aiText = '';
         try { aiText = await callClaudeText(prompt, 4000); } catch (e) { return res.status(500).json({ error: 'AI grouping failed: ' + e.message }); }
@@ -3208,12 +3310,17 @@ ${pool.map((p, i) => (i + 1) + '. ' + p.keyword).join('\n')}`;
             const lc = p.keyword.toLowerCase();
             if (!seenLc.has(lc) && !nowGroupedLc.has(lc)) { seenLc.add(lc); validMembers.push(p); }
           });
-          if (validMembers.length < 2) return; // AI referenced a bad number or only 1 survived — skip
-          // Attach volume/impressions signals for winner selection + display.
+          // "covered_by" = this group's intent is already answered by an existing (published/scheduled) blog.
+          const covIdx = parseInt(g.covered_by, 10);
+          const coveredBlog = (Number.isInteger(covIdx) && covIdx >= 1 && covIdx <= existingBlogs.length) ? existingBlogs[covIdx - 1] : null;
+          // A plain merge needs 2+ members. A "covered" finding is valid even with a single keyword.
+          if (!coveredBlog && validMembers.length < 2) return;
+          if (coveredBlog && validMembers.length < 1) return;
+          // Attach volume/impressions signals + carry the member's source (towrite / rank) and its ranking URL.
           const withSignals = validMembers.map(v => {
             const met = metricsLc[v.keyword.toLowerCase()];
             const gsc = gscLc[v.keyword.toLowerCase()];
-            return { keyword: v.keyword, title: v.title, volume: met ? met.volume : null, difficulty: met ? met.seo_difficulty : null, impressions: gsc ? gsc.impressions : null };
+            return { keyword: v.keyword, title: v.title || '', source: v.source || 'towrite', pageUrl: v.pageUrl || null, urlFree: !!v.urlFree, lockedToKeyword: v.lockedToKeyword || null, volume: met ? met.volume : null, difficulty: met ? met.seo_difficulty : null, impressions: (met && met.impressions) || v.impressions || (gsc ? gsc.impressions : null) };
           });
           // Winner: highest search volume (our own data) > highest GSC impressions > AI's suggested_primary.
           let winner = null, signal = 'ai-choice';
@@ -3232,15 +3339,21 @@ ${pool.map((p, i) => (i + 1) + '. ' + p.keyword).join('\n')}`;
             signal = 'ai-choice';
           }
           const secondary = withSignals.filter(s => s.keyword.toLowerCase() !== winner.keyword.toLowerCase());
-          if (!secondary.length) return; // winner ended up alone — nothing to fuse
+          if (!coveredBlog && !secondary.length) return; // a merge with nothing to merge — skip
           withSignals.forEach(s => nowGroupedLc.add(s.keyword.toLowerCase()));
           newGroups.push({
             id: `grp_${Date.now()}_${gi}`,
+            type: coveredBlog ? 'covered' : 'merge',
             winnerKeyword: winner.keyword,
             winnerTitle: winner.title,
+            winnerSource: winner.source,
+            winnerPageUrl: winner.pageUrl,
+            winnerUrlFree: winner.urlFree,
+            winnerLockedTo: winner.lockedToKeyword,
             reason: String(g.reason || ''),
             signals: signal,
-            secondary
+            secondary,
+            coveredBlog: coveredBlog ? { id: coveredBlog.id, title: coveredBlog.title, handle: coveredBlog.handle, status: coveredBlog.status, url: coveredBlog.url } : null
           });
         });
 
@@ -3276,13 +3389,16 @@ ${pool.map((p, i) => (i + 1) + '. ' + p.keyword).join('\n')}`;
         const secLc = new Set(group.secondary.map(s => s.keyword.toLowerCase()));
         const ideasFile = await getGitHubFile('data/blog_ideas.csv');
         const lines = ideasFile.content.split('\n');
+        const colCount = Math.max(parseCSVLine((lines[0] || '').replace(/\r/g, '')).length, 10);
         let touched = 0;
+        let winnerRowExists = false;
         const updated = lines.map((line, i) => {
           if (i === 0) return line;
           const trimmed = line.trim().replace(/\r/g, '');
           if (!trimmed) return line;
           const cols = parseCSVLine(trimmed);
           const kw = (cols[0] || '').trim().toLowerCase();
+          if (kw === winnerLc) winnerRowExists = true;
           if (secLc.has(kw)) {
             while (cols.length < 10) cols.push('');
             cols[3] = 'FUSED';               // CANNIBALIZATION
@@ -3293,7 +3409,29 @@ ${pool.map((p, i) => (i + 1) + '. ' + p.keyword).join('\n')}`;
           }
           return line;
         });
+        // If the winner is a "You already rank" keyword (not in the write list yet), add it as a TO_WRITE
+        // row so it becomes the blog that will own this search (same intent as "Use in a blog").
+        if (group.winnerSource === 'rank' && !winnerRowExists) {
+          const row = new Array(colCount).fill('');
+          row[0] = group.winnerKeyword;                        // Keyword
+          row[1] = group.winnerTitle || group.winnerKeyword;   // Blog Post Title
+          row[6] = 'TO_WRITE';                                 // STATUS
+          updated.push(row.map(esc).join(','));
+        }
         await updateGitHubFile('data/blog_ideas.csv', updated.join('\n'), ideasFile.sha, `Fuse ${touched} keyword(s) into: ${group.winnerKeyword}`);
+
+        // Any "You already rank" members folded in → hide them from that panel so they don't reappear.
+        const rankToHide = [];
+        if (group.winnerSource === 'rank') rankToHide.push(group.winnerKeyword.toLowerCase());
+        (group.secondary || []).forEach(s => { if (s.source === 'rank') rankToHide.push((s.keyword || '').toLowerCase()); });
+        if (rankToHide.length) {
+          try {
+            const pd = await readJsonFileSafe('data/gsc-performing-dismissed.json', []);
+            const set = new Set((Array.isArray(pd) ? pd : []).map(s => String(s).toLowerCase()));
+            rankToHide.forEach(k => set.add(k));
+            await writeJsonFile('data/gsc-performing-dismissed.json', [...set], `Fusion: hide ${rankToHide.length} ranked keyword(s) folded into ${group.winnerKeyword}`);
+          } catch (e) { /* non-blocking */ }
+        }
 
         const fused = await readJsonFileSafe('data/blog-fused-groups.json', {});
         fused[winnerLc] = { winnerKeyword: group.winnerKeyword, winnerTitle: group.winnerTitle, secondary: group.secondary, reason: group.reason, appliedAt: new Date().toISOString() };
@@ -3326,6 +3464,116 @@ ${pool.map((p, i) => (i + 1) + '. ' + p.keyword).join('\n')}`;
         memberLc.forEach(k => singletonsSet.add(k));
         await writeJsonFile('data/blog-fusion-checked.json', { singletons: [...singletonsSet], grouped: [...groupedSet] }, `Fusion discarded — unlocked: ${group.winnerKeyword}`);
 
+        return res.status(200).json({ success: true });
+      }
+
+      // ── ACTION: remove-covered ── a group is already covered by a published/scheduled blog and Mae
+      // chose "Remove" (don't write it). To Write members → IGNORED (COVERED); ranked members → hidden.
+      if (req.body.action === 'remove-covered') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const winnerKeyword = String(req.body.winnerKeyword || '').trim();
+        if (!winnerKeyword) return res.status(400).json({ error: 'winnerKeyword required' });
+        const winnerLc = winnerKeyword.toLowerCase();
+        const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+        const idx = pending.findIndex(g => (g.winnerKeyword || '').toLowerCase() === winnerLc);
+        if (idx === -1) return res.status(404).json({ error: 'That group is no longer pending.' });
+        const group = pending[idx];
+        const members = [{ keyword: group.winnerKeyword, source: group.winnerSource }, ...(group.secondary || []).map(s => ({ keyword: s.keyword, source: s.source }))];
+        const towriteLc = new Set(members.filter(m => m.source !== 'rank').map(m => (m.keyword || '').toLowerCase()));
+        const rankLc = members.filter(m => m.source === 'rank').map(m => (m.keyword || '').toLowerCase());
+        if (towriteLc.size) {
+          const esc = (c) => { const s = String(c == null ? '' : c); return (s.includes(',') || s.includes('"') || s.includes('\n')) ? `"${s.replace(/"/g, '""')}"` : s; };
+          const ideasFile = await getGitHubFile('data/blog_ideas.csv');
+          const lines = ideasFile.content.split('\n');
+          const updated = lines.map((line, i) => {
+            if (i === 0) return line;
+            const t = line.trim().replace(/\r/g, ''); if (!t) return line;
+            const cols = parseCSVLine(t);
+            const kw = (cols[0] || '').trim().toLowerCase();
+            if (towriteLc.has(kw)) { while (cols.length < 10) cols.push(''); cols[3] = 'COVERED'; cols[4] = (group.coveredBlog && group.coveredBlog.title) || ''; cols[6] = 'IGNORED'; return cols.map(esc).join(','); }
+            return line;
+          });
+          await updateGitHubFile('data/blog_ideas.csv', updated.join('\n'), ideasFile.sha, `Covered — ignore ${towriteLc.size} topic(s) already in a blog`);
+        }
+        if (rankLc.length) { try { const pd = await readJsonFileSafe('data/gsc-performing-dismissed.json', []); const set = new Set((Array.isArray(pd) ? pd : []).map(s => String(s).toLowerCase())); rankLc.forEach(k => set.add(k)); await writeJsonFile('data/gsc-performing-dismissed.json', [...set], 'Covered — hide ranked keyword(s) already in a blog'); } catch (e) { } }
+        pending.splice(idx, 1);
+        await writeJsonFile('data/blog-fusion-pending.json', pending, `Covered removed: ${group.winnerKeyword}`);
+        return res.status(200).json({ success: true });
+      }
+
+      // ── ACTION: add-angle-preview ── propose a light edit to an EXISTING blog so it naturally includes
+      // the keyword(s). Returns before/after for Mae to approve. NOTHING is written to Shopify here.
+      if (req.body.action === 'add-angle-preview') {
+        const articleId = String(req.body.articleId || '').trim();
+        const keywords = Array.isArray(req.body.keywords) ? req.body.keywords.map(k => String(k || '').trim()).filter(Boolean) : [];
+        if (!articleId || !keywords.length) return res.status(400).json({ error: 'articleId and keywords required' });
+        const data = await shopifyGraphQL(`query($id:ID!){ node(id:$id){ ... on Article { id title handle body } } }`, { id: articleId });
+        const art = data && data.node;
+        if (!art || art.body == null) return res.status(404).json({ error: 'Could not read that blog.' });
+        const body = String(art.body || '');
+        const pRe = /<p\b[^>]*>([\s\S]*?)<\/p>/gi;
+        const paras = []; let mm;
+        while ((mm = pRe.exec(body)) !== null) { paras.push({ full: mm[0], text: mm[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() }); }
+        const textParas = paras.filter(p => p.text.length > 40);
+        const numbered = textParas.map((p, i) => (i + 1) + '. ' + p.text).slice(0, 40).join('\n');
+        const kwList = keywords.join('", "');
+        const prompt = `You are a UK wall-art & home-decor blog editor for About Wall Art. The blog below should naturally include the search phrase(s): "${kwList}". Pick the ONE existing paragraph that fits best and rewrite it so the exact phrase appears once, naturally — UK spelling ("colour","decor" no accent), same meaning, similar length, NO keyword-stuffing, NEVER the words "elevate/delve/showcase". If NO paragraph fits, instead write ONE new short paragraph (2-3 sentences).
+Return ONLY compact JSON: {"mode":"rewrite","index":N,"paragraph":"full rewritten paragraph as PLAIN text"} OR {"mode":"add","h2":"optional short heading","paragraph":"the new paragraph as PLAIN text"}.
+PARAGRAPHS (numbered):
+${numbered || '(no suitable paragraphs — use mode add)'}`;
+        let aiText = ''; try { aiText = await callClaudeText(prompt, 1500); } catch (e) { return res.status(500).json({ error: 'AI failed: ' + e.message }); }
+        const raw = aiText.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+        const m = raw.match(/\{[\s\S]*\}/);
+        let o = {}; try { o = m ? JSON.parse(m[0]) : {}; } catch (e) { o = {}; }
+        const newPara = String(o.paragraph || '').trim();
+        if (!newPara) return res.status(500).json({ error: 'The AI did not return a paragraph.' });
+        const escHtml = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        let mode = o.mode === 'add' ? 'add' : 'rewrite', originalText = '', newBody;
+        if (mode === 'rewrite') {
+          const i2 = parseInt(o.index, 10);
+          const target = (Number.isInteger(i2) && i2 >= 1 && i2 <= textParas.length) ? textParas[i2 - 1] : null;
+          if (target) { originalText = target.text; newBody = body.replace(target.full, '<p>' + escHtml(newPara) + '</p>'); }
+          else { mode = 'add'; newBody = body + '\n<p>' + escHtml(newPara) + '</p>'; }
+        } else {
+          const h2 = String(o.h2 || '').trim();
+          newBody = body + (h2 ? ('\n<h2>' + escHtml(h2) + '</h2>') : '') + '\n<p>' + escHtml(newPara) + '</p>';
+        }
+        return res.status(200).json({ success: true, mode, articleId, title: art.title, url: ('https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/' + (art.handle || '')), originalParagraph: originalText, newParagraph: newPara, newBody });
+      }
+
+      // ── ACTION: add-angle-apply ── Mae approved the preview. Backs up the current body, then writes
+      // the new body to Shopify with articleUpdate. The folded keyword(s) are hidden from the rank panel.
+      if (req.body.action === 'add-angle-apply') {
+        const articleId = String(req.body.articleId || '').trim();
+        const newBody = typeof req.body.newBody === 'string' ? req.body.newBody : '';
+        const keywords = Array.isArray(req.body.keywords) ? req.body.keywords.map(k => String(k || '').trim()).filter(Boolean) : [];
+        if (!articleId || !newBody) return res.status(400).json({ error: 'articleId and newBody required' });
+        const data = await shopifyGraphQL(`query($id:ID!){ node(id:$id){ ... on Article { id title handle body } } }`, { id: articleId });
+        const art = data && data.node;
+        if (!art) return res.status(404).json({ error: 'Blog not found.' });
+        const backups = await readJsonFileSafe('data/blog-angle-backups.json', {});
+        backups[articleId] = { title: art.title, handle: art.handle, originalBody: String(art.body || ''), keywords, at: new Date().toISOString() };
+        await writeJsonFile('data/blog-angle-backups.json', backups, `Angle backup: ${art.title}`);
+        const up = await shopifyGraphQL(`mutation($id:ID!,$article:ArticleUpdateInput!){ articleUpdate(id:$id, article:$article){ article{ id } userErrors{ field message } } }`, { id: articleId, article: { body: newBody } });
+        const ue = (up && up.articleUpdate && up.articleUpdate.userErrors) || [];
+        if (ue.length) return res.status(500).json({ error: ue.map(e => e.message).join('; ') });
+        if (keywords.length) { try { const pd = await readJsonFileSafe('data/gsc-performing-dismissed.json', []); const set = new Set((Array.isArray(pd) ? pd : []).map(s => String(s).toLowerCase())); keywords.forEach(k => set.add(k.toLowerCase())); await writeJsonFile('data/gsc-performing-dismissed.json', [...set], 'Angle added — hide folded keyword(s)'); } catch (e) { } }
+        return res.status(200).json({ success: true, articleId, title: art.title });
+      }
+
+      // ── ACTION: add-angle-undo ── restore a blog's body from the backup taken before the angle edit.
+      if (req.body.action === 'add-angle-undo') {
+        const articleId = String(req.body.articleId || '').trim();
+        if (!articleId) return res.status(400).json({ error: 'articleId required' });
+        const backups = await readJsonFileSafe('data/blog-angle-backups.json', {});
+        const b = backups[articleId];
+        if (!b) return res.status(404).json({ error: 'No backup for that blog.' });
+        const up = await shopifyGraphQL(`mutation($id:ID!,$article:ArticleUpdateInput!){ articleUpdate(id:$id, article:$article){ userErrors{ message } } }`, { id: articleId, article: { body: b.originalBody } });
+        const ue = (up && up.articleUpdate && up.articleUpdate.userErrors) || [];
+        if (ue.length) return res.status(500).json({ error: ue.map(e => e.message).join('; ') });
+        delete backups[articleId];
+        await writeJsonFile('data/blog-angle-backups.json', backups, `Angle undo: ${b.title || articleId}`);
+        if (b.keywords && b.keywords.length) { try { const pd = await readJsonFileSafe('data/gsc-performing-dismissed.json', []); const set = new Set((Array.isArray(pd) ? pd : []).map(s => String(s).toLowerCase())); b.keywords.forEach(k => set.delete(String(k).toLowerCase())); await writeJsonFile('data/gsc-performing-dismissed.json', [...set], 'Angle undo — restore keyword(s)'); } catch (e) { } }
         return res.status(200).json({ success: true });
       }
 
