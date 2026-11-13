@@ -1,4 +1,7 @@
 // Email Marketing — backend for the "Email Marketing" tab (Newsletters + Monthly Promos).
+// v1.1 (2026-11-13): + action 'repair-scheduled-images' — snapshots each product's CURRENT featured image
+//   into Shopify Files (stable copy) and repoints scheduled-campaign email <img> tags at it, so a later
+//   image change never breaks the email again. Caches per product in data/email-image-snapshots.json.
 // PART 1 (this file, Newsletters copy stage):
 //   POST { action:'newsletter-blogs' }                          -> 5 recent Shopify blogs (title + hero + alt), minus already-used
 //   POST { action:'newsletter-write',  articleId }              -> AI writes the newsletter in Mae's voice (structured JSON)
@@ -841,6 +844,102 @@ module.exports = async (req, res) => {
         } catch (e) { dataFixed = 'error: ' + (e.message || e); }
       }
       res.status(200).json({ ok: true, report: report, dataFixed: dataFixed });
+      return;
+    }
+
+    // ---- repair scheduled campaigns: snapshot each product's CURRENT featured image to Shopify Files
+    //      (a stable copy of our own) and point the email <img> at it, so a later image change never
+    //      breaks the email again. Only product-card images (inside a /products/HANDLE link) are touched —
+    //      hero, logo and feature icons are left alone. Body: { campaignIds: [...] } (call per campaign /
+    //      small batch; email.js maxDuration is 60s). Snapshots are cached per product in
+    //      data/email-image-snapshots.json (also the map the monthly cleanup uses). ----
+    if (action === 'repair-scheduled-images') {
+      var KLAVIYO_KEY = process.env.KLAVIYO_KEY;
+      if (!KLAVIYO_KEY) { res.status(500).json({ ok: false, error: 'KLAVIYO_KEY not configured' }); return; }
+      var ids = Array.isArray(body.campaignIds) ? body.campaignIds : (body.campaignId ? [body.campaignId] : []);
+      if (!ids.length) { res.status(400).json({ ok: false, error: 'campaignIds required' }); return; }
+      var REVR = '2024-10-15';
+      function kvr(path, method, payload) { return fetch('https://a.klaviyo.com' + path, { method: method, headers: { 'Authorization': 'Klaviyo-API-Key ' + KLAVIYO_KEY, 'revision': REVR, 'accept': 'application/vnd.api+json', 'content-type': 'application/vnd.api+json' }, body: payload ? JSON.stringify(payload) : undefined }); }
+      async function kvrJson(r) { var t = await r.text(); var j = null; try { j = JSON.parse(t); } catch (e) {} return { ok: r.ok, status: r.status, json: j, text: t }; }
+
+      var SNAP_FILE = 'data/email-image-snapshots.json';
+      var snapDoc = { byHandle: {}, byCampaign: {} }, snapSha = null;
+      try { var sf = await ghReadFile(SNAP_FILE); if (sf && sf.json && typeof sf.json === 'object') { snapDoc = sf.json; snapSha = sf.sha; } } catch (e) {}
+      if (!snapDoc.byHandle) snapDoc.byHandle = {}; if (!snapDoc.byCampaign) snapDoc.byCampaign = {};
+
+      var tStart = Date.now();
+      function timeLeft() { return 50000 - (Date.now() - tStart); }
+
+      // Copy a product's CURRENT featured image into Shopify Files and return a stable URL (cached by handle).
+      async function snapFor(handle) {
+        if (snapDoc.byHandle[handle] && snapDoc.byHandle[handle].url) return snapDoc.byHandle[handle].url;
+        var pq = await shopifyGraphQL('query($q:String!){ products(first:1, query:$q){ edges{ node{ featuredImage{ url altText } } } } }', { q: 'handle:' + handle });
+        var fe = pq && pq.products && pq.products.edges && pq.products.edges[0] && pq.products.edges[0].node && pq.products.edges[0].node.featuredImage;
+        var cur = fe && fe.url;
+        if (!cur) return null;
+        var fid = null, url = null, usedFallback = false;
+        try {
+          var fc = await shopifyGraphQL('mutation($f:[FileCreateInput!]!){ fileCreate(files:$f){ files{ id fileStatus ... on MediaImage { image{ url } } } userErrors{ message } } }', { f: [{ originalSource: cur, contentType: 'IMAGE', alt: 'email-snap-' + handle }] });
+          var node = fc && fc.fileCreate && fc.fileCreate.files && fc.fileCreate.files[0];
+          fid = node && node.id; url = node && node.image && node.image.url;
+          var tries = 0;
+          while (fid && !url && tries < 8 && timeLeft() > 5000) {
+            await new Promise(function (r) { setTimeout(r, 1500); });
+            var q2 = await shopifyGraphQL('query($id:ID!){ node(id:$id){ ... on MediaImage { image{ url } fileStatus } } }', { id: fid });
+            url = q2 && q2.node && q2.node.image && q2.node.image.url;
+            tries++;
+          }
+        } catch (e) { /* fall through to fallback */ }
+        if (!url) { url = cur; usedFallback = true; } // couldn't copy yet → use the current CDN url (not broken now)
+        snapDoc.byHandle[handle] = { fileId: fid || null, url: url, usedFallback: usedFallback, at: new Date().toISOString() };
+        return url;
+      }
+
+      var report = [];
+      for (var ci = 0; ci < ids.length; ci++) {
+        var cid = ids[ci];
+        if (timeLeft() < 8000) { report.push({ campaignId: cid, partial: true, note: 'time budget — rerun to finish this one' }); break; }
+        try {
+          var cm = await kvrJson(await kvr('/api/campaigns/' + cid + '/campaign-messages/', 'GET'));
+          var mid = cm.json && cm.json.data && cm.json.data[0] && cm.json.data[0].id;
+          if (!mid) { report.push({ campaignId: cid, error: 'no message' }); continue; }
+          var mm = await kvrJson(await kvr('/api/campaign-messages/' + mid + '/', 'GET'));
+          var tid = mm.json && mm.json.data && mm.json.data.relationships && mm.json.data.relationships.template && mm.json.data.relationships.template.data && mm.json.data.relationships.template.data.id;
+          if (!tid) { report.push({ campaignId: cid, error: 'no template' }); continue; }
+          var tr = await kvrJson(await kvr('/api/templates/' + tid + '/', 'GET'));
+          var html = tr.json && tr.json.data && tr.json.data.attributes && tr.json.data.attributes.html;
+          if (!html) { report.push({ campaignId: cid, error: 'no html' }); continue; }
+          // product-card images only: <a href="…/products/HANDLE…"> … <img … src="CDNURL">
+          var re = /<a\b[^>]*href="https?:\/\/[^"]*?\/products\/([^"?#]+)[^"]*"[^>]*>\s*<img\b[^>]*\bsrc="([^"]+)"/gi;
+          var matches = [], m;
+          while ((m = re.exec(html)) !== null) { matches.push({ handle: m[1], src: m[2] }); }
+          var out = html, swapped = 0, handlesUsed = {}, failed = [];
+          for (var k = 0; k < matches.length; k++) {
+            if (timeLeft() < 6000) { report.push({ campaignId: cid, partial: true, note: 'time budget mid-campaign — rerun' }); break; }
+            var mt = matches[k];
+            if (mt.src.indexOf('cdn.shopify.com') < 0) continue; // only Shopify product images
+            var handle = decodeURIComponent(mt.handle);
+            var snap = await snapFor(handle);
+            if (!snap) { failed.push(handle); continue; }
+            var newSrc = retinaImg(snap, 600).replace(/&/g, '&amp;');
+            if (newSrc === mt.src) continue; // already pointing at it
+            out = out.split(mt.src).join(newSrc);
+            handlesUsed[handle] = true; swapped++;
+          }
+          if (swapped > 0) {
+            var ct = await kvrJson(await kvr('/api/templates/', 'POST', { data: { type: 'template', attributes: { name: 'Image fix ' + cid + ' ' + Date.now(), editor_type: 'CODE', html: out } } }));
+            var newTid = ct.json && ct.json.data && ct.json.data.id;
+            if (!newTid) { report.push({ campaignId: cid, swapped: swapped, saved: false, err: 'template create failed: ' + (ct.text || '').slice(0, 150) }); continue; }
+            var asg = await kvrJson(await kvr('/api/campaign-message-assign-template/', 'POST', { data: { type: 'campaign-message', id: mid, relationships: { template: { data: { type: 'template', id: newTid } } } } }));
+            snapDoc.byCampaign[cid] = { handles: Object.keys(handlesUsed), repairedAt: new Date().toISOString() };
+            report.push({ campaignId: cid, swapped: swapped, saved: asg.ok, failed: failed, err: asg.ok ? undefined : (asg.text || '').slice(0, 200) });
+          } else {
+            report.push({ campaignId: cid, swapped: 0, failed: failed, note: 'no product images to fix' });
+          }
+        } catch (e) { report.push({ campaignId: cid, error: (e.message || String(e)) }); }
+      }
+      try { await ghWriteFile(SNAP_FILE, snapDoc, snapSha, 'Email image snapshots: repair run'); } catch (e) {}
+      res.status(200).json({ ok: true, report: report });
       return;
     }
 
