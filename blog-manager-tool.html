@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.13 - 2026-10-06</p>
+        <p class="version">v6.14 - 2026-11-13</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -332,7 +332,7 @@
 
             <div id="fusion-panel" style="background:#fdf6ec;border:1px solid #f0ddb8;border-radius:10px;padding:14px;margin-bottom:16px;">
                 <div style="font-weight:700;margin-bottom:4px;">🔗 Duplicate-topic check</div>
-                <div style="color:#8a6d1a;font-size:13px;margin-bottom:10px;">Finds To Write topics that are really the SAME search asked differently, and merges them into ONE blog so they don't compete with each other for the same ranking. You review and approve each merge before anything changes.</div>
+                <div style="color:#8a6d1a;font-size:13px;margin-bottom:10px;">One run checks everything together — To Write topics AND the "You already rank" list — and cross-checks your published and scheduled blogs. It merges same-search duplicates into ONE blog, and flags any topic already covered by an existing blog (so you can Remove it, or Add the angle to that blog). You review and approve each one before anything changes.</div>
                 <button id="fusion-find-btn" onclick="findFusionGroups()" style="background:#c0561d;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">🔍 Find duplicate topics (AI)</button>
                 <span id="fusion-find-note" style="margin-left:10px;color:#666;font-size:13px;"></span>
                 <div id="fusion-pending-list" style="margin-top:12px;"></div>
@@ -558,19 +558,33 @@
             if (!FUSION_PENDING.length) { box.innerHTML = ''; return; }
             const sigLabel = (s) => s === 'volume' ? 'by search volume' : s === 'impressions' ? 'by your GSC impressions' : 'AI pick — no volume data';
             box.innerHTML = FUSION_PENDING.map(g => {
-                const secList = (g.secondary || []).map(s =>
-                    '<li>' + escBlog(s.keyword) + (s.volume ? ' (vol ' + s.volume + ')' : (s.impressions ? ' (' + s.impressions + ' impr.)' : '')) + '</li>'
-                ).join('');
                 const kwEnc = encodeURIComponent(g.winnerKeyword);
-                return '<div style="border:1px solid #e6d3a3;border-radius:8px;padding:12px;margin-bottom:10px;background:#fffdf8;">'
-                    + '<div style="font-weight:700;">🏆 Winner: ' + escBlog(g.winnerKeyword) + ' <span style="font-weight:400;color:#888;font-size:12px;">(' + sigLabel(g.signals) + ')</span></div>'
-                    + '<div style="color:#555;font-size:13px;margin:4px 0;">' + escBlog(g.winnerTitle) + '</div>'
-                    + '<div style="font-size:13px;color:#444;">Will also cover as secondary angles:</div>'
-                    + '<ul style="margin:4px 0 8px 20px;font-size:13px;color:#444;">' + secList + '</ul>'
+                const isCovered = g.type === 'covered' && g.coveredBlog;
+                const anyRank = g.winnerSource === 'rank' || (g.secondary || []).some(s => s.source === 'rank');
+                const secList = (g.secondary || []).map(s =>
+                    '<li>' + escBlog(s.keyword) + (s.source === 'rank' ? ' <span style="color:#1f6fb2;">(already ranks)</span>' : '') + (s.volume ? ' (vol ' + s.volume + ')' : (s.impressions ? ' (' + s.impressions + ' impr.)' : '')) + '</li>'
+                ).join('');
+                const rankNote = anyRank ? '<div style="font-size:12px;color:#1f6fb2;margin:2px 0 8px;">Ranks elsewhere → the ranking page links here via Money Page Doctor → “Add the link”.</div>' : '';
+                let head, body2, buttons, border = '#e6d3a3', bg = '#fffdf8';
+                if (isCovered) {
+                    border = '#d9b3b3'; bg = '#fff6f6';
+                    head = '<div style="font-weight:700;color:#a11;">⚠ Already covered: ' + escBlog(g.winnerKeyword) + '</div>'
+                         + '<div style="font-size:13px;color:#7a1414;margin:4px 0;">A ' + (g.coveredBlog.status === 'scheduled' ? 'scheduled' : 'published') + ' blog already covers this: <b>' + escBlog(g.coveredBlog.title) + '</b></div>';
+                    body2 = (g.secondary && g.secondary.length) ? ('<div style="font-size:13px;color:#444;">Same-intent searches in this group:</div><ul style="margin:4px 0 8px 20px;font-size:13px;color:#444;">' + secList + '</ul>') : '';
+                    buttons = '<button onclick="addAnglePreview(\'' + kwEnc + '\')" style="background:#1f6fb2;color:#fff;border:none;border-radius:6px;padding:7px 14px;font-weight:700;cursor:pointer;margin:0 8px 6px 0;">📝 Add angle to the blog</button>'
+                            + '<button onclick="removeCovered(\'' + kwEnc + '\')" style="background:#fff;color:#a33;border:1px solid #ccc;border-radius:6px;padding:7px 14px;font-weight:700;cursor:pointer;margin:0 8px 6px 0;">🗑 Remove (already done)</button>'
+                            + '<button onclick="discardFusionGroup(\'' + kwEnc + '\')" style="background:#fff;color:#8a6d1a;border:1px solid #ccc;border-radius:6px;padding:7px 14px;font-weight:700;cursor:pointer;margin-bottom:6px;">✕ Keep separate</button>';
+                } else {
+                    head = '<div style="font-weight:700;">🏆 Winner: ' + escBlog(g.winnerKeyword) + (g.winnerSource === 'rank' ? ' <span style="color:#1f6fb2;font-size:12px;font-weight:400;">(already ranks)</span>' : '') + ' <span style="font-weight:400;color:#888;font-size:12px;">(' + sigLabel(g.signals) + ')</span></div>'
+                         + '<div style="color:#555;font-size:13px;margin:4px 0;">' + escBlog(g.winnerTitle || '') + '</div>';
+                    body2 = '<div style="font-size:13px;color:#444;">Will also cover as secondary angles:</div><ul style="margin:4px 0 8px 20px;font-size:13px;color:#444;">' + secList + '</ul>';
+                    buttons = '<button onclick="applyFusionGroup(\'' + kwEnc + '\')" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:7px 14px;font-weight:700;cursor:pointer;margin-right:8px;">✅ Merge these</button>'
+                            + '<button onclick="discardFusionGroup(\'' + kwEnc + '\')" style="background:#fff;color:#8a6d1a;border:1px solid #ccc;border-radius:6px;padding:7px 14px;font-weight:700;cursor:pointer;">✕ Keep separate</button>';
+                }
+                return '<div style="border:1px solid ' + border + ';border-radius:8px;padding:12px;margin-bottom:10px;background:' + bg + ';">'
+                    + head + body2 + rankNote
                     + (g.reason ? '<div style="font-size:12px;color:#999;margin-bottom:8px;">' + escBlog(g.reason) + '</div>' : '')
-                    + '<button onclick="applyFusionGroup(\'' + kwEnc + '\')" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:7px 14px;font-weight:700;cursor:pointer;margin-right:8px;">✅ Merge these</button>'
-                    + '<button onclick="discardFusionGroup(\'' + kwEnc + '\')" style="background:#fff;color:#8a6d1a;border:1px solid #ccc;border-radius:6px;padding:7px 14px;font-weight:700;cursor:pointer;">✕ Keep separate</button>'
-                    + '</div>';
+                    + buttons + '</div>';
             }).join('');
         }
         async function findFusionGroups() {
@@ -610,6 +624,75 @@
             FUSION_PENDING = FUSION_PENDING.filter(g => (g.winnerKeyword || '').toLowerCase() !== kw.toLowerCase());
             renderFusionPending();
             try { await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'discard-fusion-group', winnerKeyword: kw }) }); } catch (e) {}
+        }
+        // A group already covered by a published/scheduled blog — Mae chose "Remove" (don't write it).
+        async function removeCovered(encKw) {
+            const kw = decodeURIComponent(encKw);
+            if (!confirm('Mark “' + kw + '” as already covered and remove it from the list?')) return;
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'remove-covered', winnerKeyword: kw }) }).then(x => x.json());
+                if (!r.success) throw new Error(r.error || 'Failed');
+                FUSION_PENDING = FUSION_PENDING.filter(g => (g.winnerKeyword || '').toLowerCase() !== kw.toLowerCase());
+                renderFusionPending(); refreshAll();
+            } catch (e) { alert('Could not remove: ' + e.message); }
+        }
+        function fusionGroupByWinner(kw) { const lc = kw.toLowerCase(); return FUSION_PENDING.find(g => (g.winnerKeyword || '').toLowerCase() === lc); }
+        function showAngleOverlay(msg) {
+            const ov = document.createElement('div');
+            ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+            ov.innerHTML = '<div style="background:#fff;border-radius:12px;max-width:720px;width:100%;max-height:85vh;overflow:auto;padding:20px;font-family:inherit;">' + escBlog(msg) + '</div>';
+            document.body.appendChild(ov); return ov;
+        }
+        // "Add angle to the blog": ask the backend for a light edit (rewrite one paragraph, or add a short one),
+        // show BEFORE/AFTER, and only write to the live blog when Mae approves. Backup + undo are built in.
+        async function addAnglePreview(encKw) {
+            const kw = decodeURIComponent(encKw);
+            const g = fusionGroupByWinner(kw);
+            if (!g || !g.coveredBlog || !g.coveredBlog.id) { alert('No existing blog is linked to this group.'); return; }
+            const keywords = [g.winnerKeyword].concat((g.secondary || []).map(s => s.keyword));
+            const ov = showAngleOverlay('Writing the preview… (a few seconds)');
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add-angle-preview', articleId: g.coveredBlog.id, keywords }) }).then(x => x.json());
+                if (!r.success) throw new Error(r.error || 'Failed');
+                renderAnglePreview(ov, r, g, keywords);
+            } catch (e) { ov.remove(); alert('Could not write the preview: ' + e.message); }
+        }
+        function renderAnglePreview(ov, r, g, keywords) {
+            const inner = ov.firstChild;
+            const beforeBlock = r.mode === 'rewrite'
+                ? '<div style="font-size:12px;color:#888;margin:10px 0 2px;">BEFORE (this paragraph):</div><div style="background:#f6f6f6;border-radius:6px;padding:10px;font-size:14px;white-space:pre-wrap;">' + escBlog(r.originalParagraph || '') + '</div>'
+                : '<div style="font-size:12px;color:#888;margin:10px 0 2px;">A NEW short paragraph will be added (nothing existing is changed):</div>';
+            inner.innerHTML =
+                '<div style="font-weight:700;font-size:16px;margin-bottom:4px;">Add “' + escBlog(keywords.join('”, “')) + '” to this blog</div>'
+                + '<div style="font-size:13px;color:#555;margin-bottom:6px;"><a href="' + escBlog(r.url || '#') + '" target="_blank" rel="noopener">' + escBlog(r.title || '') + '</a> — ' + (g.coveredBlog.status === 'scheduled' ? 'scheduled' : 'published') + '</div>'
+                + beforeBlock
+                + '<div style="font-size:12px;color:#2e7d32;margin:10px 0 2px;">AFTER:</div><div style="background:#eefaf0;border-radius:6px;padding:10px;font-size:14px;white-space:pre-wrap;">' + escBlog(r.newParagraph || '') + '</div>'
+                + '<div style="margin-top:16px;display:flex;gap:10px;justify-content:flex-end;">'
+                + '<button id="angle-cancel" style="background:#fff;color:#555;border:1px solid #ccc;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">Cancel</button>'
+                + '<button id="angle-apply" style="background:#1f6fb2;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">✅ Apply to the live blog</button>'
+                + '</div>';
+            inner.querySelector('#angle-cancel').onclick = () => ov.remove();
+            inner.querySelector('#angle-apply').onclick = async () => {
+                const btn = inner.querySelector('#angle-apply'); btn.disabled = true; btn.textContent = 'Applying…';
+                try {
+                    const ap = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add-angle-apply', articleId: r.articleId, newBody: r.newBody, keywords }) }).then(x => x.json());
+                    if (!ap.success) throw new Error(ap.error || 'Failed');
+                    try { await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'remove-covered', winnerKeyword: g.winnerKeyword }) }); } catch (e) {}
+                    FUSION_PENDING = FUSION_PENDING.filter(x => (x.winnerKeyword || '').toLowerCase() !== (g.winnerKeyword || '').toLowerCase());
+                    renderFusionPending(); refreshAll();
+                    inner.innerHTML = '<div style="font-weight:700;font-size:16px;margin-bottom:8px;color:#2e7d32;">✅ Added to the live blog</div>'
+                        + '<div style="font-size:13px;color:#555;margin-bottom:16px;">The paragraph is now on “' + escBlog(r.title || '') + '”. You can undo it here if it does not read right.</div>'
+                        + '<div style="display:flex;gap:10px;justify-content:flex-end;">'
+                        + '<button id="angle-undo" style="background:#fff;color:#a33;border:1px solid #ccc;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">↩ Undo</button>'
+                        + '<button id="angle-close" style="background:#1f6fb2;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">Close</button></div>';
+                    inner.querySelector('#angle-close').onclick = () => ov.remove();
+                    inner.querySelector('#angle-undo').onclick = async () => {
+                        const ub = inner.querySelector('#angle-undo'); ub.disabled = true; ub.textContent = 'Undoing…';
+                        try { const u = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add-angle-undo', articleId: r.articleId }) }).then(x => x.json()); if (!u.success) throw new Error(u.error || 'Failed'); ov.remove(); alert('Reverted — the blog is back to how it was.'); }
+                        catch (e) { ub.disabled = false; ub.textContent = '↩ Undo'; alert('Could not undo: ' + e.message); }
+                    };
+                } catch (e) { btn.disabled = false; btn.textContent = '✅ Apply to the live blog'; alert('Could not apply: ' + e.message); }
+            };
         }
 
         // ============================================
