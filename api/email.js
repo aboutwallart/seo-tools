@@ -1,4 +1,6 @@
 // Email Marketing — backend for the "Email Marketing" tab (Newsletters + Monthly Promos).
+// v1.8 (2026-11-13): also snapshot/repair the HERO (blog) image, not just product images — the newsletter
+//   header image broke the same way. Both the repair action and creation now handle /blogs/ hero images.
 // v1.7 (2026-11-13): NEW campaigns now snapshot product images to stable Shopify Files copies at creation
 //   (snapshotProductImagesInHtml, called in the newsletter + promo create flows) → future campaigns never
 //   break when a product image is changed. Never blocks creation (returns original HTML on any error).
@@ -118,7 +120,7 @@ module.exports = async (req, res) => {
   // Cache + cleanup map: data/email-image-snapshots.json.
   async function snapshotProductImagesInHtml(html) {
     try {
-      if (!html || html.indexOf('/products/') < 0) return html;
+      if (!html || (html.indexOf('/products/') < 0 && html.indexOf('/blogs/') < 0)) return html;
       var SNAP_FILE = 'data/email-image-snapshots.json';
       var snapDoc = { byHandle: {}, byCampaign: {} }, snapSha = null;
       try { var sf = await ghReadFile(SNAP_FILE); if (sf && sf.json && typeof sf.json === 'object') { snapDoc = sf.json; snapSha = sf.sha; } } catch (e) {}
@@ -145,6 +147,25 @@ module.exports = async (req, res) => {
         snapDoc.byHandle[handle] = { fileId: fid || null, url: url, at: new Date().toISOString() };
         return url;
       }
+      // same, for a BLOG article's current image (newsletter hero links to a /blogs/ article)
+      async function snapForBlog(handle) {
+        var key = 'blog:' + handle;
+        if (snapDoc.byHandle[key] && snapDoc.byHandle[key].url) return snapDoc.byHandle[key].url;
+        var aq = await shopifyGraphQL('query($q:String!){ articles(first:1, query:$q){ edges{ node{ image{ url } } } } }', { q: 'handle:' + handle });
+        var ae = aq && aq.articles && aq.articles.edges && aq.articles.edges[0] && aq.articles.edges[0].node && aq.articles.edges[0].node.image;
+        var cur = ae && ae.url; if (!cur) return null;
+        var fid = null, url = null;
+        try {
+          var fc = await shopifyGraphQL('mutation($f:[FileCreateInput!]!){ fileCreate(files:$f){ files{ id ... on MediaImage { image{ url } } } userErrors{ message } } }', { f: [{ originalSource: cur, contentType: 'IMAGE', alt: 'email-snap-blog-' + handle }] });
+          var node = fc && fc.fileCreate && fc.fileCreate.files && fc.fileCreate.files[0];
+          fid = node && node.id; url = node && node.image && node.image.url;
+          var tries = 0;
+          while (fid && !url && tries < 8 && (Date.now() - tStart) < 45000) { await new Promise(function (r) { setTimeout(r, 1500); }); var q2 = await shopifyGraphQL('query($id:ID!){ node(id:$id){ ... on MediaImage { image{ url } } } }', { id: fid }); url = q2 && q2.node && q2.node.image && q2.node.image.url; tries++; }
+        } catch (e) {}
+        if (!url) url = cur;
+        snapDoc.byHandle[key] = { fileId: fid || null, url: url, at: new Date().toISOString() };
+        return url;
+      }
       var re = /<a\b[^>]*href="https?:\/\/[^"]*?\/products\/([^"?#]+)[^"]*"[^>]*>\s*<img\b[^>]*\bsrc="([^"]+)"/gi;
       var matches = [], m;
       while ((m = re.exec(html)) !== null) { matches.push({ handle: m[1], src: m[2] }); }
@@ -158,6 +179,17 @@ module.exports = async (req, res) => {
         var newSrc = retinaImg(snap, 600).replace(/&/g, '&amp;');
         if (newSrc === mt.src) continue;
         html = html.split(mt.src).join(newSrc); changed = true;
+      }
+      // hero / blog image
+      var reB = /<a\b[^>]*href="https?:\/\/[^"]*?\/blogs\/[^"\/]+\/([^"?#\/]+)[^"]*"[^>]*>\s*<img\b[^>]*\bsrc="([^"]+)"/gi;
+      var mb;
+      while ((mb = reB.exec(html)) !== null) {
+        if ((Date.now() - tStart) > 50000) break;
+        var bh = decodeURIComponent(mb[1]); var bsrc = mb[2];
+        var bsnap = await snapForBlog(bh); if (!bsnap) continue;
+        var bNew = retinaImg(bsnap, 1200).replace(/&/g, '&amp;');
+        if (bNew === bsrc) continue;
+        html = html.split(bsrc).join(bNew); changed = true;
       }
       if (changed) { try { await ghWriteFile(SNAP_FILE, snapDoc, snapSha, 'Email image snapshots: new campaign'); } catch (e) {} }
       return html;
@@ -959,6 +991,25 @@ module.exports = async (req, res) => {
         snapDoc.byHandle[handle] = { fileId: fid || null, url: url, usedFallback: usedFallback, at: new Date().toISOString() };
         return url;
       }
+      // Same, but for a BLOG article's current image (the newsletter hero links to a /blogs/ article).
+      async function snapForBlog(handle) {
+        var key = 'blog:' + handle;
+        if (snapDoc.byHandle[key] && snapDoc.byHandle[key].url) return snapDoc.byHandle[key].url;
+        var aq = await shopifyGraphQL('query($q:String!){ articles(first:1, query:$q){ edges{ node{ image{ url } } } } }', { q: 'handle:' + handle });
+        var ae = aq && aq.articles && aq.articles.edges && aq.articles.edges[0] && aq.articles.edges[0].node && aq.articles.edges[0].node.image;
+        var cur = ae && ae.url; if (!cur) return null;
+        var fid = null, url = null;
+        try {
+          var fc = await shopifyGraphQL('mutation($f:[FileCreateInput!]!){ fileCreate(files:$f){ files{ id ... on MediaImage { image{ url } } } userErrors{ message } } }', { f: [{ originalSource: cur, contentType: 'IMAGE', alt: 'email-snap-blog-' + handle }] });
+          var node = fc && fc.fileCreate && fc.fileCreate.files && fc.fileCreate.files[0];
+          fid = node && node.id; url = node && node.image && node.image.url;
+          var tries = 0;
+          while (fid && !url && tries < 8 && timeLeft() > 5000) { await new Promise(function (r) { setTimeout(r, 1500); }); var q2 = await shopifyGraphQL('query($id:ID!){ node(id:$id){ ... on MediaImage { image{ url } } } }', { id: fid }); url = q2 && q2.node && q2.node.image && q2.node.image.url; tries++; }
+        } catch (e) {}
+        if (!url) url = cur;
+        snapDoc.byHandle[key] = { fileId: fid || null, url: url, at: new Date().toISOString() };
+        return url;
+      }
 
       var report = [];
       for (var ci = 0; ci < ids.length; ci++) {
@@ -992,6 +1043,19 @@ module.exports = async (req, res) => {
             if (newSrc === mt.src) continue; // already pointing at it
             out = out.split(mt.src).join(newSrc);
             handlesUsed[handle] = true; swapped++;
+          }
+          // hero / blog image: <a href="…/blogs/BLOG/ARTICLE…"> … <img … src="…"> (the newsletter header image)
+          var reB = /<a\b[^>]*href="https?:\/\/[^"]*?\/blogs\/[^"\/]+\/([^"?#\/]+)[^"]*"[^>]*>\s*<img\b[^>]*\bsrc="([^"]+)"/gi;
+          var mB;
+          while ((mB = reB.exec(html)) !== null) {
+            if (timeLeft() < 6000) break;
+            var bh = decodeURIComponent(mB[1]); var bsrc = mB[2];
+            var bsnap = await snapForBlog(bh);
+            if (!bsnap) { failed.push('blog:' + bh); continue; }
+            var bNew = retinaImg(bsnap, 1200).replace(/&/g, '&amp;');
+            if (bNew === bsrc) continue;
+            out = out.split(bsrc).join(bNew);
+            handlesUsed['blog:' + bh] = true; swapped++;
           }
           if (swapped > 0) {
             // Update the template's HTML in place (PATCH) — avoids the deprecated assign-template endpoint.
