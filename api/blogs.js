@@ -1,4 +1,8 @@
-// blogs.js — v5.5
+// blogs.js — v5.6
+// v5.6 (2026-11-13): find-fusion-groups prompt rewritten — groups by GENERAL vs SPECIFIC (same style and/or
+//   same room; a specific can roll into a general of its style or room; two specifics need style+room match;
+//   never across a different room/style). FIXES the "0 groups" bug where the AI returned every keyword as a
+//   1-member group: output now must be real 2+ groups or a single keyword that is covered_by an existing blog.
 // v5.5 (2026-11-13): UNIFIED duplicate check. find-fusion-groups now pools To Write + "You already rank"
 //   in one run AND cross-checks published + scheduled blogs (new helpers fetchBlogsPubAndSched + getRankPool).
 //   A group can be a merge (new blog) or "covered" (already in a published/scheduled blog). New actions:
@@ -3265,20 +3269,35 @@ Include EXACTLY 3 items.`;
         // Numbered list + the AI returns INDEX NUMBERS (not repeated text) — a model that paraphrases
         // even slightly while echoing text back (capitalisation, a comma, "the") used to make groups
         // silently vanish during exact-text matching. Numbers can't drift.
-        const prompt = `You are grouping SEO keywords for a UK wall-art & home-decor blog (About Wall Art) to avoid writing two blog posts that would compete with each other in Google (keyword cannibalisation).
+        const prompt = `You are grouping SEO keywords for About Wall Art (a UK wall-art & home-decor shop) so we don't write two blog posts that compete for the same Google search. Keywords are mostly about a ROOM (living room, bedroom, bathroom, nursery, kitchen, hallway, family room…) and/or a STYLE or theme (farmhouse, boho, coastal, japandi, grey, floral, minimalist, scandinavian…). USE JUDGEMENT — think about whether ONE blog post would sensibly serve the reader of all of them. Be willing to group; don't split hairs.
 
-You have TWO jobs:
+Think GENERAL vs SPECIFIC:
+- GENERAL = names ONLY a style, OR ONLY a room (or is broad). e.g. "farmhouse room ideas" (style only), "living room wall art" (room only), "grey wall art" (style only), "wall art types" (broad).
+- SPECIFIC = fixes a style AND a room together. e.g. "farmhouse living room ideas", "coastal bedroom".
 
-JOB 1 — GROUP duplicates. Group keywords ONLY when a single blog post answering one of them would fully satisfy someone searching any of the others in the SAME group — they must be the SAME underlying question/intent, just phrased differently (spelling variants like colour/color, singular/plural, different word order, or an obvious synonym for the exact same question).
-WORKED EXAMPLE (group these — same intent, different phrasing): "what colour goes with grey", "what colors go with grey", "colours that go with grey" — ALL the same question. Group them.
-Do NOT group keywords merely on a similar TOPIC but asking a DIFFERENT question (e.g. "grey walls" vs "grey and beige" — different questions). When unsure, do NOT group.
+GROUPING RULES:
+1. Two GENERAL keywords that share the SAME style → group. That share the SAME room → group.
+2. A SPECIFIC keyword can join a GENERAL blog/keyword of its SAME style, OR of its SAME room (the specific fits under that broader umbrella).
+3. Two SPECIFIC keywords group ONLY when they share BOTH the same style AND the same room.
+4. NEVER group across a DIFFERENT room or a DIFFERENT style. (A specific one needs room + style to match another specific; a general one needs the shared style or room.)
+5. Also group obvious same-search variants: UK/US spelling (colour/color), singular/plural, word order, clear synonyms.
 
-JOB 2 — FLAG already covered. For EACH group OR single keyword, check the EXISTING BLOGS list below. If an existing blog already fully answers that search (same intent), set "covered_by" to that blog's number. A keyword that is already covered must STILL appear in the output, even alone (members with one number), with covered_by set. If nothing covers it, set covered_by to null.
+WORKED EXAMPLES (About Wall Art):
+- GROUP: "farmhouse living rooms" + "cozy farmhouse living room ideas" → same style (farmhouse) + same room (living room).
+- GROUP: "farmhouse room ideas" (general farmhouse) with the farmhouse group → the general one fits under the farmhouse umbrella.
+- GROUP: "pictures of grey walls" + "grey wall art" → same style/topic.
+- DO NOT GROUP: "coastal bedroom" with a farmhouse or a living-room group → different style AND room.
+- DO NOT GROUP two specifics with different rooms (e.g. "farmhouse living room" vs "farmhouse kitchen") or different styles.
 
-Return ONLY compact JSON, no other text: an array. Refer to each keyword by its NUMBER (KEYWORDS list) and each blog by its NUMBER (EXISTING BLOGS list):
-[{"members":[3,17],"suggested_primary":3,"covered_by":null,"reason":"short reason"},{"members":[5],"suggested_primary":5,"covered_by":4,"reason":"already covered by blog 4"}]
+ALSO: for each group, and for any SINGLE keyword already fully answered by an EXISTING blog below, set "covered_by" to that blog's NUMBER; otherwise null.
 
-Rules: a keyword that is neither grouped NOR covered must NOT appear. Never put the same keyword in two entries.
+OUTPUT — return ONLY compact JSON (an array, nothing else). Refer to each keyword by its NUMBER and each blog by its NUMBER:
+[{"members":[3,17],"suggested_primary":3,"covered_by":null,"reason":"short"},{"members":[5],"suggested_primary":5,"covered_by":4,"reason":"covered by blog 4"}]
+
+HARD RULES (important):
+- Output an entry ONLY if it is a REAL group of 2+ members, OR a SINGLE keyword with covered_by set (already covered by an existing blog).
+- NEVER output a single-member entry with covered_by null. A unique, not-covered keyword must be OMITTED entirely — do not list it.
+- "suggested_primary" is the clearest / most general phrasing in the group. Never put the same keyword in two entries.
 
 KEYWORDS (numbered)${existingBlogs.length ? '' : ' — (no existing blogs loaded, so covered_by will be null)'}:
 ${pool.map((p, i) => (i + 1) + '. ' + p.keyword + (p.source === 'rank' ? ' [already ranks elsewhere]' : '')).join('\n')}
