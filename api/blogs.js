@@ -1,4 +1,9 @@
-// blogs.js — v5.9
+// blogs.js — v6.0
+// v6.0 (2026-11-14): fusion reject now PERSISTS. reject-fusion-keyword records the rejected keyword+bucket
+//   in data/blog-fusion-rejections.json so future runs never re-form that same grouping (the keyword stays
+//   free to join a different group/room or a future one). find-fusion-groups honours those rejections when
+//   bucketing + detecting covered. New action restore-fusion-rejection powers a session-only "put back"
+//   (undo) that re-adds the keyword to its original group and clears its rejection record.
 // v5.9 (2026-11-14): find-fusion-groups is now DETERMINISTIC (no AI). Groups keywords by a STYLE (29) +
 //   ROOM (10) synonym dictionary, typo-tolerant (Levenshtein on words ≥5 chars). General = only a style OR
 //   only a room; specific = both. Generals group by shared style/room; a specific rolls into a general of
@@ -3414,12 +3419,21 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         const tagged = pool.map((p, i) => ({ idx: i + 1, p, tag: tagOne(p.keyword + ' ' + (p.title || '')) }));
         const blogTags = existingBlogs.map((b, i) => ({ idx: i + 1, b, tag: tagOne(b.title || '') }));
 
+        // Persisted rejections: Mae said "this keyword does NOT belong in that group". We never re-form the
+        // same grouping for it. Map keyword(lowercase) -> array of forbidden bucket signatures
+        // ('S:<style>' | 'R:<room>' | 'SP:<style>|<room>' | 'COV:<blog handle/id>').
+        const rejections = await readJsonFileSafe('data/blog-fusion-rejections.json', {});
+        const isRejected = (kwLc, sig) => Array.isArray(rejections[kwLc]) && rejections[kwLc].includes(sig);
+        const covSigFor = (b, blogIdx) => 'COV:' + ((b && (b.handle || b.id)) || blogIdx);
+
         // An existing blog that answers the SAME scope (strict): specific→same style+room; style-only
         // general→a style-only blog of that style; room-only general→a room-only blog of that room;
         // untagged→strong title overlap (≥2 shared words of length ≥4).
         const coveredByFor = (t) => {
           const hasS = !!t.tag.style, hasR = !!t.tag.room;
+          const kwLc = (t.p && t.p.keyword || '').toLowerCase();
           for (const bt of blogTags) {
+            if (isRejected(kwLc, covSigFor(bt.b, bt.idx))) continue; // Mae said this blog does NOT cover it
             if (hasS && hasR) { if (bt.tag.style === t.tag.style && bt.tag.room === t.tag.room) return bt.idx; }
             else if (hasS) { if (bt.tag.style === t.tag.style && !bt.tag.room) return bt.idx; }
             else if (hasR) { if (bt.tag.room === t.tag.room && !bt.tag.style) return bt.idx; }
@@ -3442,30 +3456,36 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
           if (c) { if (!coveredBuckets.has(c)) coveredBuckets.set(c, []); coveredBuckets.get(c).push(t); coveredUsed.add(t.idx); }
         });
         coveredBuckets.forEach((arr, blogIdx) => {
-          aiGroups.push({ members: arr.map(t => t.idx), suggested_primary: arr[0].idx, covered_by: blogIdx, reason: '' });
+          aiGroups.push({ members: arr.map(t => t.idx), suggested_primary: arr[0].idx, covered_by: blogIdx, reason: '', sig: covSigFor(existingBlogs[blogIdx - 1], blogIdx) });
         });
 
         // 2) Group the REMAINING (uncovered) keywords: generals by shared style/room, specifics rolled in.
+        //    A keyword is NEVER placed in a bucket it was rejected from (persisted rejections); if every
+        //    bucket it could join is rejected, it stays a singleton.
         const remaining = tagged.filter(t => !coveredUsed.has(t.idx));
         const styleGenerals = new Map(); // style -> [tagged]
         const roomGenerals = new Map();  // room  -> [tagged]
-        const specificPairs = new Map(); // "style|room" -> [tagged]
+        const specificPairs = new Map(); // 'SP:style|room' -> [tagged]
         const specifics = [];
         remaining.forEach(t => {
+          const kwLc = t.p.keyword.toLowerCase();
           const hasS = !!t.tag.style, hasR = !!t.tag.room;
           if (hasS && hasR) { specifics.push(t); }
-          else if (hasS) { if (!styleGenerals.has(t.tag.style)) styleGenerals.set(t.tag.style, []); styleGenerals.get(t.tag.style).push(t); }
-          else if (hasR) { if (!roomGenerals.has(t.tag.room)) roomGenerals.set(t.tag.room, []); roomGenerals.get(t.tag.room).push(t); }
+          else if (hasS) { if (!isRejected(kwLc, 'S:' + t.tag.style)) { if (!styleGenerals.has(t.tag.style)) styleGenerals.set(t.tag.style, []); styleGenerals.get(t.tag.style).push(t); } }
+          else if (hasR) { if (!isRejected(kwLc, 'R:' + t.tag.room)) { if (!roomGenerals.has(t.tag.room)) roomGenerals.set(t.tag.room, []); roomGenerals.get(t.tag.room).push(t); } }
           // untagged → ungroupable, stays a singleton
         });
         specifics.forEach(t => {
-          if (styleGenerals.has(t.tag.style)) styleGenerals.get(t.tag.style).push(t);
-          else if (roomGenerals.has(t.tag.room)) roomGenerals.get(t.tag.room).push(t);
-          else { const key = t.tag.style + '|' + t.tag.room; if (!specificPairs.has(key)) specificPairs.set(key, []); specificPairs.get(key).push(t); }
+          const kwLc = t.p.keyword.toLowerCase();
+          const sSig = 'S:' + t.tag.style, rSig = 'R:' + t.tag.room, pSig = 'SP:' + t.tag.style + '|' + t.tag.room;
+          if (styleGenerals.has(t.tag.style) && !isRejected(kwLc, sSig)) styleGenerals.get(t.tag.style).push(t);
+          else if (roomGenerals.has(t.tag.room) && !isRejected(kwLc, rSig)) roomGenerals.get(t.tag.room).push(t);
+          else if (!isRejected(kwLc, pSig)) { if (!specificPairs.has(pSig)) specificPairs.set(pSig, []); specificPairs.get(pSig).push(t); }
+          // else → rejected from every bucket it could join → singleton
         });
-        styleGenerals.forEach((arr, name) => { if (arr.length >= 2) aiGroups.push({ members: arr.map(t => t.idx), suggested_primary: arr[0].idx, covered_by: null, reason: 'Same style: ' + name }); });
-        roomGenerals.forEach((arr, name) => { if (arr.length >= 2) aiGroups.push({ members: arr.map(t => t.idx), suggested_primary: arr[0].idx, covered_by: null, reason: 'Same room: ' + name }); });
-        specificPairs.forEach((arr, key) => { if (arr.length >= 2) aiGroups.push({ members: arr.map(t => t.idx), suggested_primary: arr[0].idx, covered_by: null, reason: key.replace('|', ' + ') }); });
+        styleGenerals.forEach((arr, name) => { if (arr.length >= 2) aiGroups.push({ members: arr.map(t => t.idx), suggested_primary: arr[0].idx, covered_by: null, reason: 'Same style: ' + name, sig: 'S:' + name }); });
+        roomGenerals.forEach((arr, name) => { if (arr.length >= 2) aiGroups.push({ members: arr.map(t => t.idx), suggested_primary: arr[0].idx, covered_by: null, reason: 'Same room: ' + name, sig: 'R:' + name }); });
+        specificPairs.forEach((arr, pSig) => { if (arr.length >= 2) aiGroups.push({ members: arr.map(t => t.idx), suggested_primary: arr[0].idx, covered_by: null, reason: pSig.replace('SP:', '').replace('|', ' + '), sig: pSig }); });
         const aiProposedCount = aiGroups.length;
 
         // Persist the deterministic result (replaces the old raw-AI dump) — read this to debug grouping.
@@ -3522,6 +3542,7 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
           withSignals.forEach(s => nowGroupedLc.add(s.keyword.toLowerCase()));
           newGroups.push({
             id: `grp_${Date.now()}_${gi}`,
+            bucketSig: g.sig || null,
             type: coveredBlog ? 'covered' : 'merge',
             winnerKeyword: winner.keyword,
             winnerTitle: winner.title,
@@ -3660,6 +3681,21 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         const idx = pending.findIndex(g => (g.winnerKeyword || '').toLowerCase() === winnerLc);
         if (idx === -1) return res.status(404).json({ error: 'That group is no longer pending.' });
         const group = pending[idx];
+        const previousGroup = JSON.parse(JSON.stringify(group)); // snapshot for the session "put back" undo
+
+        // Record the rejection so a future run never re-forms this same grouping for this keyword. The
+        // bucket signature came from find-fusion-groups ('S:'/'R:'/'SP:'/'COV:'). Covered groups fall back
+        // to the covering blog's handle/id.
+        const sig = group.bucketSig || (group.type === 'covered' && group.coveredBlog ? ('COV:' + (group.coveredBlog.handle || group.coveredBlog.id || '')) : null);
+        if (sig) {
+          try {
+            const rej = await readJsonFileSafe('data/blog-fusion-rejections.json', {});
+            const arr = new Set(Array.isArray(rej[rejectLc]) ? rej[rejectLc] : []);
+            arr.add(sig);
+            rej[rejectLc] = [...arr];
+            await writeJsonFile('data/blog-fusion-rejections.json', rej, `Fusion: reject "${rejectKeyword}" from ${sig}`);
+          } catch (e) { /* non-blocking — worst case it can regroup next run */ }
+        }
 
         // Rebuild the full member list (winner first) so we can drop one and re-pick a winner.
         const winnerMember = {
@@ -3687,7 +3723,7 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
           pending.splice(idx, 1);
           await writeJsonFile('data/blog-fusion-pending.json', pending, `Fusion: dissolved group after rejecting "${rejectKeyword}"`);
           await free([rejectLc, ...kept.map(m => (m.keyword || '').toLowerCase())], `Fusion: freed ${kept.length + 1} keyword(s) from a dissolved group`);
-          return res.status(200).json({ success: true, removed: true });
+          return res.status(200).json({ success: true, removed: true, previousGroup, sig, rejectedKeyword: rejectKeyword });
         }
 
         // Re-pick the winner among the kept members: highest volume, else highest impressions, else first.
@@ -3707,7 +3743,52 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         await writeJsonFile('data/blog-fusion-pending.json', pending, `Fusion: rejected "${rejectKeyword}" from ${group.winnerKeyword}`);
         await free([rejectLc], `Fusion: freed "${rejectKeyword}" to rejoin a future group`);
 
-        return res.status(200).json({ success: true, group });
+        return res.status(200).json({ success: true, group, previousGroup, sig, rejectedKeyword: rejectKeyword });
+      }
+
+      // ── ACTION: restore-fusion-rejection ── the session-only "put back" undo. Re-adds a rejected keyword
+      // to its original group (restores the snapshot taken when it was rejected), clears that keyword's
+      // rejection record, and re-locks the group's members so the next run won't re-pool them.
+      if (req.body.action === 'restore-fusion-rejection') {
+        const prev = req.body.previousGroup;
+        const rejectKeyword = String(req.body.keyword || '').trim();
+        const sig = req.body.sig || null;
+        if (!prev || !prev.winnerKeyword) return res.status(400).json({ error: 'previousGroup required' });
+        const rejectLc = rejectKeyword.toLowerCase();
+
+        // Members of the restored group (winner + secondary).
+        const memberLc = [String(prev.winnerKeyword || '').toLowerCase(), ...((prev.secondary || []).map(s => (s.keyword || '').toLowerCase()))].filter(Boolean);
+
+        // Remove any current pending entry that overlaps these members (the mutated/dissolved version), then
+        // put the original group back.
+        const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+        const overlaps = (g) => {
+          const gm = [String(g.winnerKeyword || '').toLowerCase(), ...((g.secondary || []).map(s => (s.keyword || '').toLowerCase()))];
+          return gm.some(k => memberLc.includes(k));
+        };
+        const kept = pending.filter(g => !overlaps(g));
+        kept.push(prev);
+        await writeJsonFile('data/blog-fusion-pending.json', kept, `Fusion: put "${rejectKeyword}" back into ${prev.winnerKeyword}`);
+
+        // Clear this keyword's rejection of that bucket.
+        if (sig) {
+          try {
+            const rej = await readJsonFileSafe('data/blog-fusion-rejections.json', {});
+            if (Array.isArray(rej[rejectLc])) { rej[rejectLc] = rej[rejectLc].filter(s => s !== sig); if (!rej[rejectLc].length) delete rej[rejectLc]; }
+            await writeJsonFile('data/blog-fusion-rejections.json', rej, `Fusion: undo reject of "${rejectKeyword}" (${sig})`);
+          } catch (e) { /* non-blocking */ }
+        }
+
+        // Re-lock all members as grouped (out of singletons) so a run doesn't re-pool them.
+        try {
+          const checked = await readJsonFileSafe('data/blog-fusion-checked.json', { singletons: [], grouped: [] });
+          const groupedSet = new Set((checked.grouped || []).map(s => String(s).toLowerCase()));
+          const singletonsSet = new Set((checked.singletons || []).map(s => String(s).toLowerCase()));
+          memberLc.forEach(k => { groupedSet.add(k); singletonsSet.delete(k); });
+          await writeJsonFile('data/blog-fusion-checked.json', { singletons: [...singletonsSet], grouped: [...groupedSet] }, `Fusion: re-lock ${memberLc.length} member(s) after put-back`);
+        } catch (e) { /* non-blocking */ }
+
+        return res.status(200).json({ success: true, group: prev });
       }
 
       // ── ACTION: remove-covered ── a group is already covered by a published/scheduled blog and Mae
