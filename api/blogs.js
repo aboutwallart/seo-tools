@@ -1,4 +1,8 @@
-// blogs.js — v6.2
+// blogs.js — v6.3
+// v6.3 (2026-11-14): find-fusion-groups takes reset:true → wipes the saved pending + the "already checked"
+//   cache first, so a run re-evaluates EVERYTHING with the current logic (powers the "Reset & re-check"
+//   button — old cached groups no longer mask new results). Covered cards are now split into chunks of ≤5
+//   so no card is a giant wall of keywords (merge groups were already capped at 4).
 // v6.2 (2026-11-14): synonym dictionary culled by Mae (1×1 review) + matching is now EXACT (no substring,
 //   no typos) so "toilet"≠"toile", "wallpaper"≠"wall". Coffee style removed (no synonyms left). Grouping is
 //   back to Mae's model: same style and/or room (general vs specific) — the meaningful-overlap experiment is
@@ -3238,6 +3242,12 @@ Include EXACTLY 3 items.`;
       // nothing in blog_ideas.csv changes until apply-fusion-group is called.
       if (req.body.action === 'find-fusion-groups') {
         if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        // reset = wipe the saved results + the "already checked" cache so EVERYTHING is re-evaluated from
+        // scratch with the current logic (used by the "Reset & re-check" button).
+        if (req.body.reset) {
+          try { await writeJsonFile('data/blog-fusion-pending.json', [], 'Fusion: reset pending (re-check all)'); } catch (e) {}
+          try { await writeJsonFile('data/blog-fusion-checked.json', { singletons: [], grouped: [] }, 'Fusion: reset checked (re-check all)'); } catch (e) {}
+        }
         const ideasFile = await getGitHubFile('data/blog_ideas.csv');
         const lines = ideasFile.content.split('\n');
         const poolMap = new Map(); // lowercase keyword -> { keyword, title, source }
@@ -3435,7 +3445,12 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
           if (c) { if (!coveredBuckets.has(c)) coveredBuckets.set(c, []); coveredBuckets.get(c).push(t); coveredUsed.add(t.idx); }
         });
         coveredBuckets.forEach((arr, blogIdx) => {
-          aiGroups.push({ members: arr.map(t => t.idx), suggested_primary: arr[0].idx, covered_by: blogIdx, reason: '', sig: covSigFor(existingBlogs[blogIdx - 1], blogIdx) });
+          const sig = covSigFor(existingBlogs[blogIdx - 1], blogIdx);
+          // Split into cards of ≤5 so a covered card is never a giant wall of keywords.
+          for (let i = 0; i < arr.length; i += 5) {
+            const chunk = arr.slice(i, i + 5);
+            aiGroups.push({ members: chunk.map(t => t.idx), suggested_primary: chunk[0].idx, covered_by: blogIdx, reason: '', sig });
+          }
         });
 
         // 2) Group the REMAINING (uncovered) keywords: generals by shared style/room, specifics rolled in.
