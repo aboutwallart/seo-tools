@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.14 - 2026-11-13</p>
+        <p class="version">v6.15 - 2026-11-14</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -333,7 +333,7 @@
             <div id="fusion-panel" style="background:#fdf6ec;border:1px solid #f0ddb8;border-radius:10px;padding:14px;margin-bottom:16px;">
                 <div style="font-weight:700;margin-bottom:4px;">🔗 Duplicate-topic check</div>
                 <div style="color:#8a6d1a;font-size:13px;margin-bottom:10px;">One run checks everything together — To Write topics AND the "You already rank" list — and cross-checks your published and scheduled blogs. It merges same-search duplicates into ONE blog, and flags any topic already covered by an existing blog (so you can Remove it, or Add the angle to that blog). You review and approve each one before anything changes.</div>
-                <button id="fusion-find-btn" onclick="findFusionGroups()" style="background:#c0561d;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">🔍 Find duplicate topics (AI)</button>
+                <button id="fusion-find-btn" onclick="findFusionGroups()" style="background:#c0561d;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">🔍 Find duplicate topics</button>
                 <span id="fusion-find-note" style="margin-left:10px;color:#666;font-size:13px;"></span>
                 <div id="fusion-pending-list" style="margin-top:12px;"></div>
             </div>
@@ -561,8 +561,9 @@
                 const kwEnc = encodeURIComponent(g.winnerKeyword);
                 const isCovered = g.type === 'covered' && g.coveredBlog;
                 const anyRank = g.winnerSource === 'rank' || (g.secondary || []).some(s => s.source === 'rank');
+                const rejectBtn = (kw) => ' <button onclick="rejectFusionKeyword(\'' + kwEnc + '\',\'' + encodeURIComponent(kw) + '\')" title="Remove this one from the group and free it for another group" style="background:none;border:none;color:#a33;cursor:pointer;font-size:12px;padding:0 2px;">✕ not this one</button>';
                 const secList = (g.secondary || []).map(s =>
-                    '<li>' + escBlog(s.keyword) + (s.source === 'rank' ? ' <span style="color:#1f6fb2;">(already ranks)</span>' : '') + (s.volume ? ' (vol ' + s.volume + ')' : (s.impressions ? ' (' + s.impressions + ' impr.)' : '')) + '</li>'
+                    '<li>' + escBlog(s.keyword) + (s.source === 'rank' ? ' <span style="color:#1f6fb2;">(already ranks)</span>' : '') + (s.volume ? ' (vol ' + s.volume + ')' : (s.impressions ? ' (' + s.impressions + ' impr.)' : '')) + rejectBtn(s.keyword) + '</li>'
                 ).join('');
                 const rankNote = anyRank ? '<div style="font-size:12px;color:#1f6fb2;margin:2px 0 8px;">Ranks elsewhere → the ranking page links here via Money Page Doctor → “Add the link”.</div>' : '';
                 let head, body2, buttons, border = '#e6d3a3', bg = '#fffdf8';
@@ -575,7 +576,7 @@
                             + '<button onclick="removeCovered(\'' + kwEnc + '\')" style="background:#fff;color:#a33;border:1px solid #ccc;border-radius:6px;padding:7px 14px;font-weight:700;cursor:pointer;margin:0 8px 6px 0;">🗑 Remove (already done)</button>'
                             + '<button onclick="discardFusionGroup(\'' + kwEnc + '\')" style="background:#fff;color:#8a6d1a;border:1px solid #ccc;border-radius:6px;padding:7px 14px;font-weight:700;cursor:pointer;margin-bottom:6px;">✕ Keep separate</button>';
                 } else {
-                    head = '<div style="font-weight:700;">🏆 Winner: ' + escBlog(g.winnerKeyword) + (g.winnerSource === 'rank' ? ' <span style="color:#1f6fb2;font-size:12px;font-weight:400;">(already ranks)</span>' : '') + ' <span style="font-weight:400;color:#888;font-size:12px;">(' + sigLabel(g.signals) + ')</span></div>'
+                    head = '<div style="font-weight:700;">🏆 Winner: ' + escBlog(g.winnerKeyword) + (g.winnerSource === 'rank' ? ' <span style="color:#1f6fb2;font-size:12px;font-weight:400;">(already ranks)</span>' : '') + ' <span style="font-weight:400;color:#888;font-size:12px;">(' + sigLabel(g.signals) + ')</span>' + rejectBtn(g.winnerKeyword) + '</div>'
                          + '<div style="color:#555;font-size:13px;margin:4px 0;">' + escBlog(g.winnerTitle || '') + '</div>';
                     body2 = '<div style="font-size:13px;color:#444;">Will also cover as secondary angles:</div><ul style="margin:4px 0 8px 20px;font-size:13px;color:#444;">' + secList + '</ul>';
                     buttons = '<button onclick="applyFusionGroup(\'' + kwEnc + '\')" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:7px 14px;font-weight:700;cursor:pointer;margin-right:8px;">✅ Merge these</button>'
@@ -598,7 +599,7 @@
                 if (note) note.textContent = r.message || ('Checked ' + (r.checkedCount || 0) + ' topics.');
                 await loadFusionPending();
             } catch (e) { if (note) { note.style.color = '#a33'; note.textContent = 'Error: ' + e.message; } }
-            finally { if (btn) { btn.disabled = false; btn.textContent = '🔍 Find duplicate topics (AI)'; } }
+            finally { if (btn) { btn.disabled = false; btn.textContent = '🔍 Find duplicate topics'; } }
         }
         async function applyFusionGroup(encKw) {
             const kw = decodeURIComponent(encKw);
@@ -624,6 +625,24 @@
             FUSION_PENDING = FUSION_PENDING.filter(g => (g.winnerKeyword || '').toLowerCase() !== kw.toLowerCase());
             renderFusionPending();
             try { await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'discard-fusion-group', winnerKeyword: kw }) }); } catch (e) {}
+        }
+        // Reject ONE keyword from a group (it doesn't belong). It is freed so a future run can place it in a
+        // different group; the rest of the group stays (a merge that drops below 2 members dissolves).
+        async function rejectFusionKeyword(winnerEnc, kwEnc) {
+            const winner = decodeURIComponent(winnerEnc);
+            const kw = decodeURIComponent(kwEnc);
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'reject-fusion-keyword', winnerKeyword: winner, keyword: kw }) }).then(x => x.json());
+                if (!r.success) throw new Error(r.error || 'Could not remove.');
+                const wLc = winner.toLowerCase();
+                if (r.removed) {
+                    FUSION_PENDING = FUSION_PENDING.filter(g => (g.winnerKeyword || '').toLowerCase() !== wLc);
+                } else if (r.group) {
+                    const i = FUSION_PENDING.findIndex(g => (g.winnerKeyword || '').toLowerCase() === wLc);
+                    if (i !== -1) FUSION_PENDING[i] = r.group; else FUSION_PENDING.push(r.group);
+                }
+                renderFusionPending();
+            } catch (e) { alert('Could not remove: ' + e.message); }
         }
         // A group already covered by a published/scheduled blog — Mae chose "Remove" (don't write it).
         async function removeCovered(encKw) {
