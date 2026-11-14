@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.16 - 2026-11-14</p>
+        <p class="version">v6.18 - 2026-11-14</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -698,15 +698,22 @@
             const kw = decodeURIComponent(encKw);
             const g = fusionGroupByWinner(kw);
             if (!g || !g.coveredBlog || !g.coveredBlog.id) { alert('No existing blog is linked to this group.'); return; }
-            const keywords = [g.winnerKeyword].concat((g.secondary || []).map(s => s.keyword));
+            // Cap the angles at 4 so a scheduled/published blog never gets bloated (winner + top 3 by volume).
+            const secs = (g.secondary || []).slice().sort((a, b) => ((b.volume || b.impressions || 0) - (a.volume || a.impressions || 0))).slice(0, 3);
+            const keywords = [g.winnerKeyword].concat(secs.map(s => s.keyword));
+            // Which of these already rank elsewhere → their ranking page should link here (MPD auto-queues it).
+            const rankKeywords = [];
+            if (g.winnerSource === 'rank') rankKeywords.push(g.winnerKeyword);
+            secs.forEach(s => { if (s.source === 'rank') rankKeywords.push(s.keyword); });
+            const blogUrl = (g.coveredBlog && g.coveredBlog.url) || '';
             const ov = showAngleOverlay('Writing the preview… (a few seconds)');
             try {
                 const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add-angle-preview', articleId: g.coveredBlog.id, keywords }) }).then(x => x.json());
                 if (!r.success) throw new Error(r.error || 'Failed');
-                renderAnglePreview(ov, r, g, keywords);
+                renderAnglePreview(ov, r, g, keywords, rankKeywords, blogUrl);
             } catch (e) { ov.remove(); alert('Could not write the preview: ' + e.message); }
         }
-        function renderAnglePreview(ov, r, g, keywords) {
+        function renderAnglePreview(ov, r, g, keywords, rankKeywords, blogUrl) {
             const inner = ov.firstChild;
             const beforeBlock = r.mode === 'rewrite'
                 ? '<div style="font-size:12px;color:#888;margin:10px 0 2px;">BEFORE (this paragraph):</div><div style="background:#f6f6f6;border-radius:6px;padding:10px;font-size:14px;white-space:pre-wrap;">' + escBlog(r.originalParagraph || '') + '</div>'
@@ -724,13 +731,17 @@
             inner.querySelector('#angle-apply').onclick = async () => {
                 const btn = inner.querySelector('#angle-apply'); btn.disabled = true; btn.textContent = 'Applying…';
                 try {
-                    const ap = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add-angle-apply', articleId: r.articleId, newBody: r.newBody, keywords }) }).then(x => x.json());
+                    const ap = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add-angle-apply', articleId: r.articleId, newBody: r.newBody, keywords, rankKeywords: rankKeywords || [], blogUrl: blogUrl || '' }) }).then(x => x.json());
                     if (!ap.success) throw new Error(ap.error || 'Failed');
                     try { await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'remove-covered', winnerKeyword: g.winnerKeyword }) }); } catch (e) {}
                     FUSION_PENDING = FUSION_PENDING.filter(x => (x.winnerKeyword || '').toLowerCase() !== (g.winnerKeyword || '').toLowerCase());
                     renderFusionPending(); refreshAll();
+                    const linkNote = (ap.linkQueued && ap.linkQueued.length)
+                        ? '<div style="font-size:13px;color:#1f6fb2;margin-bottom:12px;">🔗 The internal link is now queued in Money Page Doctor → “Add the link” (' + ap.linkQueued.length + '). One click there puts it on the ranking page.</div>'
+                        : '';
                     inner.innerHTML = '<div style="font-weight:700;font-size:16px;margin-bottom:8px;color:#2e7d32;">✅ Added to the live blog</div>'
                         + '<div style="font-size:13px;color:#555;margin-bottom:16px;">The paragraph is now on “' + escBlog(r.title || '') + '”. You can undo it here if it does not read right.</div>'
+                        + linkNote
                         + '<div style="display:flex;gap:10px;justify-content:flex-end;">'
                         + '<button id="angle-undo" style="background:#fff;color:#a33;border:1px solid #ccc;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">↩ Undo</button>'
                         + '<button id="angle-close" style="background:#1f6fb2;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">Close</button></div>';
