@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.18 - 2026-11-14</p>
+        <p class="version">v6.19 - 2026-11-14</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -334,6 +334,7 @@
                 <div style="font-weight:700;margin-bottom:4px;">🔗 Duplicate-topic check</div>
                 <div style="color:#8a6d1a;font-size:13px;margin-bottom:10px;">One run checks everything together — To Write topics AND the "You already rank" list — and cross-checks your published and scheduled blogs. It merges same-search duplicates into ONE blog, and flags any topic already covered by an existing blog (so you can Remove it, or Add the angle to that blog). You review and approve each one before anything changes.</div>
                 <button id="fusion-find-btn" onclick="findFusionGroups()" style="background:#c0561d;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">🔍 Find duplicate topics</button>
+                <button id="fusion-reset-btn" onclick="findFusionGroups(true)" title="Clear old saved results and re-check everything from scratch" style="background:#fff;color:#c0561d;border:1px solid #c0561d;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;margin-left:8px;">↻ Reset &amp; re-check all</button>
                 <span id="fusion-find-note" style="margin-left:10px;color:#666;font-size:13px;"></span>
                 <div id="fusion-rejected-list" style="margin-top:12px;"></div>
                 <div id="fusion-pending-list" style="margin-top:12px;"></div>
@@ -592,18 +593,27 @@
                     + buttons + '</div>';
             }).join('');
         }
-        async function findFusionGroups() {
+        async function findFusionGroups(reset) {
+            if (reset && !confirm('Clear the old saved results and re-check every topic from scratch? (Your rejected/kept choices stay.)')) return;
             const btn = document.getElementById('fusion-find-btn');
+            const rbtn = document.getElementById('fusion-reset-btn');
             const note = document.getElementById('fusion-find-note');
-            if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
+            if (btn) btn.disabled = true;
+            if (rbtn) rbtn.disabled = true;
+            const active = reset ? rbtn : btn;
+            if (active) active.textContent = reset ? 'Resetting…' : 'Checking…';
             if (note) { note.style.color = '#666'; note.textContent = ''; }
             try {
-                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'find-fusion-groups' }) }).then(x => x.json());
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'find-fusion-groups', reset: !!reset }) }).then(x => x.json());
                 if (!r.success) throw new Error(r.error || 'Could not check.');
                 if (note) note.textContent = r.message || ('Checked ' + (r.checkedCount || 0) + ' topics.');
+                REJECTED_SESSION = [];
                 await loadFusionPending();
             } catch (e) { if (note) { note.style.color = '#a33'; note.textContent = 'Error: ' + e.message; } }
-            finally { if (btn) { btn.disabled = false; btn.textContent = '🔍 Find duplicate topics'; } }
+            finally {
+                if (btn) { btn.disabled = false; btn.textContent = '🔍 Find duplicate topics'; }
+                if (rbtn) { rbtn.disabled = false; rbtn.textContent = '↻ Reset & re-check all'; }
+            }
         }
         async function applyFusionGroup(encKw) {
             const kw = decodeURIComponent(encKw);
