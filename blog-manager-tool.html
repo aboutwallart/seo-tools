@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.15 - 2026-11-14</p>
+        <p class="version">v6.16 - 2026-11-14</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -335,6 +335,7 @@
                 <div style="color:#8a6d1a;font-size:13px;margin-bottom:10px;">One run checks everything together — To Write topics AND the "You already rank" list — and cross-checks your published and scheduled blogs. It merges same-search duplicates into ONE blog, and flags any topic already covered by an existing blog (so you can Remove it, or Add the angle to that blog). You review and approve each one before anything changes.</div>
                 <button id="fusion-find-btn" onclick="findFusionGroups()" style="background:#c0561d;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">🔍 Find duplicate topics</button>
                 <span id="fusion-find-note" style="margin-left:10px;color:#666;font-size:13px;"></span>
+                <div id="fusion-rejected-list" style="margin-top:12px;"></div>
                 <div id="fusion-pending-list" style="margin-top:12px;"></div>
             </div>
 
@@ -534,11 +535,14 @@
         // + the write step; FUSION_PENDING (proposed, awaiting review) loads when the To Write tab opens.
         // ============================================
         let FUSION_PENDING = [];
+        // Session-only "put back" undo list — cleared on reload / new session (the persisted rejection stays).
+        let REJECTED_SESSION = [];
         async function loadFusionPending() {
             try {
                 const r = await fetch('/api/blogs?action=get-fusion-pending').then(x => x.json());
                 FUSION_PENDING = (r && r.groups) || [];
                 renderFusionPending();
+                renderRejectedBlock();
             } catch (e) { /* non-blocking */ }
         }
         async function loadFusedGroups() {
@@ -641,8 +645,34 @@
                     const i = FUSION_PENDING.findIndex(g => (g.winnerKeyword || '').toLowerCase() === wLc);
                     if (i !== -1) FUSION_PENDING[i] = r.group; else FUSION_PENDING.push(r.group);
                 }
+                // Add to the session-only "put back" list so Mae can undo this reject until she reloads.
+                if (r.previousGroup) REJECTED_SESSION.unshift({ keyword: kw, previousGroup: r.previousGroup, sig: r.sig || null });
                 renderFusionPending();
+                renderRejectedBlock();
             } catch (e) { alert('Could not remove: ' + e.message); }
+        }
+        // The session-only "Recently rejected" block — lets Mae put a keyword back into its original group
+        // (and clears its persisted rejection). Cleared on reload; the rejections themselves stay saved.
+        function renderRejectedBlock() {
+            const box = document.getElementById('fusion-rejected-list'); if (!box) return;
+            if (!REJECTED_SESSION.length) { box.innerHTML = ''; return; }
+            const rows = REJECTED_SESSION.map((r, i) =>
+                '<li style="margin:3px 0;">' + escBlog(r.keyword) + ' <span style="color:#888;font-size:12px;">— from: ' + escBlog((r.previousGroup && r.previousGroup.winnerKeyword) || '') + '</span> <button onclick="putBackRejected(' + i + ')" style="background:none;border:none;color:#1f6fb2;cursor:pointer;font-size:12px;padding:0 2px;">↩ Put back</button></li>'
+            ).join('');
+            box.innerHTML = '<div style="border:1px dashed #cbb48a;border-radius:8px;padding:10px 12px;background:#fbf7ee;">'
+                + '<div style="font-weight:700;color:#8a6d1a;font-size:13px;margin-bottom:4px;">Recently rejected (this session)</div>'
+                + '<div style="font-size:12px;color:#8a6d1a;margin-bottom:6px;">These stay out of their group for future runs too. Changed your mind? Put one back — available only until you reload.</div>'
+                + '<ul style="margin:0 0 0 18px;font-size:13px;color:#444;">' + rows + '</ul></div>';
+        }
+        async function putBackRejected(i) {
+            const item = REJECTED_SESSION[i]; if (!item) return;
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'restore-fusion-rejection', previousGroup: item.previousGroup, keyword: item.keyword, sig: item.sig }) }).then(x => x.json());
+                if (!r.success) throw new Error(r.error || 'Could not put back.');
+                REJECTED_SESSION.splice(i, 1);
+                renderRejectedBlock();
+                await loadFusionPending();
+            } catch (e) { alert('Could not put back: ' + e.message); }
         }
         // A group already covered by a published/scheduled blog — Mae chose "Remove" (don't write it).
         async function removeCovered(encKw) {
