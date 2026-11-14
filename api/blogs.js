@@ -1,4 +1,10 @@
-// blogs.js — v6.0
+// blogs.js — v6.2
+// v6.2 (2026-11-14): synonym dictionary culled by Mae (1×1 review) + matching is now EXACT (no substring,
+//   no typos) so "toilet"≠"toile", "wallpaper"≠"wall". Coffee style removed (no synonyms left). Grouping is
+//   back to Mae's model: same style and/or room (general vs specific) — the meaningful-overlap experiment is
+//   gone. Covered no longer uses the loose common-word fallback. Merge groups capped at 4 per blog. Kept:
+//   persistent reject memory, and add-angle-apply auto-queues the Money Page Doctor link for folded keywords
+//   that already rank (claim-to-registry → "Add the link").
 // v6.0 (2026-11-14): fusion reject now PERSISTS. reject-fusion-keyword records the rejected keyword+bucket
 //   in data/blog-fusion-rejections.json so future runs never re-form that same grouping (the keyword stays
 //   free to join a different group/room or a future one). find-fusion-groups honours those rejections when
@@ -3326,83 +3332,60 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         // that share a style group; that share a room group. A specific rolls into a general of its same
         // style (preferred) or same room. Two specifics group only if they share BOTH style and room.
         // Covered = an existing (published/scheduled) blog already answers that scope → pulled out first.
+        // Mae reviewed the synonyms 1×1 (14 Nov) and culled them; matching is EXACT (no substring, no typos).
         const STYLE_DICT = [
-          ['Biophilic', ['biophilic','botanical','plants','greenery','leaves','foliage','nature','fern','eucalyptus','succulent','meadow','green']],
-          ['Farmhouse', ['farmhouse','botanical','floral','greenery','rustic','country','barn','cottage','cottagecore','shiplap','barnwood','gingham','hen','rooster','cow','wildflower']],
-          ['Shabby chic', ['shabby chic','floral','romantic','pastel','antique rose']],
+          ['Biophilic', ['biophilic','botanical','plants','greenery','nature']],
+          ['Farmhouse', ['farmhouse','floral','rustic','country','barn','cottage','cottagecore','wildflower']],
+          ['Shabby chic', ['shabby chic','romantic','pastel','antique rose']],
           ['Vintage', ['vintage','retro','antique','nostalgic','heritage','old-fashioned']],
-          ['Japandi', ['japandi','relax','relaxing','calm','calming','japan','japanese','asian','oriental','chinese','wabi-sabi','muji','bamboo','tatami','bonsai','neutral','muted','crane','cranes']],
-          ['Zen', ['zen','buddha','buddhist','buddhism','lotus','meditation','mindfulness','yoga','enso','serenity','tranquil','spiritual']],
-          ['Scandinavian', ['scandinavian','scandi','nordic','forest','hygge','landscape','cosy','cozy','pine','birch','mountain','fjord']],
-          ['Travel', ['travel','map','maps','world','adventure','wanderlust']],
-          ['Christian', ['christian','faith','bible','scripture','cross','jesus','god','prayer','worship','psalm','verse','church','grace','blessing','holy']],
+          ['Japandi', ['japandi','japan','japanese','asian','oriental','wabi-sabi','crane','cranes']],
+          ['Zen', ['zen','buddha','buddhist','buddhism','lotus','meditation','mindfulness','yoga','spiritual']],
+          ['Scandinavian', ['scandinavian','scandi','nordic','hygge']],
+          ['Travel', ['travel','world','wanderlust']],
+          ['Christian', ['christian','faith','bible','scripture','cross','jesus','god','prayer','psalm','verse','church','blessing','holy']],
           ['Islamic', ['islamic','islam','muslim','quran','arabic','arab','arabesque','mosque','allah','calligraphy','ayat','ramadan','eid','kaaba']],
-          ['Minimalism', ['minimalist','minimal','simple','clean','line art','monoline','understated']],
-          ['Masculine', ['masculine','male','manly','bold dark','gentleman','moody','leather','whiskey','cigar','gym','car']],
-          ['Industrial', ['industrial','urban','loft','metal','concrete','factory','steampunk','exposed brick','warehouse','rust','pipe','distressed']],
-          ['Moroccan', ['moroccan','morocco','marrakech','mosaic','tile','zellige','lantern','kasbah']],
-          ['Abstract', ['abstract','geometric','shapes','lines','brushstroke','fluid','modern art','form']],
-          ['Bohemian', ['bohemian','boho','hippie','macrame','folk','tribal','rattan','earthy','cactus']],
-          ['Coastal', ['coastal','beach','sea','ocean','nautical','seaside','shells','waves','lighthouse','sailing','driftwood','shore','hamptons']],
-          ['Tropical', ['tropical','palm','jungle','exotic','banana leaf','flamingo','toucan','pineapple','hibiscus','paradise','monstera']],
-          ['Wildlife', ['wildlife','animals','safari','savannah','deer','elephant','lion','tiger']],
-          ['Sun & moon', ['sun and moon','celestial','moon','stars','lunar','galaxy','constellation','zodiac','astrology','sunset','eclipse']],
-          ['Black & white', ['black and white','monochrome','greyscale','noir','high contrast','line drawing']],
-          ['Coffee', ['coffee','coffee house','cafe','espresso','latte','cappuccino','barista','beans']],
-          ['Chinoiserie', ['chinoiserie','peony','pagoda','cherry blossom']],
+          ['Minimalism', ['minimalist','minimal']],
+          ['Masculine', ['masculine','male','manly','gentleman']],
+          ['Industrial', ['industrial','urban','loft','steampunk']],
+          ['Moroccan', ['moroccan','morocco','marrakech','mosaic','tile']],
+          ['Abstract', ['abstract','modern art']],
+          ['Bohemian', ['bohemian','boho','hippie']],
+          ['Coastal', ['coastal','beach','sea','ocean','nautical','seaside','shells','waves','lighthouse','sailing','hamptons']],
+          ['Tropical', ['tropical','jungle','exotic']],
+          ['Wildlife', ['wildlife','safari','elephant','lion','tiger']],
+          ['Sun & moon', ['sun and moon','celestial','moon','stars','lunar','galaxy','constellation']],
+          ['Black & white', ['black and white','monochrome','greyscale']],
+          ['Chinoiserie', ['chinoiserie']],
           ['Mid century', ['mid century','midcentury','retro','lux','luxury','50s','60s']],
-          ['Mediterranean', ['mediterranean','amalfi','positano','capri','cinque terre','riviera','santorini','greek','tuscan','italian','lemon','olive','terracotta','villa']],
-          ['Contemporary', ['contemporary','modern','sleek','trendy','chic']],
-          ['Maximalism', ['maximalism','maximalist','bold','eclectic']],
-          ['French country', ['french country','provence','floral','bees','hives','beehive','toile','lavender','chateau','bistro']],
-          ['Old money', ['map','maps','earth','equestrian','horses','vintage','polo','tartan','hunting','estate','leather','classic']]
+          ['Mediterranean', ['mediterranean']],
+          ['Contemporary', ['contemporary','modern']],
+          ['Maximalism', ['maximalism','maximalist','eclectic']],
+          ['French country', ['french country','provence','bees','hives','beehive']],
+          ['Old money', ['map','maps','classic']]
         ];
         const ROOM_DICT = [
-          ['Living room', ['living room','lounge','sitting room','front room','tv room','snug']],
-          ['Family room', ['family room','den']],
-          ['Bedroom', ['bedroom','master bedroom','guest room','boudoir','above bed']],
+          ['Living room', ['living room','lounge','sitting room','tv room','snug']],
+          ['Family room', ['family room']],
+          ['Bedroom', ['bedroom','master bedroom','guest room','above bed']],
           ['Nursery/Kids', ['nursery','kids','children','child','baby','playroom','boys room','girls room','teen']],
-          ['Bathroom', ['bathroom','toilet','loo','powder room','ensuite','washroom','restroom','spa']],
-          ['Kitchen', ['kitchen','breakfast nook','breakfast','pantry']],
-          ['Dining', ['dining room','dining']],
-          ['Hallway', ['hallway','hall','corridor','entryway','entrance','foyer','landing','staircase']],
+          ['Bathroom', ['bathroom','toilet','washroom','restroom','spa']],
+          ['Kitchen', ['kitchen','breakfast nook','breakfast']],
+          ['Dining', ['dining room']],
+          ['Hallway', ['hallway','corridor','entryway','entrance','foyer']],
           ['Office', ['office','home office','study','workspace','desk']],
           ['Outdoor', ['garden','patio','balcony','outdoor']]
         ];
         const normTxt = (s) => String(s || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
-        const lev = (a, b) => {
-          const la = a.length, lb = b.length;
-          if (!la) return lb; if (!lb) return la;
-          let prev = new Array(lb + 1); for (let j = 0; j <= lb; j++) prev[j] = j;
-          for (let i = 1; i <= la; i++) {
-            const cur = [i];
-            for (let j = 1; j <= lb; j++) {
-              const c = a[i - 1] === b[j - 1] ? 0 : 1;
-              cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + c);
-            }
-            prev = cur;
-          }
-          return prev[lb];
-        };
-        // Single word: exact, or (len>=5) substring / small edit distance. Short words = exact only, so
-        // "car" never swallows "cat" and "god" never "good".
-        const wordHit = (token, syn) => {
-          if (token === syn) return true;
-          if (syn.length >= 5) {
-            if (token.includes(syn)) return true;
-            if (token.length >= 4 && lev(token, syn) <= (syn.length >= 8 ? 2 : 1)) return true;
-          }
-          return false;
-        };
+        // EXACT matching only — a synonym matches a WHOLE word (or whole consecutive phrase). No substring,
+        // no typo tolerance. So "toilet" never matches "toile", "wallpaper" never matches "wall".
         const synHit = (norm, tokens, synRaw) => {
           const syn = normTxt(synRaw);
           if (!syn) return false;
-          if (syn.indexOf(' ') === -1) return tokens.some(t => wordHit(t, syn));
-          if (norm.includes(syn)) return true; // exact multi-word phrase
           const sw = syn.split(' ');
+          if (sw.length === 1) return tokens.indexOf(syn) !== -1;
           for (let i = 0; i + sw.length <= tokens.length; i++) {
             let ok = true;
-            for (let j = 0; j < sw.length; j++) { if (!wordHit(tokens[i + j], sw[j])) { ok = false; break; } }
+            for (let j = 0; j < sw.length; j++) { if (tokens[i + j] !== sw[j]) { ok = false; break; } }
             if (ok) return true;
           }
           return false;
@@ -3426,22 +3409,18 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         const isRejected = (kwLc, sig) => Array.isArray(rejections[kwLc]) && rejections[kwLc].includes(sig);
         const covSigFor = (b, blogIdx) => 'COV:' + ((b && (b.handle || b.id)) || blogIdx);
 
-        // An existing blog that answers the SAME scope (strict): specific→same style+room; style-only
-        // general→a style-only blog of that style; room-only general→a room-only blog of that room;
-        // untagged→strong title overlap (≥2 shared words of length ≥4).
+        // An existing blog that answers the SAME scope: specific→same style+room; style-only→a style-only
+        // blog of that style; room-only→a room-only blog of that room. An untagged keyword is never auto-
+        // flagged covered (no loose common-word matching).
         const coveredByFor = (t) => {
           const hasS = !!t.tag.style, hasR = !!t.tag.room;
+          if (!hasS && !hasR) return null;
           const kwLc = (t.p && t.p.keyword || '').toLowerCase();
           for (const bt of blogTags) {
             if (isRejected(kwLc, covSigFor(bt.b, bt.idx))) continue; // Mae said this blog does NOT cover it
             if (hasS && hasR) { if (bt.tag.style === t.tag.style && bt.tag.room === t.tag.room) return bt.idx; }
             else if (hasS) { if (bt.tag.style === t.tag.style && !bt.tag.room) return bt.idx; }
             else if (hasR) { if (bt.tag.room === t.tag.room && !bt.tag.style) return bt.idx; }
-            else {
-              const a = new Set(t.tag.tokens.filter(w => w.length >= 4));
-              const shared = bt.tag.tokens.filter(w => w.length >= 4 && a.has(w));
-              if (shared.length >= 2) return bt.idx;
-            }
           }
           return null;
         };
@@ -3483,9 +3462,13 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
           else if (!isRejected(kwLc, pSig)) { if (!specificPairs.has(pSig)) specificPairs.set(pSig, []); specificPairs.get(pSig).push(t); }
           // else → rejected from every bucket it could join → singleton
         });
-        styleGenerals.forEach((arr, name) => { if (arr.length >= 2) aiGroups.push({ members: arr.map(t => t.idx), suggested_primary: arr[0].idx, covered_by: null, reason: 'Same style: ' + name, sig: 'S:' + name }); });
-        roomGenerals.forEach((arr, name) => { if (arr.length >= 2) aiGroups.push({ members: arr.map(t => t.idx), suggested_primary: arr[0].idx, covered_by: null, reason: 'Same room: ' + name, sig: 'R:' + name }); });
-        specificPairs.forEach((arr, pSig) => { if (arr.length >= 2) aiGroups.push({ members: arr.map(t => t.idx), suggested_primary: arr[0].idx, covered_by: null, reason: pSig.replace('SP:', '').replace('|', ' + '), sig: pSig }); });
+        // Cap at 4 per blog so a merged post is never bloated: keep the top 4 by volume, drop the rest
+        // (they stay unchecked → reconsidered next run).
+        const volOf = (t) => { const m = metricsLc[t.p.keyword.toLowerCase()]; const g = gscLc[t.p.keyword.toLowerCase()]; return (m && m.volume) || t.p.impressions || (g && g.impressions) || 0; };
+        const cap4 = (arr) => arr.slice().sort((a, b) => volOf(b) - volOf(a)).slice(0, 4);
+        styleGenerals.forEach((arr, name) => { if (arr.length >= 2) { const c = cap4(arr); aiGroups.push({ members: c.map(t => t.idx), suggested_primary: c[0].idx, covered_by: null, reason: 'Same style: ' + name, sig: 'S:' + name }); } });
+        roomGenerals.forEach((arr, name) => { if (arr.length >= 2) { const c = cap4(arr); aiGroups.push({ members: c.map(t => t.idx), suggested_primary: c[0].idx, covered_by: null, reason: 'Same room: ' + name, sig: 'R:' + name }); } });
+        specificPairs.forEach((arr, pSig) => { if (arr.length >= 2) { const c = cap4(arr); aiGroups.push({ members: c.map(t => t.idx), suggested_primary: c[0].idx, covered_by: null, reason: pSig.replace('SP:', '').replace('|', ' + '), sig: pSig }); } });
         const aiProposedCount = aiGroups.length;
 
         // Persist the deterministic result (replaces the old raw-AI dump) — read this to debug grouping.
@@ -3871,8 +3854,9 @@ ${numbered || '(no suitable paragraphs — use mode add)'}`;
         const articleId = String(req.body.articleId || '').trim();
         const newBody = typeof req.body.newBody === 'string' ? req.body.newBody : '';
         const keywords = Array.isArray(req.body.keywords) ? req.body.keywords.map(k => String(k || '').trim()).filter(Boolean) : [];
+        const rankKeywords = Array.isArray(req.body.rankKeywords) ? req.body.rankKeywords.map(k => String(k || '').trim()).filter(Boolean) : [];
         if (!articleId || !newBody) return res.status(400).json({ error: 'articleId and newBody required' });
-        const data = await shopifyGraphQL(`query($id:ID!){ node(id:$id){ ... on Article { id title handle body } } }`, { id: articleId });
+        const data = await shopifyGraphQL(`query($id:ID!){ node(id:$id){ ... on Article { id title handle body blog { handle } } } }`, { id: articleId });
         const art = data && data.node;
         if (!art) return res.status(404).json({ error: 'Blog not found.' });
         const backups = await readJsonFileSafe('data/blog-angle-backups.json', {});
@@ -3882,7 +3866,18 @@ ${numbered || '(no suitable paragraphs — use mode add)'}`;
         const ue = (up && up.articleUpdate && up.articleUpdate.userErrors) || [];
         if (ue.length) return res.status(500).json({ error: ue.map(e => e.message).join('; ') });
         if (keywords.length) { try { const pd = await readJsonFileSafe('data/gsc-performing-dismissed.json', []); const set = new Set((Array.isArray(pd) ? pd : []).map(s => String(s).toLowerCase())); keywords.forEach(k => set.add(k.toLowerCase())); await writeJsonFile('data/gsc-performing-dismissed.json', [...set], 'Angle added — hide folded keyword(s)'); } catch (e) { } }
-        return res.status(200).json({ success: true, articleId, title: art.title });
+        // Auto-queue the internal link in Money Page Doctor: for each folded keyword that already RANKS on
+        // another page, lock it to THIS blog's URL in the registry. MPD's Do First then surfaces it under
+        // "Add the link" (ranking page → this blog) on its own — no second step to remember.
+        const linkQueued = [];
+        if (rankKeywords.length) {
+          const blogUrl = String(req.body.blogUrl || '').trim() || ('https://www.aboutwallart.com/blogs/' + ((art.blog && art.blog.handle) || 'news-articles-home-decor-inspiration') + '/' + art.handle);
+          const origin = 'https://' + (req.headers['x-forwarded-host'] || req.headers.host || 'tools.aboutwallart.com');
+          for (const kw of rankKeywords) {
+            try { const r = await fetch(origin + '/api/keywords', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'claim-to-registry', keyword: kw, url: blogUrl, intent: 'INFORMATIONAL' }) }); if (r.ok) linkQueued.push(kw); } catch (e) { /* non-blocking */ }
+          }
+        }
+        return res.status(200).json({ success: true, articleId, title: art.title, linkQueued });
       }
 
       // ── ACTION: add-angle-undo ── restore a blog's body from the backup taken before the angle edit.
