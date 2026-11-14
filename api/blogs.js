@@ -1,4 +1,9 @@
-// blogs.js — v6.3
+// blogs.js — v6.4
+// v6.4 (2026-11-14): covered detection now DISTRIBUTES keywords across the matching blogs instead of dumping
+//   them all on the first one. Phase 1: specifics (style+room) spread across blogs of the same style+room,
+//   max 5 per blog, never the same blog twice. Phase 2: the leftovers (style-only, room-only, or specifics
+//   that didn't fit) go to a blog sharing style OR room, same cap. Keywords that fit no blog stay separate.
+//   One card per blog (no more repeating the same blog). Grouping of uncovered keywords is unchanged.
 // v6.3 (2026-11-14): find-fusion-groups takes reset:true → wipes the saved pending + the "already checked"
 //   cache first, so a run re-evaluates EVERYTHING with the current logic (powers the "Reset & re-check"
 //   button — old cached groups no longer mask new results). Covered cards are now split into chunks of ≤5
@@ -3436,21 +3441,40 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         };
 
         const aiGroups = [];
-        // 1) Pull out COVERED keywords first (the main point — never rewrite something already live),
-        //    bucketed by the blog that covers them so each existing blog gives ONE review card.
-        const coveredBuckets = new Map(); // blogIdx -> [tagged]
+        // 1) COVERED = DISTRIBUTE keywords across the existing blogs that share their style/room — max 5 per
+        //    blog, never the same blog twice. First the specifics (style+room) across same style+room blogs;
+        //    whatever is left over (style-only, room-only, or specifics that didn't fit) then goes to a blog
+        //    that shares style OR room. Keywords that still don't fit any blog are left separate (not covered).
+        const CAP = 5;
+        const coveredAssign = new Map(); // blogIdx -> [tagged]  (≤ CAP each)
         const coveredUsed = new Set();
-        tagged.forEach(t => {
-          const c = coveredByFor(t);
-          if (c) { if (!coveredBuckets.has(c)) coveredBuckets.set(c, []); coveredBuckets.get(c).push(t); coveredUsed.add(t.idx); }
+        const hasSpace = (bi) => (coveredAssign.get(bi) || []).length < CAP;
+        const kwRejectsBlog = (t, bt) => isRejected((t.p.keyword || '').toLowerCase(), covSigFor(bt.b, bt.idx));
+        const placeIn = (t, blogs) => {
+          const bt = blogs.find(b => hasSpace(b.idx) && !kwRejectsBlog(t, b));
+          if (!bt) return false;
+          if (!coveredAssign.has(bt.idx)) coveredAssign.set(bt.idx, []);
+          coveredAssign.get(bt.idx).push(t); coveredUsed.add(t.idx); return true;
+        };
+        // Phase 1 — specifics (style AND room), grouped by the exact style+room, into same style+room blogs.
+        const byPair = new Map();
+        tagged.forEach(t => { if (t.tag.style && t.tag.room) { const k = t.tag.style + '|' + t.tag.room; if (!byPair.has(k)) byPair.set(k, []); byPair.get(k).push(t); } });
+        byPair.forEach((kws, key) => {
+          const st = key.split('|')[0], rm = key.split('|')[1];
+          const blogs = blogTags.filter(bt => bt.tag.style === st && bt.tag.room === rm);
+          kws.forEach(t => placeIn(t, blogs)); // overflow (no blog with space) stays unassigned
         });
-        coveredBuckets.forEach((arr, blogIdx) => {
-          const sig = covSigFor(existingBlogs[blogIdx - 1], blogIdx);
-          // Split into cards of ≤5 so a covered card is never a giant wall of keywords.
-          for (let i = 0; i < arr.length; i += 5) {
-            const chunk = arr.slice(i, i + 5);
-            aiGroups.push({ members: chunk.map(t => t.idx), suggested_primary: chunk[0].idx, covered_by: blogIdx, reason: '', sig });
-          }
+        // Phase 2 — everything still unassigned (style-only, room-only, or specific overflow) → a blog that
+        //    shares style OR room (same 5-per-blog cap, no repeat).
+        tagged.forEach(t => {
+          if (coveredUsed.has(t.idx)) return;
+          if (!t.tag.style && !t.tag.room) return; // untagged → never covered
+          const blogs = blogTags.filter(bt => (t.tag.style && bt.tag.style === t.tag.style) || (t.tag.room && bt.tag.room === t.tag.room));
+          placeIn(t, blogs);
+        });
+        // Emit one covered card per blog.
+        coveredAssign.forEach((arr, blogIdx) => {
+          aiGroups.push({ members: arr.map(t => t.idx), suggested_primary: arr[0].idx, covered_by: blogIdx, reason: '', sig: covSigFor(existingBlogs[blogIdx - 1], blogIdx) });
         });
 
         // 2) Group the REMAINING (uncovered) keywords: generals by shared style/room, specifics rolled in.
