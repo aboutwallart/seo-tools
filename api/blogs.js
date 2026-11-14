@@ -1,4 +1,10 @@
-// blogs.js — v5.7
+// blogs.js — v5.9
+// v5.9 (2026-11-14): find-fusion-groups is now DETERMINISTIC (no AI). Groups keywords by a STYLE (29) +
+//   ROOM (10) synonym dictionary, typo-tolerant (Levenshtein on words ≥5 chars). General = only a style OR
+//   only a room; specific = both. Generals group by shared style/room; a specific rolls into a general of
+//   its style (preferred) or room; two specifics need style AND room. Covered keywords (already answered by
+//   a published/scheduled blog) are pulled out first, bucketed per blog. New action reject-fusion-keyword
+//   drops ONE keyword from a pending group and frees it for a future run. The old AI prompt is left unused.
 // v5.7 (2026-11-13): find-fusion-groups — compact output {groups:[[..]], covered:[{k,blog}]} so the AI stops
 //   listing every keyword (which overflowed tokens → 0 results). Keeps existing/scheduled-blog detection as
 //   the priority. JSON-only, max_tokens 8000. Parse normalises the object into the group/covered entries.
@@ -3309,27 +3315,167 @@ ${pool.map((p, i) => (i + 1) + '. ' + p.keyword + (p.source === 'rank' ? ' [alre
 EXISTING BLOGS (numbered — published or scheduled):
 ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).join('\n') : '(none)'}`;
 
-        let aiText = '';
-        try { aiText = await callClaudeText(prompt, 8000); } catch (e) { return res.status(500).json({ error: 'AI grouping failed: ' + e.message }); }
-        // Always persist the raw response — never guess at a failure, read this file instead.
-        try {
-          await writeJsonFile('data/blog-fusion-last-raw.json', { at: new Date().toISOString(), poolSize: pool.length, rawText: aiText }, 'Fusion: save raw AI response for debugging');
-        } catch (e) { /* debug file only — never blocks the real run */ }
-        const raw = aiText.replace(/```json\n?/g, '').replace(/```\n?/g, '');
-        const m = raw.match(/\{[\s\S]*\}/);
-        let aiObj = {};
-        try { aiObj = m ? JSON.parse(m[0]) : {}; } catch (e) { aiObj = {}; }
-        // Normalise the compact {groups, covered} output into the entry shape the loop below expects.
+        // ── DETERMINISTIC grouping (no AI) ── the prompt above is NO LONGER USED. The AI kept returning
+        // 0 groups, so grouping is now done in code from a STYLE + ROOM dictionary, typo-tolerant.
+        // Mae's rules: GENERAL = only a style OR only a room; SPECIFIC = a style AND a room. Two generals
+        // that share a style group; that share a room group. A specific rolls into a general of its same
+        // style (preferred) or same room. Two specifics group only if they share BOTH style and room.
+        // Covered = an existing (published/scheduled) blog already answers that scope → pulled out first.
+        const STYLE_DICT = [
+          ['Biophilic', ['biophilic','botanical','plants','greenery','leaves','foliage','nature','fern','eucalyptus','succulent','meadow','green']],
+          ['Farmhouse', ['farmhouse','botanical','floral','greenery','rustic','country','barn','cottage','cottagecore','shiplap','barnwood','gingham','hen','rooster','cow','wildflower']],
+          ['Shabby chic', ['shabby chic','floral','romantic','pastel','antique rose']],
+          ['Vintage', ['vintage','retro','antique','nostalgic','heritage','old-fashioned']],
+          ['Japandi', ['japandi','relax','relaxing','calm','calming','japan','japanese','asian','oriental','chinese','wabi-sabi','muji','bamboo','tatami','bonsai','neutral','muted','crane','cranes']],
+          ['Zen', ['zen','buddha','buddhist','buddhism','lotus','meditation','mindfulness','yoga','enso','serenity','tranquil','spiritual']],
+          ['Scandinavian', ['scandinavian','scandi','nordic','forest','hygge','landscape','cosy','cozy','pine','birch','mountain','fjord']],
+          ['Travel', ['travel','map','maps','world','adventure','wanderlust']],
+          ['Christian', ['christian','faith','bible','scripture','cross','jesus','god','prayer','worship','psalm','verse','church','grace','blessing','holy']],
+          ['Islamic', ['islamic','islam','muslim','quran','arabic','arab','arabesque','mosque','allah','calligraphy','ayat','ramadan','eid','kaaba']],
+          ['Minimalism', ['minimalist','minimal','simple','clean','line art','monoline','understated']],
+          ['Masculine', ['masculine','male','manly','bold dark','gentleman','moody','leather','whiskey','cigar','gym','car']],
+          ['Industrial', ['industrial','urban','loft','metal','concrete','factory','steampunk','exposed brick','warehouse','rust','pipe','distressed']],
+          ['Moroccan', ['moroccan','morocco','marrakech','mosaic','tile','zellige','lantern','kasbah']],
+          ['Abstract', ['abstract','geometric','shapes','lines','brushstroke','fluid','modern art','form']],
+          ['Bohemian', ['bohemian','boho','hippie','macrame','folk','tribal','rattan','earthy','cactus']],
+          ['Coastal', ['coastal','beach','sea','ocean','nautical','seaside','shells','waves','lighthouse','sailing','driftwood','shore','hamptons']],
+          ['Tropical', ['tropical','palm','jungle','exotic','banana leaf','flamingo','toucan','pineapple','hibiscus','paradise','monstera']],
+          ['Wildlife', ['wildlife','animals','safari','savannah','deer','elephant','lion','tiger']],
+          ['Sun & moon', ['sun and moon','celestial','moon','stars','lunar','galaxy','constellation','zodiac','astrology','sunset','eclipse']],
+          ['Black & white', ['black and white','monochrome','greyscale','noir','high contrast','line drawing']],
+          ['Coffee', ['coffee','coffee house','cafe','espresso','latte','cappuccino','barista','beans']],
+          ['Chinoiserie', ['chinoiserie','peony','pagoda','cherry blossom']],
+          ['Mid century', ['mid century','midcentury','retro','lux','luxury','50s','60s']],
+          ['Mediterranean', ['mediterranean','amalfi','positano','capri','cinque terre','riviera','santorini','greek','tuscan','italian','lemon','olive','terracotta','villa']],
+          ['Contemporary', ['contemporary','modern','sleek','trendy','chic']],
+          ['Maximalism', ['maximalism','maximalist','bold','eclectic']],
+          ['French country', ['french country','provence','floral','bees','hives','beehive','toile','lavender','chateau','bistro']],
+          ['Old money', ['map','maps','earth','equestrian','horses','vintage','polo','tartan','hunting','estate','leather','classic']]
+        ];
+        const ROOM_DICT = [
+          ['Living room', ['living room','lounge','sitting room','front room','tv room','snug']],
+          ['Family room', ['family room','den']],
+          ['Bedroom', ['bedroom','master bedroom','guest room','boudoir','above bed']],
+          ['Nursery/Kids', ['nursery','kids','children','child','baby','playroom','boys room','girls room','teen']],
+          ['Bathroom', ['bathroom','toilet','loo','powder room','ensuite','washroom','restroom','spa']],
+          ['Kitchen', ['kitchen','breakfast nook','breakfast','pantry']],
+          ['Dining', ['dining room','dining']],
+          ['Hallway', ['hallway','hall','corridor','entryway','entrance','foyer','landing','staircase']],
+          ['Office', ['office','home office','study','workspace','desk']],
+          ['Outdoor', ['garden','patio','balcony','outdoor']]
+        ];
+        const normTxt = (s) => String(s || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+        const lev = (a, b) => {
+          const la = a.length, lb = b.length;
+          if (!la) return lb; if (!lb) return la;
+          let prev = new Array(lb + 1); for (let j = 0; j <= lb; j++) prev[j] = j;
+          for (let i = 1; i <= la; i++) {
+            const cur = [i];
+            for (let j = 1; j <= lb; j++) {
+              const c = a[i - 1] === b[j - 1] ? 0 : 1;
+              cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + c);
+            }
+            prev = cur;
+          }
+          return prev[lb];
+        };
+        // Single word: exact, or (len>=5) substring / small edit distance. Short words = exact only, so
+        // "car" never swallows "cat" and "god" never "good".
+        const wordHit = (token, syn) => {
+          if (token === syn) return true;
+          if (syn.length >= 5) {
+            if (token.includes(syn)) return true;
+            if (token.length >= 4 && lev(token, syn) <= (syn.length >= 8 ? 2 : 1)) return true;
+          }
+          return false;
+        };
+        const synHit = (norm, tokens, synRaw) => {
+          const syn = normTxt(synRaw);
+          if (!syn) return false;
+          if (syn.indexOf(' ') === -1) return tokens.some(t => wordHit(t, syn));
+          if (norm.includes(syn)) return true; // exact multi-word phrase
+          const sw = syn.split(' ');
+          for (let i = 0; i + sw.length <= tokens.length; i++) {
+            let ok = true;
+            for (let j = 0; j < sw.length; j++) { if (!wordHit(tokens[i + j], sw[j])) { ok = false; break; } }
+            if (ok) return true;
+          }
+          return false;
+        };
+        const tagOne = (text) => {
+          const norm = normTxt(text);
+          const tokens = norm.split(' ').filter(Boolean);
+          let style = null, room = null;
+          for (const [name, syns] of STYLE_DICT) { if (syns.some(s => synHit(norm, tokens, s))) { style = name; break; } }
+          for (const [name, syns] of ROOM_DICT) { if (syns.some(s => synHit(norm, tokens, s))) { room = name; break; } }
+          return { style, room, tokens };
+        };
+
+        const tagged = pool.map((p, i) => ({ idx: i + 1, p, tag: tagOne(p.keyword + ' ' + (p.title || '')) }));
+        const blogTags = existingBlogs.map((b, i) => ({ idx: i + 1, b, tag: tagOne(b.title || '') }));
+
+        // An existing blog that answers the SAME scope (strict): specific→same style+room; style-only
+        // general→a style-only blog of that style; room-only general→a room-only blog of that room;
+        // untagged→strong title overlap (≥2 shared words of length ≥4).
+        const coveredByFor = (t) => {
+          const hasS = !!t.tag.style, hasR = !!t.tag.room;
+          for (const bt of blogTags) {
+            if (hasS && hasR) { if (bt.tag.style === t.tag.style && bt.tag.room === t.tag.room) return bt.idx; }
+            else if (hasS) { if (bt.tag.style === t.tag.style && !bt.tag.room) return bt.idx; }
+            else if (hasR) { if (bt.tag.room === t.tag.room && !bt.tag.style) return bt.idx; }
+            else {
+              const a = new Set(t.tag.tokens.filter(w => w.length >= 4));
+              const shared = bt.tag.tokens.filter(w => w.length >= 4 && a.has(w));
+              if (shared.length >= 2) return bt.idx;
+            }
+          }
+          return null;
+        };
+
         const aiGroups = [];
-        (Array.isArray(aiObj.groups) ? aiObj.groups : []).forEach(arr => {
-          const members = (Array.isArray(arr) ? arr : []).map(n => parseInt(n, 10)).filter(n => Number.isInteger(n));
-          if (members.length >= 2) aiGroups.push({ members: members, suggested_primary: members[0], covered_by: null, reason: '' });
+        // 1) Pull out COVERED keywords first (the main point — never rewrite something already live),
+        //    bucketed by the blog that covers them so each existing blog gives ONE review card.
+        const coveredBuckets = new Map(); // blogIdx -> [tagged]
+        const coveredUsed = new Set();
+        tagged.forEach(t => {
+          const c = coveredByFor(t);
+          if (c) { if (!coveredBuckets.has(c)) coveredBuckets.set(c, []); coveredBuckets.get(c).push(t); coveredUsed.add(t.idx); }
         });
-        (Array.isArray(aiObj.covered) ? aiObj.covered : []).forEach(c => {
-          const k = parseInt(c && c.k, 10), b = parseInt(c && c.blog, 10);
-          if (Number.isInteger(k) && Number.isInteger(b)) aiGroups.push({ members: [k], suggested_primary: k, covered_by: b, reason: 'already covered' });
+        coveredBuckets.forEach((arr, blogIdx) => {
+          aiGroups.push({ members: arr.map(t => t.idx), suggested_primary: arr[0].idx, covered_by: blogIdx, reason: '' });
         });
+
+        // 2) Group the REMAINING (uncovered) keywords: generals by shared style/room, specifics rolled in.
+        const remaining = tagged.filter(t => !coveredUsed.has(t.idx));
+        const styleGenerals = new Map(); // style -> [tagged]
+        const roomGenerals = new Map();  // room  -> [tagged]
+        const specificPairs = new Map(); // "style|room" -> [tagged]
+        const specifics = [];
+        remaining.forEach(t => {
+          const hasS = !!t.tag.style, hasR = !!t.tag.room;
+          if (hasS && hasR) { specifics.push(t); }
+          else if (hasS) { if (!styleGenerals.has(t.tag.style)) styleGenerals.set(t.tag.style, []); styleGenerals.get(t.tag.style).push(t); }
+          else if (hasR) { if (!roomGenerals.has(t.tag.room)) roomGenerals.set(t.tag.room, []); roomGenerals.get(t.tag.room).push(t); }
+          // untagged → ungroupable, stays a singleton
+        });
+        specifics.forEach(t => {
+          if (styleGenerals.has(t.tag.style)) styleGenerals.get(t.tag.style).push(t);
+          else if (roomGenerals.has(t.tag.room)) roomGenerals.get(t.tag.room).push(t);
+          else { const key = t.tag.style + '|' + t.tag.room; if (!specificPairs.has(key)) specificPairs.set(key, []); specificPairs.get(key).push(t); }
+        });
+        styleGenerals.forEach((arr, name) => { if (arr.length >= 2) aiGroups.push({ members: arr.map(t => t.idx), suggested_primary: arr[0].idx, covered_by: null, reason: 'Same style: ' + name }); });
+        roomGenerals.forEach((arr, name) => { if (arr.length >= 2) aiGroups.push({ members: arr.map(t => t.idx), suggested_primary: arr[0].idx, covered_by: null, reason: 'Same room: ' + name }); });
+        specificPairs.forEach((arr, key) => { if (arr.length >= 2) aiGroups.push({ members: arr.map(t => t.idx), suggested_primary: arr[0].idx, covered_by: null, reason: key.replace('|', ' + ') }); });
         const aiProposedCount = aiGroups.length;
+
+        // Persist the deterministic result (replaces the old raw-AI dump) — read this to debug grouping.
+        try {
+          await writeJsonFile('data/blog-fusion-last-raw.json', {
+            at: new Date().toISOString(), poolSize: pool.length, mode: 'deterministic',
+            tags: tagged.map(t => ({ keyword: t.p.keyword, style: t.tag.style, room: t.tag.room })),
+            groups: aiGroups
+          }, 'Fusion: save deterministic grouping for debugging');
+        } catch (e) { /* debug file only — never blocks the run */ }
 
         const newGroups = [];
         const nowGroupedLc = new Set();
@@ -3498,6 +3644,70 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         await writeJsonFile('data/blog-fusion-checked.json', { singletons: [...singletonsSet], grouped: [...groupedSet] }, `Fusion discarded — unlocked: ${group.winnerKeyword}`);
 
         return res.status(200).json({ success: true });
+      }
+
+      // ── ACTION: reject-fusion-keyword ── Mae removes ONE keyword from a pending group (she doesn't think
+      // it belongs). That keyword is FREED (moved grouped→singletons) so a future run can place it in a
+      // different group. The rest of the group stays. If a merge drops below 2 members it dissolves (its
+      // remaining members are freed too); a covered group keeps its blog link even with one member left.
+      if (req.body.action === 'reject-fusion-keyword') {
+        const winnerKeyword = String(req.body.winnerKeyword || '').trim();
+        const rejectKeyword = String(req.body.keyword || '').trim();
+        if (!winnerKeyword || !rejectKeyword) return res.status(400).json({ error: 'winnerKeyword and keyword required' });
+        const winnerLc = winnerKeyword.toLowerCase();
+        const rejectLc = rejectKeyword.toLowerCase();
+        const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+        const idx = pending.findIndex(g => (g.winnerKeyword || '').toLowerCase() === winnerLc);
+        if (idx === -1) return res.status(404).json({ error: 'That group is no longer pending.' });
+        const group = pending[idx];
+
+        // Rebuild the full member list (winner first) so we can drop one and re-pick a winner.
+        const winnerMember = {
+          keyword: group.winnerKeyword, title: group.winnerTitle || '', source: group.winnerSource || 'towrite',
+          pageUrl: group.winnerPageUrl || null, urlFree: !!group.winnerUrlFree, lockedToKeyword: group.winnerLockedTo || null,
+          volume: null, difficulty: null, impressions: null
+        };
+        const allMembers = [winnerMember, ...(group.secondary || [])];
+        const kept = allMembers.filter(m => (m.keyword || '').toLowerCase() !== rejectLc);
+        if (kept.length === allMembers.length) return res.status(404).json({ error: 'That keyword is not in this group.' });
+
+        // Free a keyword: move it out of "grouped" and into "singletons" so the next run reconsiders it.
+        const free = async (keywordsLc, note) => {
+          const checked = await readJsonFileSafe('data/blog-fusion-checked.json', { singletons: [], grouped: [] });
+          const groupedSet = new Set((checked.grouped || []).map(s => String(s).toLowerCase()));
+          const singletonsSet = new Set((checked.singletons || []).map(s => String(s).toLowerCase()));
+          keywordsLc.forEach(k => { groupedSet.delete(k); singletonsSet.add(k); });
+          await writeJsonFile('data/blog-fusion-checked.json', { singletons: [...singletonsSet], grouped: [...groupedSet] }, note);
+        };
+
+        const isCovered = group.type === 'covered' && group.coveredBlog;
+        // A merge needs ≥2 members; a covered group is fine with 1 (or even 0 → gone).
+        const dissolve = (!isCovered && kept.length < 2) || kept.length < 1;
+        if (dissolve) {
+          pending.splice(idx, 1);
+          await writeJsonFile('data/blog-fusion-pending.json', pending, `Fusion: dissolved group after rejecting "${rejectKeyword}"`);
+          await free([rejectLc, ...kept.map(m => (m.keyword || '').toLowerCase())], `Fusion: freed ${kept.length + 1} keyword(s) from a dissolved group`);
+          return res.status(200).json({ success: true, removed: true });
+        }
+
+        // Re-pick the winner among the kept members: highest volume, else highest impressions, else first.
+        let winner = kept.slice().filter(m => m.volume != null).sort((a, b) => (b.volume - a.volume) || ((a.difficulty ?? 99) - (b.difficulty ?? 99)))[0];
+        if (!winner) winner = kept.slice().filter(m => m.impressions != null).sort((a, b) => b.impressions - a.impressions)[0];
+        if (!winner) winner = kept[0];
+        const secondary = kept.filter(m => (m.keyword || '').toLowerCase() !== (winner.keyword || '').toLowerCase());
+
+        group.winnerKeyword = winner.keyword;
+        group.winnerTitle = winner.title || '';
+        group.winnerSource = winner.source || 'towrite';
+        group.winnerPageUrl = winner.pageUrl || null;
+        group.winnerUrlFree = !!winner.urlFree;
+        group.winnerLockedTo = winner.lockedToKeyword || null;
+        group.secondary = secondary;
+        pending[idx] = group;
+        await writeJsonFile('data/blog-fusion-pending.json', pending, `Fusion: rejected "${rejectKeyword}" from ${group.winnerKeyword}`);
+        await free([rejectLc], `Fusion: freed "${rejectKeyword}" to rejoin a future group`);
+
+        return res.status(200).json({ success: true, group });
       }
 
       // ── ACTION: remove-covered ── a group is already covered by a published/scheduled blog and Mae
