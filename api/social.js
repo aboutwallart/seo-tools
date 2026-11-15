@@ -1,4 +1,7 @@
 // Social Content Tool — tick-state persistence on GitHub.
+// 2026-11-15: script generator (step 4) max_tokens 6000→16000. Long colour/infographic blogs (~19 scenes with
+//   long image prompts) were overflowing 6000 output tokens, so the JSON came back truncated and unparseable
+//   → "Could not read the AI output — try again." Raising the cap lets the full JSON return.
 // 2026-10-18: Kling prompt — physical realism. Template + gold-standard now keep furniture/décor still, and a new
 //   rule makes the AI compare the START/END frames so any object that changes position is physically moved by a
 //   person (never drifts on its own) — stops the "AI look" of furniture sliding by itself.
@@ -1749,7 +1752,7 @@ module.exports = async (req, res) => {
 
       var ar = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST', headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 6000, messages: [{ role: 'user', content: prompt }] })
+        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 16000, messages: [{ role: 'user', content: prompt }] })
       });
       if (!ar.ok) {
         var aerr = await ar.text();
