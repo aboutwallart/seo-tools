@@ -1,4 +1,9 @@
-// blogs.js — v6.5
+// blogs.js — v6.6
+// v6.6 (2026-11-15): "one place at a time" flow. To Write only shows APPROVED blogs now — a topic lives in
+//   the Duplicate check (Singles/Grouped/Covered) until Mae approves it, then it moves to To Write. New
+//   data/blog-approved.json (lowercased keywords); apply-fusion-group + fusion-single-to-write add to it;
+//   get-fused-groups returns `approved`; find-fusion-groups EXCLUDES approved keywords from the pool so an
+//   approved blog never re-appears in the dedup.
 // v6.5 (2026-11-15): Blog Manager 8-tab reorg. save-blog-ideas honours a row.status (so pasted ideas land
 //   as BLANK = Blog Ideas, not TO_WRITE). New set-keyword-metric (saves target keyword vol/difficulty to
 //   data/keyword-metrics.json). find-fusion-groups now ALSO returns `singles` (tagged leftovers not covered
@@ -1260,7 +1265,8 @@ Include EXACTLY 3 items.`;
       }
       if (req.query.action === 'get-fused-groups') {
         const groups = await readJsonFileSafe('data/blog-fused-groups.json', {});
-        return res.status(200).json({ success: true, groups });
+        const approved = await readJsonFileSafe('data/blog-approved.json', []);
+        return res.status(200).json({ success: true, groups, approved: Array.isArray(approved) ? approved : [] });
       }
 
       // ── ACTION: performing-keywords-blog ── "Ya rankeás — capturá más" (BLOG side): informational
@@ -3304,7 +3310,9 @@ Include EXACTLY 3 items.`;
 
         const checked = await readJsonFileSafe('data/blog-fusion-checked.json', { singletons: [], grouped: [] });
         const groupedSet = new Set((checked.grouped || []).map(s => String(s).toLowerCase()));
-        const pool = [...poolMap.values()].filter(p => !groupedSet.has(p.keyword.toLowerCase()));
+        const approvedArr = await readJsonFileSafe('data/blog-approved.json', []);
+        const approvedSet = new Set((Array.isArray(approvedArr) ? approvedArr : []).map(s => String(s).toLowerCase()));
+        const pool = [...poolMap.values()].filter(p => !groupedSet.has(p.keyword.toLowerCase()) && !approvedSet.has(p.keyword.toLowerCase()));
 
         if (!pool.length) {
           return res.status(200).json({ success: true, newGroups: [], checkedCount: 0, message: 'Nothing new to check.' });
@@ -3708,6 +3716,7 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         const grouped = new Set((checked.grouped || []).map(x => String(x).toLowerCase())); grouped.add(kw.toLowerCase());
         const singletons = new Set((checked.singletons || []).map(x => String(x).toLowerCase())); singletons.delete(kw.toLowerCase());
         await writeJsonFile('data/blog-fusion-checked.json', { singletons: [...singletons], grouped: [...grouped] }, 'Fusion: single to To Write');
+        try { const ap = await readJsonFileSafe('data/blog-approved.json', []); const set = new Set((Array.isArray(ap) ? ap : []).map(x => String(x).toLowerCase())); set.add(kw.toLowerCase()); await writeJsonFile('data/blog-approved.json', [...set], `Approved: ${kw}`); } catch (e) {}
         return res.status(200).json({ success: true, keyword: kw });
       }
 
@@ -3795,6 +3804,9 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
 
         pending.splice(idx, 1);
         await writeJsonFile('data/blog-fusion-pending.json', pending, `Fusion applied — removed from pending: ${group.winnerKeyword}`);
+
+        // Approved → the winner is now a real blog to write, so it moves to the To Write tab.
+        try { const ap = await readJsonFileSafe('data/blog-approved.json', []); const set = new Set((Array.isArray(ap) ? ap : []).map(x => String(x).toLowerCase())); set.add(winnerLc); await writeJsonFile('data/blog-approved.json', [...set], `Approved: ${group.winnerKeyword}`); } catch (e) {}
 
         return res.status(200).json({ success: true, winnerKeyword: group.winnerKeyword, winnerTitle: group.winnerTitle, secondary: group.secondary, reason: group.reason, touched });
       }
