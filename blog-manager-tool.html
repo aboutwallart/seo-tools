@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.19 - 2026-11-14</p>
+        <p class="version">v6.21 - 2026-11-15</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -277,8 +277,17 @@
             <button class="tab-btn active" onclick="switchTab('ideas')" id="tab-ideas">
                 Blog Ideas <span class="tab-count" id="count-ideas">0</span>
             </button>
+            <button class="tab-btn" onclick="switchTab('priority')" id="tab-priority">
+                Priority from GSC
+            </button>
+            <button class="tab-btn" onclick="switchTab('dupcheck')" id="tab-dupcheck">
+                Duplicate check
+            </button>
             <button class="tab-btn" onclick="switchTab('towrite')" id="tab-towrite">
                 To Write <span class="tab-count" id="count-towrite">0</span>
+            </button>
+            <button class="tab-btn" onclick="switchTab('planmonth')" id="tab-planmonth">
+                Plan a month
             </button>
             <button class="tab-btn" onclick="switchTab('monthprog')" id="tab-monthprog">
                 Month in progress <span class="tab-count" id="count-monthprog">0</span>
@@ -292,6 +301,15 @@
         </div>
 
         <div class="tab-content active" id="panel-ideas">
+            <div style="background:#f4f8ff;border:1px solid #cfe0ff;border-radius:10px;padding:14px;margin-bottom:16px;">
+                <div style="font-weight:700;margin-bottom:6px;">➕ Add new ideas</div>
+                <div style="color:#5a7a70;font-size:13px;margin-bottom:8px;">Paste your ideas — <b>one per line</b>. Each becomes a blog idea to triage. Add the target keyword + Ubersuggest data later on each card.</div>
+                <textarea id="paste-ideas-input" rows="5" placeholder="One idea per line…" style="width:100%;box-sizing:border-box;padding:10px;border:1px solid #ccc;border-radius:6px;font-size:14px;resize:vertical;"></textarea>
+                <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                    <button id="paste-ideas-btn" onclick="pasteNewIdeas()" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:10px 18px;font-weight:700;cursor:pointer;">Add all</button>
+                    <span id="paste-ideas-note" style="color:#666;font-size:13px;"></span>
+                </div>
+            </div>
             <div id="filter-bar" class="filter-bar" style="display:none;">
                 <span class="filter-label">Filter:</span>
                 <button class="btn-filter active-all" onclick="setFilter('all')">All <span id="fc-all">0</span></button>
@@ -314,6 +332,33 @@
             </div>
         </div>
 
+        <div class="tab-content" id="panel-priority">
+            <div id="gsc-blog-panel" style="background:#f4faf8;border:1px solid #cfe2db;border-radius:10px;padding:14px;margin-bottom:16px;">
+                <div style="font-weight:700;margin-bottom:4px;">🔎 Priority topics from Google Search Console</div>
+                <div style="color:#5a7a70;font-size:13px;margin-bottom:10px;">Informational searches you appear for but don't get clicked — great topics for new blogs. Remove the ones you don't want with <b>✕</b>, then <b>Approve</b> the rest to add them to To Write (they're mixed in when you plan a month).</div>
+                <div id="gsc-blog-list"><span style="color:#888;font-size:13px;">Loading…</span></div>
+            </div>
+        </div>
+
+        <div class="tab-content" id="panel-dupcheck">
+            <div id="fusion-panel" style="background:#fdf6ec;border:1px solid #f0ddb8;border-radius:10px;padding:14px;margin-bottom:16px;">
+                <div style="font-weight:700;margin-bottom:4px;">🔗 Duplicate-topic check</div>
+                <div style="color:#8a6d1a;font-size:13px;margin-bottom:10px;">One run checks everything together — To Write topics AND the "You already rank" list — and cross-checks your published and scheduled blogs. It merges same-search duplicates into ONE blog, and flags any topic already covered by an existing blog (so you can Remove it, or Add the angle to that blog). You review and approve each one before anything changes.</div>
+                <button id="fusion-find-btn" onclick="findFusionGroups()" style="background:#c0561d;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">🔍 Find duplicate topics</button>
+                <button id="fusion-reset-btn" onclick="findFusionGroups(true)" title="Clear old saved results and re-check everything from scratch" style="background:#fff;color:#c0561d;border:1px solid #c0561d;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;margin-left:8px;">↻ Reset &amp; re-check all</button>
+                <span id="fusion-find-note" style="margin-left:10px;color:#666;font-size:13px;"></span>
+                <div id="fusion-rejected-list" style="margin-top:12px;"></div>
+                <div style="margin-top:14px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid #eadcc0;">
+                    <button id="dupsub-tab-covered" onclick="switchDupSub('covered')" style="background:#c0561d;color:#fff;border:none;border-radius:6px 6px 0 0;padding:8px 14px;font-weight:700;cursor:pointer;">Already covered <span id="dupc-covered">0</span></button>
+                    <button id="dupsub-tab-grouped" onclick="switchDupSub('grouped')" style="background:#f3e7cf;color:#8a6d1a;border:none;border-radius:6px 6px 0 0;padding:8px 14px;font-weight:700;cursor:pointer;">Grouped <span id="dupc-grouped">0</span></button>
+                    <button id="dupsub-tab-singles" onclick="switchDupSub('singles')" style="background:#f3e7cf;color:#8a6d1a;border:none;border-radius:6px 6px 0 0;padding:8px 14px;font-weight:700;cursor:pointer;">Singles <span id="dupc-singles">0</span></button>
+                </div>
+                <div id="dupcheck-covered" style="margin-top:12px;"></div>
+                <div id="dupcheck-grouped" style="margin-top:12px;display:none;"></div>
+                <div id="dupcheck-singles" style="margin-top:12px;display:none;"></div>
+            </div>
+        </div>
+
         <div class="tab-content" id="panel-towrite">
             <div class="add-title-box" style="background:#f4f8ff;border:1px solid #cfe0ff;border-radius:10px;padding:14px;margin-bottom:16px;">
                 <div style="font-weight:700;margin-bottom:8px;">➕ Add a new blog title</div>
@@ -323,30 +368,12 @@
                 </div>
                 <div id="add-title-result" style="margin-top:10px;font-size:14px;"></div>
             </div>
-
-            <div id="gsc-blog-panel" style="background:#f4faf8;border:1px solid #cfe2db;border-radius:10px;padding:14px;margin-bottom:16px;">
-                <div style="font-weight:700;margin-bottom:4px;">🔎 Priority topics from Google Search Console</div>
-                <div style="color:#5a7a70;font-size:13px;margin-bottom:10px;">Informational searches you appear for but don't get clicked — great topics for new blogs. Remove the ones you don't want with <b>✕</b>, then <b>Approve</b> the rest to add them to To Write (they're mixed in when you plan a month).</div>
-                <div id="gsc-blog-list"><span style="color:#888;font-size:13px;">Loading…</span></div>
+            <div id="towrite-container">
+                <div class="empty-state">No blogs marked for writing yet.</div>
             </div>
+        </div>
 
-            <div id="fusion-panel" style="background:#fdf6ec;border:1px solid #f0ddb8;border-radius:10px;padding:14px;margin-bottom:16px;">
-                <div style="font-weight:700;margin-bottom:4px;">🔗 Duplicate-topic check</div>
-                <div style="color:#8a6d1a;font-size:13px;margin-bottom:10px;">One run checks everything together — To Write topics AND the "You already rank" list — and cross-checks your published and scheduled blogs. It merges same-search duplicates into ONE blog, and flags any topic already covered by an existing blog (so you can Remove it, or Add the angle to that blog). You review and approve each one before anything changes.</div>
-                <button id="fusion-find-btn" onclick="findFusionGroups()" style="background:#c0561d;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">🔍 Find duplicate topics</button>
-                <button id="fusion-reset-btn" onclick="findFusionGroups(true)" title="Clear old saved results and re-check everything from scratch" style="background:#fff;color:#c0561d;border:1px solid #c0561d;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;margin-left:8px;">↻ Reset &amp; re-check all</button>
-                <span id="fusion-find-note" style="margin-left:10px;color:#666;font-size:13px;"></span>
-                <div id="fusion-rejected-list" style="margin-top:12px;"></div>
-                <div id="fusion-pending-list" style="margin-top:12px;"></div>
-            </div>
-
-            <div id="perf-panel-blog" style="background:#fff8e6;border:1px solid #f0ddb8;border-radius:10px;padding:14px;margin-bottom:16px;">
-                <div style="font-weight:700;margin-bottom:4px;">⭐ You already rank — capture more</div>
-                <div style="color:#8a6d1a;font-size:13px;margin-bottom:10px;">Informational searches you already get clicks on but haven't claimed. Top-6 first. Lock one to the page that already ranks (to optimise it in Money Page Doctor), or add it to To Write to write a dedicated blog.</div>
-                <button onclick="loadPerformingBlog(true)" style="background:#c0561d;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">↻ Refresh</button>
-                <div id="perf-list-blog" style="margin-top:12px;color:#888;font-size:13px;">Loading…</div>
-            </div>
-
+        <div class="tab-content" id="panel-planmonth">
             <div style="background:#f4f8ff;border:1px solid #cfe0ff;border-radius:10px;padding:14px;margin-bottom:16px;">
                 <div style="font-weight:700;margin-bottom:8px;">🎯 Plan a month</div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
@@ -367,8 +394,8 @@
                 <span class="bulk-action-info" id="bulk-send-info">0 selected</span>
                 <button class="btn-bulk-clear" onclick="clearToSendSelection()">Clear</button>
             </div>
-            <div id="towrite-container">
-                <div class="empty-state">No blogs marked for writing yet.</div>
+            <div id="planmonth-container">
+                <div class="empty-state">No blogs to plan yet.</div>
             </div>
         </div>
 
@@ -376,6 +403,7 @@
             <div style="background:#f4f8ff;border:1px solid #cfe0ff;border-radius:10px;padding:14px;margin-bottom:16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                 <span style="font-weight:700;">📅 Month:</span>
                 <select id="mp-month-filter" onchange="displayMonthProgress()" style="padding:9px;border:1px solid #ccc;border-radius:6px;font-size:14px;"></select>
+                <button onclick="clearWholeMonth()" title="Send every blog in this month back to To Write so they re-enter the duplicate check" style="background:#fff;color:#b3261e;border:1.5px solid #b3261e;border-radius:6px;padding:8px 14px;font-weight:700;font-size:13px;cursor:pointer;">✕ Clear month → To Write</button>
                 <span id="mp-note" style="color:#666;font-size:13px;"></span>
             </div>
             <div id="monthprog-container">
@@ -536,15 +564,28 @@
         // + the write step; FUSION_PENDING (proposed, awaiting review) loads when the To Write tab opens.
         // ============================================
         let FUSION_PENDING = [];
+        let FUSION_SINGLES = [];
         // Session-only "put back" undo list — cleared on reload / new session (the persisted rejection stays).
         let REJECTED_SESSION = [];
         async function loadFusionPending() {
             try {
                 const r = await fetch('/api/blogs?action=get-fusion-pending').then(x => x.json());
                 FUSION_PENDING = (r && r.groups) || [];
+                FUSION_SINGLES = (r && r.singles) || [];
                 renderFusionPending();
+                renderSingles();
                 renderRejectedBlock();
             } catch (e) { /* non-blocking */ }
+        }
+        function setDupCount(sub, n) { const el = document.getElementById('dupc-' + sub); if (el) el.textContent = n; }
+        function switchDupSub(sub) {
+            ['covered', 'grouped', 'singles'].forEach(s => {
+                const panel = document.getElementById('dupcheck-' + s);
+                const btn = document.getElementById('dupsub-tab-' + s);
+                if (panel) panel.style.display = (s === sub) ? 'block' : 'none';
+                if (btn) { btn.style.background = (s === sub) ? '#c0561d' : '#f3e7cf'; btn.style.color = (s === sub) ? '#fff' : '#8a6d1a'; }
+            });
+            if (sub === 'singles') renderSingles();
         }
         async function loadFusedGroups() {
             try {
@@ -558,40 +599,105 @@
             const fg = window._fusedGroups && window._fusedGroups[k];
             return (fg && fg.secondary) || [];
         }
+        function fusionCardHtml(g) {
+            const kwEnc = encodeURIComponent(g.winnerKeyword);
+            const isCovered = g.type === 'covered' && g.coveredBlog;
+            const anyRank = g.winnerSource === 'rank' || (g.secondary || []).some(s => s.source === 'rank');
+            const rejectBtn = (kw) => ' <button onclick="rejectFusionKeyword(\'' + kwEnc + '\',\'' + encodeURIComponent(kw) + '\')" title="Remove this one from the group and free it for another group" style="background:none;border:none;color:#a33;cursor:pointer;font-size:12px;padding:0 2px;">✕ not this one</button>';
+            const secList = (g.secondary || []).map(s =>
+                '<li>' + escBlog(s.keyword) + (s.source === 'rank' ? ' <span style="color:#1f6fb2;">(already ranks)</span>' : '') + (s.volume ? ' (vol ' + s.volume + ')' : (s.impressions ? ' (' + s.impressions + ' impr.)' : '')) + rejectBtn(s.keyword) + '</li>'
+            ).join('');
+            const rankNote = anyRank ? '<div style="font-size:12px;color:#1f6fb2;margin:2px 0 8px;">Ranks elsewhere → the ranking page links here via Money Page Doctor → “Add the link”.</div>' : '';
+            let head, body2, buttons, border = '#e6d3a3', bg = '#fffdf8';
+            if (isCovered) {
+                border = '#d9b3b3'; bg = '#fff6f6';
+                head = '<div style="font-weight:700;color:#a11;">⚠ Already covered: ' + escBlog(g.winnerKeyword) + '</div>'
+                     + '<div style="font-size:13px;color:#7a1414;margin:4px 0;">A ' + (g.coveredBlog.status === 'scheduled' ? 'scheduled' : 'published') + ' blog already covers this: <b>' + escBlog(g.coveredBlog.title) + '</b></div>';
+                body2 = (g.secondary && g.secondary.length) ? ('<div style="font-size:13px;color:#444;">Same-intent searches in this group:</div><ul style="margin:4px 0 8px 20px;font-size:13px;color:#444;">' + secList + '</ul>') : '';
+                buttons = '<button onclick="addAnglePreview(\'' + kwEnc + '\')" style="background:#1f6fb2;color:#fff;border:none;border-radius:6px;padding:7px 14px;font-weight:700;cursor:pointer;margin:0 8px 6px 0;">📝 Add angle to the blog</button>'
+                        + '<button onclick="removeCovered(\'' + kwEnc + '\')" style="background:#fff;color:#a33;border:1px solid #ccc;border-radius:6px;padding:7px 14px;font-weight:700;cursor:pointer;margin:0 8px 6px 0;">🗑 Remove (already done)</button>'
+                        + '<button onclick="discardFusionGroup(\'' + kwEnc + '\')" style="background:#fff;color:#8a6d1a;border:1px solid #ccc;border-radius:6px;padding:7px 14px;font-weight:700;cursor:pointer;margin-bottom:6px;">✕ Keep separate</button>';
+            } else {
+                head = '<div style="font-weight:700;">' + escBlog(g.winnerKeyword) + (g.winnerSource === 'rank' ? ' <span style="color:#1f6fb2;font-size:12px;font-weight:400;">(already ranks)</span>' : '') + '</div>'
+                     + '<div style="color:#555;font-size:13px;margin:4px 0;">' + escBlog(g.winnerTitle || '') + '</div>';
+                body2 = '<div style="font-size:13px;color:#444;">Also covers:</div><ul style="margin:4px 0 8px 20px;font-size:13px;color:#444;">' + secList + '</ul>';
+                buttons = '<button onclick="applyFusionGroup(\'' + kwEnc + '\')" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:7px 14px;font-weight:700;cursor:pointer;margin-right:8px;">✅ Approve — one blog</button>'
+                        + '<button onclick="discardFusionGroup(\'' + kwEnc + '\')" style="background:#fff;color:#8a6d1a;border:1px solid #ccc;border-radius:6px;padding:7px 14px;font-weight:700;cursor:pointer;">✕ Keep separate</button>';
+            }
+            return '<div style="border:1px solid ' + border + ';border-radius:8px;padding:12px;margin-bottom:10px;background:' + bg + ';">'
+                + head + body2 + rankNote
+                + (g.reason ? '<div style="font-size:12px;color:#999;margin-bottom:8px;">' + escBlog(g.reason) + '</div>' : '')
+                + buttons + '</div>';
+        }
         function renderFusionPending() {
-            const box = document.getElementById('fusion-pending-list'); if (!box) return;
-            if (!FUSION_PENDING.length) { box.innerHTML = ''; return; }
-            const sigLabel = (s) => s === 'volume' ? 'by search volume' : s === 'impressions' ? 'by your GSC impressions' : 'AI pick — no volume data';
-            box.innerHTML = FUSION_PENDING.map(g => {
-                const kwEnc = encodeURIComponent(g.winnerKeyword);
-                const isCovered = g.type === 'covered' && g.coveredBlog;
-                const anyRank = g.winnerSource === 'rank' || (g.secondary || []).some(s => s.source === 'rank');
-                const rejectBtn = (kw) => ' <button onclick="rejectFusionKeyword(\'' + kwEnc + '\',\'' + encodeURIComponent(kw) + '\')" title="Remove this one from the group and free it for another group" style="background:none;border:none;color:#a33;cursor:pointer;font-size:12px;padding:0 2px;">✕ not this one</button>';
-                const secList = (g.secondary || []).map(s =>
-                    '<li>' + escBlog(s.keyword) + (s.source === 'rank' ? ' <span style="color:#1f6fb2;">(already ranks)</span>' : '') + (s.volume ? ' (vol ' + s.volume + ')' : (s.impressions ? ' (' + s.impressions + ' impr.)' : '')) + rejectBtn(s.keyword) + '</li>'
-                ).join('');
-                const rankNote = anyRank ? '<div style="font-size:12px;color:#1f6fb2;margin:2px 0 8px;">Ranks elsewhere → the ranking page links here via Money Page Doctor → “Add the link”.</div>' : '';
-                let head, body2, buttons, border = '#e6d3a3', bg = '#fffdf8';
-                if (isCovered) {
-                    border = '#d9b3b3'; bg = '#fff6f6';
-                    head = '<div style="font-weight:700;color:#a11;">⚠ Already covered: ' + escBlog(g.winnerKeyword) + '</div>'
-                         + '<div style="font-size:13px;color:#7a1414;margin:4px 0;">A ' + (g.coveredBlog.status === 'scheduled' ? 'scheduled' : 'published') + ' blog already covers this: <b>' + escBlog(g.coveredBlog.title) + '</b></div>';
-                    body2 = (g.secondary && g.secondary.length) ? ('<div style="font-size:13px;color:#444;">Same-intent searches in this group:</div><ul style="margin:4px 0 8px 20px;font-size:13px;color:#444;">' + secList + '</ul>') : '';
-                    buttons = '<button onclick="addAnglePreview(\'' + kwEnc + '\')" style="background:#1f6fb2;color:#fff;border:none;border-radius:6px;padding:7px 14px;font-weight:700;cursor:pointer;margin:0 8px 6px 0;">📝 Add angle to the blog</button>'
-                            + '<button onclick="removeCovered(\'' + kwEnc + '\')" style="background:#fff;color:#a33;border:1px solid #ccc;border-radius:6px;padding:7px 14px;font-weight:700;cursor:pointer;margin:0 8px 6px 0;">🗑 Remove (already done)</button>'
-                            + '<button onclick="discardFusionGroup(\'' + kwEnc + '\')" style="background:#fff;color:#8a6d1a;border:1px solid #ccc;border-radius:6px;padding:7px 14px;font-weight:700;cursor:pointer;margin-bottom:6px;">✕ Keep separate</button>';
-                } else {
-                    head = '<div style="font-weight:700;">🏆 Winner: ' + escBlog(g.winnerKeyword) + (g.winnerSource === 'rank' ? ' <span style="color:#1f6fb2;font-size:12px;font-weight:400;">(already ranks)</span>' : '') + ' <span style="font-weight:400;color:#888;font-size:12px;">(' + sigLabel(g.signals) + ')</span>' + rejectBtn(g.winnerKeyword) + '</div>'
-                         + '<div style="color:#555;font-size:13px;margin:4px 0;">' + escBlog(g.winnerTitle || '') + '</div>';
-                    body2 = '<div style="font-size:13px;color:#444;">Will also cover as secondary angles:</div><ul style="margin:4px 0 8px 20px;font-size:13px;color:#444;">' + secList + '</ul>';
-                    buttons = '<button onclick="applyFusionGroup(\'' + kwEnc + '\')" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:7px 14px;font-weight:700;cursor:pointer;margin-right:8px;">✅ Merge these</button>'
-                            + '<button onclick="discardFusionGroup(\'' + kwEnc + '\')" style="background:#fff;color:#8a6d1a;border:1px solid #ccc;border-radius:6px;padding:7px 14px;font-weight:700;cursor:pointer;">✕ Keep separate</button>';
-                }
-                return '<div style="border:1px solid ' + border + ';border-radius:8px;padding:12px;margin-bottom:10px;background:' + bg + ';">'
-                    + head + body2 + rankNote
-                    + (g.reason ? '<div style="font-size:12px;color:#999;margin-bottom:8px;">' + escBlog(g.reason) + '</div>' : '')
-                    + buttons + '</div>';
+            const covBox = document.getElementById('dupcheck-covered');
+            const grpBox = document.getElementById('dupcheck-grouped');
+            if (!covBox || !grpBox) return;
+            const covered = FUSION_PENDING.filter(g => g.type === 'covered' && g.coveredBlog);
+            const grouped = FUSION_PENDING.filter(g => !(g.type === 'covered' && g.coveredBlog));
+            covBox.innerHTML = covered.length ? covered.map(fusionCardHtml).join('') : '<div style="color:#888;font-size:13px;padding:8px;">Nothing already covered right now.</div>';
+            grpBox.innerHTML = grouped.length ? grouped.map(fusionCardHtml).join('') : '<div style="color:#888;font-size:13px;padding:8px;">No groups right now.</div>';
+            setDupCount('covered', covered.length); setDupCount('grouped', grouped.length);
+        }
+        function renderSingles() {
+            const box = document.getElementById('dupcheck-singles'); if (!box) return;
+            const singles = (FUSION_SINGLES || []).slice().sort((a, b) => ((b.source === 'rank') - (a.source === 'rank')) || ((b.volume || b.impressions || 0) - (a.volume || a.impressions || 0)));
+            setDupCount('singles', singles.length);
+            if (!singles.length) { box.innerHTML = '<div style="color:#888;font-size:13px;padding:8px;">No singles — run the check.</div>'; return; }
+            const header = '<div style="margin-bottom:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
+                + '<button onclick="groupSelectedSingles()" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;">✅ Group selected</button>'
+                + '<span style="color:#666;font-size:12.5px;">Tick the ones that go together, then Group. The ones you already rank for are on top.</span></div>';
+            box.innerHTML = header + singles.map(s => {
+                const kwEnc = encodeURIComponent(s.keyword);
+                const ranks = s.source === 'rank';
+                const tagLine = [s.style, s.room].filter(Boolean).join(' · ') || 'no style / room';
+                const metrics = ranks ? ('pos ' + (s.position != null ? s.position : '—') + ' · ' + (s.impressions != null ? s.impressions : '—') + ' impr') : (s.volume != null ? ('vol ' + s.volume) : (s.impressions != null ? (s.impressions + ' impr') : ''));
+                const rankBadge = ranks ? '<span style="background:#e4eefb;color:#1f6fb2;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;margin-left:6px;">already ranks</span>' : '';
+                let mpdBtn = '';
+                if (ranks && s.pageUrl && s.urlFree) mpdBtn = '<button onclick="optimiseSingleMpd(\'' + kwEnc + '\')" style="background:#2e7d32;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;font-size:13px;cursor:pointer;margin-right:8px;">① Optimise that page (MPD)</button>';
+                const whereLine = (ranks && s.pageUrl) ? '<div style="font-size:12px;color:#1f6fb2;margin:2px 0 6px;word-break:break-word;">ranks on: ' + escBlog(s.pageUrl) + (s.urlFree ? '' : ' (locked to “' + escBlog(s.lockedToKeyword || 'another keyword') + '” → needs its own blog)') + '</div>' : '';
+                return '<div style="border:1px solid #e6d3a3;border-radius:8px;padding:11px 13px;margin-bottom:8px;background:#fffdf8;">'
+                    + '<label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer;">'
+                    + '<input type="checkbox" class="single-cb" value="' + kwEnc + '" style="margin-top:4px;">'
+                    + '<div style="flex:1;"><div style="font-weight:600;">' + escBlog(s.keyword) + rankBadge + '</div>'
+                    + '<div style="font-size:12px;color:#888;margin-top:2px;">' + escBlog(tagLine) + (metrics ? (' · ' + metrics) : '') + '</div>'
+                    + whereLine
+                    + '<div style="margin-top:8px;">' + mpdBtn
+                    + '<button onclick="singleToWrite(\'' + kwEnc + '\')" style="background:#1f6fb2;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;font-size:13px;cursor:pointer;">② Write its own blog</button></div>'
+                    + '</div></label></div>';
             }).join('');
+        }
+        async function groupSelectedSingles() {
+            const checked = Array.from(document.querySelectorAll('#dupcheck-singles .single-cb:checked')).map(cb => decodeURIComponent(cb.value));
+            if (checked.length < 2) { alert('Tick at least 2 to group.'); return; }
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'fusion-manual-group', keywords: checked }) }).then(x => x.json());
+                if (!r.success) throw new Error(r.error || 'Could not group.');
+                await loadFusionPending();
+                switchDupSub(r.matched ? 'covered' : 'grouped');
+            } catch (e) { alert('Could not group: ' + e.message); }
+        }
+        async function singleToWrite(encKw) {
+            const kw = decodeURIComponent(encKw);
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'fusion-single-to-write', keyword: kw }) }).then(x => x.json());
+                if (!r.success) throw new Error(r.error || 'Could not add.');
+                FUSION_SINGLES = FUSION_SINGLES.filter(s => (s.keyword || '').toLowerCase() !== kw.toLowerCase());
+                renderSingles(); refreshAll();
+            } catch (e) { alert('Could not add: ' + e.message); }
+        }
+        async function optimiseSingleMpd(encKw) {
+            const kw = decodeURIComponent(encKw);
+            const s = FUSION_SINGLES.find(x => (x.keyword || '').toLowerCase() === kw.toLowerCase());
+            if (!s || !s.pageUrl) { alert('No ranking page for this one.'); return; }
+            if (!confirm('Send “' + kw + '” to Money Page Doctor to optimise ' + s.pageUrl + '?')) return;
+            try {
+                const r = await fetch('/api/keywords', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'capture-optimise', keyword: kw, url: s.pageUrl, intent: 'INFORMATIONAL', source: 'blog', meta: { impressions: s.impressions, position: s.position } }) }).then(x => x.json());
+                if (!(r.ok || r.success)) throw new Error(r.error || r.message || 'failed');
+                try { await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'fusion-drop-single', keyword: kw }) }); } catch (e) {}
+                FUSION_SINGLES = FUSION_SINGLES.filter(x => (x.keyword || '').toLowerCase() !== kw.toLowerCase());
+                renderSingles();
+            } catch (e) { alert('Could not send: ' + e.message); }
         }
         async function findFusionGroups(reset) {
             if (reset && !confirm('Clear the old saved results and re-check every topic from scratch? (Your rejected/kept choices stay.)')) return;
@@ -858,7 +964,10 @@
             document.getElementById(`tab-${tab}`).classList.add('active');
             document.getElementById(`panel-${tab}`).classList.add('active');
             if (tab !== 'ideas') clearSelection();
-            if (tab === 'towrite') { loadGscBlogTopics(); loadFusionPending(); loadPerformingBlog(false); }
+            if (tab === 'priority') loadGscBlogTopics();
+            if (tab === 'dupcheck') loadFusionPending();
+            if (tab === 'towrite') displayToWrite('towrite-container');
+            if (tab === 'planmonth') displayToWrite('planmonth-container');
         }
 
         function updateTabCounts() {
@@ -1015,6 +1124,9 @@
                 const rows = parseCSV(csvText);
                 allRows = rows;
 
+                // keyword metrics (Ubersuggest vol/difficulty) for the Blog Ideas cards
+                try { const mr = await fetch('https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/keyword-metrics.json?t=' + Date.now()); if (mr.ok) { const mj = await mr.json(); window._kwMetrics = {}; Object.keys(mj || {}).forEach(k => { window._kwMetrics[k.toLowerCase()] = mj[k]; }); } } catch (e) { window._kwMetrics = window._kwMetrics || {}; }
+
                 let idxCounter = 0;
                 allIdeas = [];
 
@@ -1095,8 +1207,13 @@
         // ============================================
         // DISPLAY TO WRITE (Tab 2)
         // ============================================
-        function displayToWrite() {
-            const container = document.getElementById('towrite-container');
+        function displayToWrite(targetId) {
+            const planActive = document.getElementById('panel-planmonth') && document.getElementById('panel-planmonth').classList.contains('active');
+            const activeId = targetId || (planActive ? 'planmonth-container' : 'towrite-container');
+            const otherId = activeId === 'towrite-container' ? 'planmonth-container' : 'towrite-container';
+            const otherEl = document.getElementById(otherId); if (otherEl) otherEl.innerHTML = '';
+            const container = document.getElementById(activeId);
+            if (!container) return;
             // Month-tagged blogs move to the "Month in progress" tab, so To Write shows only untagged ones.
             const all = allIdeas.filter(i => ['TO_WRITE','TO_WRITE_PENDING','TO_WRITE_SENT'].includes(i.status) && !i.month && !isPublishedBlog(i));
             if (all.length === 0) {
@@ -1138,7 +1255,7 @@
         function clearToSendSelection() {
             selectedToSend.clear();
             document.querySelectorAll('.ts-checkbox').forEach(cb => { cb.checked = false; });
-            document.querySelectorAll('#panel-towrite .idea-card').forEach(c => c.classList.remove('selected-card'));
+            document.querySelectorAll('#panel-towrite .idea-card, #panel-planmonth .idea-card').forEach(c => c.classList.remove('selected-card'));
             updateBulkSendBar();
         }
 
@@ -1261,6 +1378,22 @@
 
         // TRIM: remove a blog from its month → back to To Write (for another month), lowering the month count.
         // Use when the month is over target. Does NOT bring in a replacement.
+        // Clear a whole month → every blog in it goes back to To Write (and re-enters the duplicate check).
+        async function clearWholeMonth() {
+            const sel = document.getElementById('mp-month-filter');
+            const month = sel ? sel.value : '';
+            if (!month) { alert('Pick a month first.'); return; }
+            const blogs = allIdeas.filter(i => i.month === month && (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && !isPublishedBlog(i));
+            if (!blogs.length) { alert('No blogs to clear for ' + month + '.'); return; }
+            if (!confirm('Send all ' + blogs.length + ' blog(s) for ' + month + ' back to To Write? They leave the month and re-enter the duplicate check.')) return;
+            const titles = blogs.map(b => b.title || b.currentTitle || '').filter(Boolean);
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-month', titles, month: '' }) }).then(x => x.json());
+                if (!r.success) throw new Error(r.error || 'Could not clear the month');
+                blogs.forEach(b => { b.month = ''; });
+                refreshAll();
+            } catch (e) { alert('Could not clear month: ' + e.message); }
+        }
         async function removeFromMonth(index) {
             const idea = allIdeas.find(i => i.index === index); if (!idea || !idea.month) return;
             const title = idea.title || idea.currentTitle || '';
@@ -1535,10 +1668,20 @@
                             <button class="btn-save-title" id="save-btn-${index}" onclick="saveNewTitle(${index})">Save &amp; Re-check</button>
                         </div>
                     </div>`;
+                const _needsKw = !((idea.currentKeyword || '').trim());
+                const _m = (window._kwMetrics && window._kwMetrics[(idea.currentKeyword || '').toLowerCase()]) || {};
+                const kwMetaBar = `<div style="border-top:1px dashed rgba(0,0,0,0.12);margin-top:12px;padding-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                        ${_needsKw ? '<span style="background:#fde8c8;color:#8a5a12;font-weight:700;font-size:12px;padding:2px 8px;border-radius:6px;">needs keyword research</span>' : ''}
+                        <input id="kw-kw-${index}" type="text" value="${escHtml(idea.currentKeyword || '')}" placeholder="target keyword" style="flex:1;min-width:160px;padding:7px;border:1px solid #ccc;border-radius:6px;font-size:13px;">
+                        <input id="kw-vol-${index}" type="number" value="${_m.volume != null ? _m.volume : ''}" placeholder="vol" style="width:72px;padding:7px;border:1px solid #ccc;border-radius:6px;font-size:13px;">
+                        <input id="kw-dif-${index}" type="number" value="${_m.difficulty != null ? _m.difficulty : ''}" placeholder="diff" style="width:72px;padding:7px;border:1px solid #ccc;border-radius:6px;font-size:13px;">
+                        <button onclick="saveIdeaMetric(${index})" style="background:#1565c0;color:#fff;border:none;border-radius:6px;padding:7px 12px;font-weight:700;font-size:13px;cursor:pointer;">Save</button>
+                        <span id="kw-meta-note-${index}" style="color:#2e7d32;font-size:12px;"></span>
+                    </div>`;
                 return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:20px;">
                         <div style="flex:1.1;font-size:18px;font-weight:500;color:#1a1a1a;">${bigKw || '—'}</div>
                         <div style="flex:1;text-align:right;font-size:14px;color:#444;">${escHtml(idea.currentTitle || '')}</div>
-                    </div>${clashSection}${editBar}`;
+                    </div>${clashSection}${editBar}${kwMetaBar}`;
             })() : '';
 
             // The comp / write / imgp containers now live INSIDE the numbered layout above (per step).
@@ -3635,6 +3778,54 @@
             } catch (e) {
                 out.innerHTML = '<span style="color:#a33;">❌ ' + escHtml(e.message) + '</span>';
             }
+        }
+
+        // Paste many raw ideas (one per line) → each becomes a Blog Idea (blank status) to triage.
+        async function pasteNewIdeas() {
+            const ta = document.getElementById('paste-ideas-input');
+            const note = document.getElementById('paste-ideas-note');
+            const btn = document.getElementById('paste-ideas-btn');
+            const raw = (ta.value || '').split('\n').map(s => s.trim()).filter(Boolean);
+            const have = new Set(allIdeas.map(i => (i.title || '').toLowerCase()).concat(allIdeas.map(i => (i.keyword || '').toLowerCase())));
+            const seen = new Set(); const titles = [];
+            raw.forEach(t => { const lc = t.toLowerCase(); if (!seen.has(lc) && !have.has(lc)) { seen.add(lc); titles.push(t); } });
+            if (!titles.length) { note.textContent = 'Nothing new to add.'; return; }
+            btn.disabled = true; btn.textContent = 'Adding…'; note.textContent = 'Checking ' + titles.length + ' idea(s)…';
+            try {
+                const res = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'analyze-blog-titles', titles }) }).then(x => x.json());
+                const results = (res && res.results && res.results.length) ? res.results : titles.map(t => ({ title: t, keyword: '', cannibalization: 'NO CONFLICT' }));
+                const rows = results.map(r => ({ title: r.title, keyword: r.keyword || '', cannibalization: r.cannibalization || 'NO CONFLICT', conflictingKeyword: r.conflictingKeyword || '', conflictingUrl: r.conflictingUrl || '', clashIntent: r.clashIntent || '', looserCount: r.looserCount || 0, isNew: true, status: '' }));
+                const save = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-blog-ideas', rows }) }).then(x => x.json());
+                if (!save.success) throw new Error(save.error || 'Save failed');
+                let nextIndex = allIdeas.length ? Math.max(...allIdeas.map(i => i.index)) + 1 : 0;
+                results.forEach(r => { allIdeas.push({ index: nextIndex++, keyword: r.keyword || '', title: r.title, perspective: '', cannibalization: r.cannibalization || 'NO CONFLICT', conflictingKeyword: r.conflictingKeyword || '', conflictingUrl: r.conflictingUrl || '', clashIntent: r.clashIntent || '', looserCount: r.looserCount || 0, currentTitle: r.title, currentKeyword: r.keyword || '', status: '' }); });
+                ta.value = ''; note.textContent = '✅ Added ' + results.length + ' idea(s) to triage.';
+                refreshAll();
+            } catch (e) { note.textContent = '❌ ' + e.message; }
+            finally { btn.disabled = false; btn.textContent = 'Add all'; }
+        }
+
+        // Save a Blog Idea's target keyword (+ optional Ubersuggest vol/difficulty).
+        async function saveIdeaMetric(index) {
+            const idea = allIdeas.find(i => i.index === index); if (!idea) return;
+            const kw = (document.getElementById('kw-kw-' + index).value || '').trim();
+            const vol = document.getElementById('kw-vol-' + index).value;
+            const dif = document.getElementById('kw-dif-' + index).value;
+            const note = document.getElementById('kw-meta-note-' + index);
+            note.textContent = 'Saving…';
+            try {
+                if (kw && kw.toLowerCase() !== (idea.currentKeyword || '').toLowerCase()) {
+                    await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-blog-ideas', rows: [{ title: idea.currentTitle || idea.title, keyword: kw, cannibalization: idea.cannibalization, conflictingKeyword: idea.conflictingKeyword, conflictingUrl: idea.conflictingUrl, clashIntent: idea.clashIntent }] }) });
+                    idea.keyword = kw; idea.currentKeyword = kw;
+                }
+                if (kw && (vol !== '' || dif !== '')) {
+                    await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set-keyword-metric', keyword: kw, volume: vol, difficulty: dif }) });
+                    window._kwMetrics = window._kwMetrics || {};
+                    window._kwMetrics[kw.toLowerCase()] = Object.assign({}, window._kwMetrics[kw.toLowerCase()] || {}, vol !== '' ? { volume: Number(vol) } : {}, dif !== '' ? { difficulty: Number(dif) } : {});
+                }
+                note.textContent = '✅ saved';
+                displayIdeas();
+            } catch (e) { note.textContent = '❌ ' + e.message; }
         }
 
         // ============================================
