@@ -269,34 +269,34 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.21 - 2026-11-15</p>
+        <p class="version">v6.22 - 2026-11-15</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
         <div class="tabs">
             <button class="tab-btn active" onclick="switchTab('ideas')" id="tab-ideas">
-                Blog Ideas <span class="tab-count" id="count-ideas">0</span>
+                1 · Blog Ideas <span class="tab-count" id="count-ideas">0</span>
             </button>
             <button class="tab-btn" onclick="switchTab('priority')" id="tab-priority">
-                Priority from GSC
+                2 · Priority from GSC
             </button>
             <button class="tab-btn" onclick="switchTab('dupcheck')" id="tab-dupcheck">
-                Duplicate check
+                3 · Duplicate check <span class="tab-count" id="count-dupcheck">0</span>
             </button>
             <button class="tab-btn" onclick="switchTab('towrite')" id="tab-towrite">
-                To Write <span class="tab-count" id="count-towrite">0</span>
+                4 · To Write <span class="tab-count" id="count-towrite">0</span>
             </button>
             <button class="tab-btn" onclick="switchTab('planmonth')" id="tab-planmonth">
-                Plan a month
+                5 · Plan a month
             </button>
             <button class="tab-btn" onclick="switchTab('monthprog')" id="tab-monthprog">
-                Month in progress <span class="tab-count" id="count-monthprog">0</span>
+                6 · Month in progress <span class="tab-count" id="count-monthprog">0</span>
             </button>
             <button class="tab-btn" onclick="switchTab('kwchange')" id="tab-kwchange">
-                Keyword Change <span class="tab-count" id="count-kwchange">0</span>
+                7 · Keyword Change <span class="tab-count" id="count-kwchange">0</span>
             </button>
             <button class="tab-btn" onclick="switchTab('ignored')" id="tab-ignored">
-                Ignored <span class="tab-count" id="count-ignored">0</span>
+                8 · Ignored <span class="tab-count" id="count-ignored">0</span>
             </button>
         </div>
 
@@ -348,26 +348,18 @@
                 <button id="fusion-reset-btn" onclick="findFusionGroups(true)" title="Clear old saved results and re-check everything from scratch" style="background:#fff;color:#c0561d;border:1px solid #c0561d;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;margin-left:8px;">↻ Reset &amp; re-check all</button>
                 <span id="fusion-find-note" style="margin-left:10px;color:#666;font-size:13px;"></span>
                 <div id="fusion-rejected-list" style="margin-top:12px;"></div>
-                <div style="margin-top:14px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid #eadcc0;">
-                    <button id="dupsub-tab-covered" onclick="switchDupSub('covered')" style="background:#c0561d;color:#fff;border:none;border-radius:6px 6px 0 0;padding:8px 14px;font-weight:700;cursor:pointer;">Already covered <span id="dupc-covered">0</span></button>
-                    <button id="dupsub-tab-grouped" onclick="switchDupSub('grouped')" style="background:#f3e7cf;color:#8a6d1a;border:none;border-radius:6px 6px 0 0;padding:8px 14px;font-weight:700;cursor:pointer;">Grouped <span id="dupc-grouped">0</span></button>
-                    <button id="dupsub-tab-singles" onclick="switchDupSub('singles')" style="background:#f3e7cf;color:#8a6d1a;border:none;border-radius:6px 6px 0 0;padding:8px 14px;font-weight:700;cursor:pointer;">Singles <span id="dupc-singles">0</span></button>
-                </div>
-                <div id="dupcheck-covered" style="margin-top:12px;"></div>
-                <div id="dupcheck-grouped" style="margin-top:12px;display:none;"></div>
-                <div id="dupcheck-singles" style="margin-top:12px;display:none;"></div>
             </div>
+            <div style="display:flex;gap:0;border-bottom:2px solid #e3e3e3;margin-bottom:14px;">
+                <button id="dupsub-tab-covered" onclick="switchDupSub('covered')" style="flex:1;background:#c0561d;color:#fff;border:none;border-radius:8px 8px 0 0;padding:11px 8px;font-weight:700;cursor:pointer;">Already covered <span id="dupc-covered">0</span></button>
+                <button id="dupsub-tab-grouped" onclick="switchDupSub('grouped')" style="flex:1;background:#f0f0f0;color:#555;border:none;border-radius:8px 8px 0 0;padding:11px 8px;font-weight:700;cursor:pointer;">Grouped <span id="dupc-grouped">0</span></button>
+                <button id="dupsub-tab-singles" onclick="switchDupSub('singles')" style="flex:1;background:#f0f0f0;color:#555;border:none;border-radius:8px 8px 0 0;padding:11px 8px;font-weight:700;cursor:pointer;">Singles <span id="dupc-singles">0</span></button>
+            </div>
+            <div id="dupcheck-covered"></div>
+            <div id="dupcheck-grouped" style="display:none;"></div>
+            <div id="dupcheck-singles" style="display:none;"></div>
         </div>
 
         <div class="tab-content" id="panel-towrite">
-            <div class="add-title-box" style="background:#f4f8ff;border:1px solid #cfe0ff;border-radius:10px;padding:14px;margin-bottom:16px;">
-                <div style="font-weight:700;margin-bottom:8px;">➕ Add a new blog title</div>
-                <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                    <input id="new-title-input" type="text" placeholder="Type the blog title…" onkeydown="if(event.key==='Enter')checkNewTitle()" style="flex:1;min-width:260px;padding:10px;border:1px solid #ccc;border-radius:6px;font-size:15px;">
-                    <button id="add-title-btn" onclick="checkNewTitle()" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:10px 18px;font-weight:700;cursor:pointer;">Check &amp; Add</button>
-                </div>
-                <div id="add-title-result" style="margin-top:10px;font-size:14px;"></div>
-            </div>
             <div id="towrite-container">
                 <div class="empty-state">No blogs marked for writing yet.</div>
             </div>
@@ -513,6 +505,7 @@
         function renderGscBlogList() {
             const box = document.getElementById('gsc-blog-list'); if (!box) return;
             const opts = GSC_BLOG_KEPT;
+            if (typeof setTabColor === 'function') setTabColor('priority', (opts && opts.length) > 0);
             if (!opts.length) { box.innerHTML = '<span style="color:#888;font-size:13px;">No new topics right now.</span>'; return; }
             box.innerHTML =
                 '<div style="margin-bottom:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
@@ -575,6 +568,7 @@
                 renderFusionPending();
                 renderSingles();
                 renderRejectedBlock();
+                updateTabCounts();
             } catch (e) { /* non-blocking */ }
         }
         function setDupCount(sub, n) { const el = document.getElementById('dupc-' + sub); if (el) el.textContent = n; }
@@ -583,7 +577,7 @@
                 const panel = document.getElementById('dupcheck-' + s);
                 const btn = document.getElementById('dupsub-tab-' + s);
                 if (panel) panel.style.display = (s === sub) ? 'block' : 'none';
-                if (btn) { btn.style.background = (s === sub) ? '#c0561d' : '#f3e7cf'; btn.style.color = (s === sub) ? '#fff' : '#8a6d1a'; }
+                if (btn) { btn.style.background = (s === sub) ? '#c0561d' : '#f0f0f0'; btn.style.color = (s === sub) ? '#fff' : '#555'; }
             });
             if (sub === 'singles') renderSingles();
         }
@@ -591,7 +585,19 @@
             try {
                 const r = await fetch('/api/blogs?action=get-fused-groups').then(x => x.json());
                 window._fusedGroups = (r && r.groups) || {};
-            } catch (e) { window._fusedGroups = window._fusedGroups || {}; }
+                window._approved = (r && r.approved) || [];
+            } catch (e) { window._fusedGroups = window._fusedGroups || {}; window._approved = window._approved || []; }
+        }
+        // A To Write topic is only shown once it is APPROVED: a merge winner, a single sent to "Write its own
+        // blog", or a previously-fused winner. Until then it lives in the Duplicate check (one place at a time).
+        function approvedSet() {
+            const s = new Set((window._approved || []).map(x => String(x).toLowerCase()));
+            Object.keys(window._fusedGroups || {}).forEach(k => s.add(String(k).toLowerCase()));
+            return s;
+        }
+        function isApprovedIdea(i) {
+            const s = approvedSet();
+            return s.has((i.keyword || '').toLowerCase()) || s.has((i.currentKeyword || '').toLowerCase());
         }
         function fusionFor(idea) {
             const k = (idea.keyword || idea.currentKeyword || '').toLowerCase();
@@ -644,9 +650,11 @@
             const singles = (FUSION_SINGLES || []).slice().sort((a, b) => ((b.source === 'rank') - (a.source === 'rank')) || ((b.volume || b.impressions || 0) - (a.volume || a.impressions || 0)));
             setDupCount('singles', singles.length);
             if (!singles.length) { box.innerHTML = '<div style="color:#888;font-size:13px;padding:8px;">No singles — run the check.</div>'; return; }
-            const header = '<div style="margin-bottom:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
+            const header = '<div style="margin-bottom:10px;">'
+                + '<input id="singles-search" type="text" placeholder="🔍 Search a keyword (e.g. old money)…" oninput="filterSingles()" value="' + escBlog(window._singlesQuery || '') + '" style="width:100%;box-sizing:border-box;padding:9px 11px;border:1px solid #ccc;border-radius:8px;font-size:14px;margin-bottom:10px;">'
+                + '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
                 + '<button onclick="groupSelectedSingles()" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;">✅ Group selected</button>'
-                + '<span style="color:#666;font-size:12.5px;">Tick the ones that go together, then Group. The ones you already rank for are on top.</span></div>';
+                + '<span style="color:#666;font-size:12.5px;">Search a keyword to pull all that include it, tick them, then Group. Ranked ones on top.</span></div></div>';
             box.innerHTML = header + singles.map(s => {
                 const kwEnc = encodeURIComponent(s.keyword);
                 const ranks = s.source === 'rank';
@@ -656,7 +664,7 @@
                 let mpdBtn = '';
                 if (ranks && s.pageUrl && s.urlFree) mpdBtn = '<button onclick="optimiseSingleMpd(\'' + kwEnc + '\')" style="background:#2e7d32;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;font-size:13px;cursor:pointer;margin-right:8px;">① Optimise that page (MPD)</button>';
                 const whereLine = (ranks && s.pageUrl) ? '<div style="font-size:12px;color:#1f6fb2;margin:2px 0 6px;word-break:break-word;">ranks on: ' + escBlog(s.pageUrl) + (s.urlFree ? '' : ' (locked to “' + escBlog(s.lockedToKeyword || 'another keyword') + '” → needs its own blog)') + '</div>' : '';
-                return '<div style="border:1px solid #e6d3a3;border-radius:8px;padding:11px 13px;margin-bottom:8px;background:#fffdf8;">'
+                return '<div class="single-row" data-kw="' + escBlog((s.keyword || '').toLowerCase()) + '" style="border:1px solid #e6d3a3;border-radius:8px;padding:11px 13px;margin-bottom:8px;background:#fffdf8;">'
                     + '<label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer;">'
                     + '<input type="checkbox" class="single-cb" value="' + kwEnc + '" style="margin-top:4px;">'
                     + '<div style="flex:1;"><div style="font-weight:600;">' + escBlog(s.keyword) + rankBadge + '</div>'
@@ -666,6 +674,14 @@
                     + '<button onclick="singleToWrite(\'' + kwEnc + '\')" style="background:#1f6fb2;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;font-size:13px;cursor:pointer;">② Write its own blog</button></div>'
                     + '</div></label></div>';
             }).join('');
+            filterSingles();
+        }
+        function filterSingles() {
+            const q = ((document.getElementById('singles-search') || {}).value || '').toLowerCase().trim();
+            window._singlesQuery = q;
+            document.querySelectorAll('#dupcheck-singles .single-row').forEach(el => {
+                el.style.display = (!q || (el.getAttribute('data-kw') || '').includes(q)) ? '' : 'none';
+            });
         }
         async function groupSelectedSingles() {
             const checked = Array.from(document.querySelectorAll('#dupcheck-singles .single-cb:checked')).map(cb => decodeURIComponent(cb.value));
@@ -966,17 +982,34 @@
             if (tab !== 'ideas') clearSelection();
             if (tab === 'priority') loadGscBlogTopics();
             if (tab === 'dupcheck') loadFusionPending();
-            if (tab === 'towrite') displayToWrite('towrite-container');
-            if (tab === 'planmonth') displayToWrite('planmonth-container');
+            if (tab === 'towrite') displayToWrite();
+            if (tab === 'planmonth') displayPlanMonth();
         }
 
+        function setTabColor(tab, pending) {
+            const b = document.getElementById('tab-' + tab); if (!b) return;
+            b.style.color = pending ? '#b3261e' : '#2e7d32';
+        }
         function updateTabCounts() {
             const isToWrite = (i) => i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING';
-            document.getElementById('count-ideas').textContent    = allIdeas.filter(i => i.status === '').length;
-            document.getElementById('count-towrite').textContent  = allIdeas.filter(i => isToWrite(i) && !i.month && !isPublishedBlog(i)).length;
-            document.getElementById('count-monthprog').textContent= allIdeas.filter(i => isToWrite(i) && i.month && !isPublishedBlog(i)).length;
-            document.getElementById('count-kwchange').textContent = allIdeas.filter(i => i.status === 'KEYWORD_CHANGE').length;
-            document.getElementById('count-ignored').textContent  = allIdeas.filter(i => i.status === 'IGNORED').length;
+            const ideasN   = allIdeas.filter(i => i.status === '').length;
+            const toWriteN = allIdeas.filter(i => isToWrite(i) && !i.month && !isPublishedBlog(i) && isApprovedIdea(i)).length;
+            const monthN   = allIdeas.filter(i => isToWrite(i) && i.month && !isPublishedBlog(i)).length;
+            const kwN      = allIdeas.filter(i => i.status === 'KEYWORD_CHANGE').length;
+            const ignN     = allIdeas.filter(i => i.status === 'IGNORED').length;
+            const dupN     = ((typeof FUSION_PENDING !== 'undefined' ? FUSION_PENDING.length : 0) + (typeof FUSION_SINGLES !== 'undefined' ? FUSION_SINGLES.length : 0));
+            document.getElementById('count-ideas').textContent    = ideasN;
+            document.getElementById('count-towrite').textContent  = toWriteN;
+            document.getElementById('count-monthprog').textContent= monthN;
+            document.getElementById('count-kwchange').textContent = kwN;
+            document.getElementById('count-ignored').textContent  = ignN;
+            const dc = document.getElementById('count-dupcheck'); if (dc) dc.textContent = dupN;
+            // item 7 — red title when there's something to process, green when clear
+            setTabColor('ideas', ideasN > 0);
+            setTabColor('dupcheck', dupN > 0);
+            setTabColor('towrite', toWriteN > 0);
+            setTabColor('monthprog', monthN > 0);
+            setTabColor('kwchange', kwN > 0);
         }
 
         // ============================================
@@ -1207,55 +1240,54 @@
         // ============================================
         // DISPLAY TO WRITE (Tab 2)
         // ============================================
-        function displayToWrite(targetId) {
-            const planActive = document.getElementById('panel-planmonth') && document.getElementById('panel-planmonth').classList.contains('active');
-            const activeId = targetId || (planActive ? 'planmonth-container' : 'towrite-container');
-            const otherId = activeId === 'towrite-container' ? 'planmonth-container' : 'towrite-container';
-            const otherEl = document.getElementById(otherId); if (otherEl) otherEl.innerHTML = '';
-            const container = document.getElementById(activeId);
+        // To Write shows ONLY approved blogs (one place at a time) — the full process cards.
+        function displayToWrite() {
+            const container = document.getElementById('towrite-container');
             if (!container) return;
-            // Month-tagged blogs move to the "Month in progress" tab, so To Write shows only untagged ones.
-            const all = allIdeas.filter(i => ['TO_WRITE','TO_WRITE_PENDING','TO_WRITE_SENT'].includes(i.status) && !i.month && !isPublishedBlog(i));
+            const all = allIdeas.filter(i => ['TO_WRITE','TO_WRITE_PENDING','TO_WRITE_SENT'].includes(i.status) && !i.month && !isPublishedBlog(i) && isApprovedIdea(i));
             if (all.length === 0) {
-                container.innerHTML = `<div class="empty-state">No blogs marked for writing yet.</div>`;
-                updateBulkSendBar();
+                container.innerHTML = `<div class="empty-state">Nothing approved yet — approve groups or singles in the Duplicate check and they land here.</div>`;
                 return;
             }
-            // Unsent on top, sent (grey) at bottom
-            let unsent = all.filter(i => i.status !== 'TO_WRITE_SENT');
+            const unsent = all.filter(i => i.status !== 'TO_WRITE_SENT');
             const sent   = all.filter(i => i.status === 'TO_WRITE_SENT');
-            // If a monthly diversity pick is active, show the unsent list in that spread order
+            container.innerHTML = [...unsent, ...sent].map(idea => buildIdeaCard(idea, 'towrite')).join('');
+            [...unsent, ...sent].forEach(idea => { restoreDraft(idea.index); restoreBriefNote(idea.index); restoreProducts(idea.index); restoreFinish(idea.index); restorePublish(idea.index); });
+        }
+
+        // Plan a month shows a COMPACT pick-list of the approved blogs (not the full cards — no duplication).
+        function displayPlanMonth() {
+            const container = document.getElementById('planmonth-container');
+            if (!container) return;
+            let all = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && !i.month && !isPublishedBlog(i) && isApprovedIdea(i));
+            if (!all.length) { container.innerHTML = `<div class="empty-state">No approved blogs to plan yet.</div>`; updateBulkSendBar(); return; }
             if (Array.isArray(window._monthlyOrder) && window._monthlyOrder.length) {
                 const pos = new Map(window._monthlyOrder.map((idx, k) => [idx, k]));
-                unsent = unsent.slice().sort((a, b) => (pos.has(a.index) ? pos.get(a.index) : 1e9) - (pos.has(b.index) ? pos.get(b.index) : 1e9));
+                all = all.slice().sort((a, b) => (pos.has(a.index) ? pos.get(a.index) : 1e9) - (pos.has(b.index) ? pos.get(b.index) : 1e9));
             }
-            container.innerHTML = [...unsent, ...sent].map(idea => buildIdeaCard(idea, 'towrite')).join('');
-            // Restore ticked state (auto-pick 30 uses this)
-            selectedToSend.forEach(idx => {
-                const cb = document.getElementById(`ts-cb-${idx}`);
-                const card = document.getElementById(`card-${idx}`);
-                if (cb) cb.checked = true;
-                if (card) card.classList.add('selected-card');
-            });
-            // Re-show any written blogs (session or saved) + saved-brief notes on the visible cards.
-            [...unsent, ...sent].forEach(idea => { restoreDraft(idea.index); restoreBriefNote(idea.index); restoreProducts(idea.index); restoreFinish(idea.index); restorePublish(idea.index); });
+            container.innerHTML = all.map(idea => {
+                const checked = selectedToSend.has(idea.index) ? 'checked' : '';
+                const b = bucketOf(idea.currentTitle || idea.title);
+                return `<label style="display:flex;gap:10px;align-items:center;padding:9px 12px;border:1px solid #e3e3e3;border-radius:8px;margin-bottom:6px;background:#fff;cursor:pointer;">
+                    <input type="checkbox" class="pm-cb" id="pm-cb-${idea.index}" ${checked} onchange="toggleToSend(${idea.index})">
+                    <span style="flex:1;font-size:14px;">${escHtml(idea.currentTitle || idea.title || idea.keyword || '')}</span>
+                    <span style="font-size:11px;color:#999;">${escHtml(b || '')}</span>
+                </label>`;
+            }).join('');
             updateBulkSendBar();
         }
 
         function toggleToSend(index) {
             if (selectedToSend.has(index)) selectedToSend.delete(index);
             else selectedToSend.add(index);
-            const card = document.getElementById(`card-${index}`);
-            const cb   = document.getElementById(`ts-cb-${index}`);
-            if (card) card.classList.toggle('selected-card', selectedToSend.has(index));
-            if (cb)   cb.checked = selectedToSend.has(index);
+            const cb = document.getElementById(`pm-cb-${index}`);
+            if (cb) cb.checked = selectedToSend.has(index);
             updateBulkSendBar();
         }
 
         function clearToSendSelection() {
             selectedToSend.clear();
-            document.querySelectorAll('.ts-checkbox').forEach(cb => { cb.checked = false; });
-            document.querySelectorAll('#panel-towrite .idea-card, #panel-planmonth .idea-card').forEach(c => c.classList.remove('selected-card'));
+            document.querySelectorAll('.pm-cb').forEach(cb => { cb.checked = false; });
             updateBulkSendBar();
         }
 
@@ -1273,14 +1305,8 @@
         }
 
         function selectAllUnsent() {
-            const unsent = allIdeas.filter(i => i.status === 'TO_WRITE_PENDING');
-            unsent.forEach(idea => {
-                selectedToSend.add(idea.index);
-                const cb   = document.getElementById(`ts-cb-${idea.index}`);
-                const card = document.getElementById(`card-${idea.index}`);
-                if (cb)   cb.checked = true;
-                if (card) card.classList.add('selected-card');
-            });
+            const all = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && !i.month && !isPublishedBlog(i) && isApprovedIdea(i));
+            all.forEach(idea => { selectedToSend.add(idea.index); const cb = document.getElementById(`pm-cb-${idea.index}`); if (cb) cb.checked = true; });
             updateBulkSendBar();
         }
 
@@ -1541,7 +1567,7 @@
         }
 
         function refreshAll() {
-            displayIdeas(); displayToWrite(); displayMonthProgress(); displayKwChange(); displayIgnored(); updateTabCounts(); updateFilterCounts(); updatePlanLock();
+            displayIdeas(); displayToWrite(); displayPlanMonth(); displayMonthProgress(); displayKwChange(); displayIgnored(); updateTabCounts(); updateFilterCounts(); updatePlanLock();
         }
 
         // Colour counts shown ON the filter buttons (Blog Ideas only)
@@ -1591,7 +1617,7 @@
                     `;
                 } else {
                     // TO_WRITE or TO_WRITE_PENDING — numbered checklist: each step's panel opens right under it.
-                    checkboxHTML = `<input type="checkbox" class="ts-checkbox card-checkbox" id="ts-cb-${index}" onchange="toggleToSend(${index})">`;
+                    checkboxHTML = '';
                     const monthTag = idea.month ? `<span style="background:#e8f0fe;color:#1565c0;font-size:12px;font-weight:700;padding:2px 8px;border-radius:10px;">📅 ${idea.month}</span>` : '';
                     const t = (idea.currentTitle || '').toLowerCase();
                     const hasBrief = !!((window._briefs && window._briefs[index] && window._briefs[index].brief) || (window._briefsByTitle && window._briefsByTitle[t] && window._briefsByTitle[t].brief));
@@ -3920,7 +3946,7 @@
             const pick = finalOrder.slice(0, count);
             selectedToSend = new Set(pick.map(i => i.index));
             window._monthlyOrder = finalOrder.map(i => i.index);
-            displayToWrite();
+            displayPlanMonth();
             const seasonalUsed = pick.filter(i => seasonalMonths(i.title).includes(month)).length;
             document.getElementById('monthly-note').textContent = `${pick.length} picked for ${MONTH_NAMES[month - 1]} ${year} (every other day, ~${count}${seasonalUsed ? `, ${seasonalUsed} seasonal` : ''}). Adjust ticks, then Save selection to month.`;
         }
