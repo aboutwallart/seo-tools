@@ -1,4 +1,10 @@
-// blogs.js — v6.4
+// blogs.js — v6.5
+// v6.5 (2026-11-15): Blog Manager 8-tab reorg. save-blog-ideas honours a row.status (so pasted ideas land
+//   as BLANK = Blog Ideas, not TO_WRITE). New set-keyword-metric (saves target keyword vol/difficulty to
+//   data/keyword-metrics.json). find-fusion-groups now ALSO returns `singles` (tagged leftovers not covered
+//   and not grouped) so the Duplicate check "Singles" sub-tab can show them; lead keyword of a group now
+//   prioritises already-ranks + metrics. New fusion-manual-group (group chosen singles → match an existing
+//   blog by TITLE only → covered-add-angle, else a new To Write group).
 // v6.4 (2026-11-14): covered detection now DISTRIBUTES keywords across the matching blogs instead of dumping
 //   them all on the first one. Phase 1: specifics (style+room) spread across blogs of the same style+room,
 //   max 5 per blog, never the same blog twice. Phase 2: the leftovers (style-only, room-only, or specifics
@@ -1249,7 +1255,8 @@ Include EXACTLY 3 items.`;
       // "return { blogs }", so anything placed after that default never runs for a GET request.
       if (req.query.action === 'get-fusion-pending') {
         const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
-        return res.status(200).json({ success: true, groups: pending });
+        const singles = await readJsonFileSafe('data/blog-fusion-singles.json', []);
+        return res.status(200).json({ success: true, groups: pending, singles: Array.isArray(singles) ? singles : [] });
       }
       if (req.query.action === 'get-fused-groups') {
         const groups = await readJsonFileSafe('data/blog-fused-groups.json', {});
@@ -3212,7 +3219,7 @@ Include EXACTLY 3 items.`;
           if (r.isNew && !done.has(norm(r.title))) {
             const newCols = [
               r.keyword || '', r.title || '', r.perspective || '',
-              r.cannibalization || 'NO CONFLICT', r.conflictingKeyword || '', r.conflictingUrl || '', 'TO_WRITE', r.clashIntent || ''
+              r.cannibalization || 'NO CONFLICT', r.conflictingKeyword || '', r.conflictingUrl || '', (r.status !== undefined && r.status !== null ? r.status : 'TO_WRITE'), r.clashIntent || ''
             ];
             newLines.push(newCols.map(esc).join(','));
             done.add(norm(r.title));
@@ -3239,6 +3246,23 @@ Include EXACTLY 3 items.`;
         return res.status(200).json({ success: true, updated: done.size, appended });
       }
 
+      // ── ACTION: set-keyword-metric ── save a target keyword's Ubersuggest volume/difficulty into
+      // data/keyword-metrics.json (merged by keyword). Powers the Blog Ideas "needs keyword research" fields.
+      if (req.body.action === 'set-keyword-metric') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const kw = String(req.body.keyword || '').trim();
+        if (!kw) return res.status(400).json({ error: 'keyword required' });
+        const vol = (req.body.volume === '' || req.body.volume == null) ? null : Number(req.body.volume);
+        const diff = (req.body.difficulty === '' || req.body.difficulty == null) ? null : Number(req.body.difficulty);
+        const metrics = await readJsonFileSafe('data/keyword-metrics.json', {});
+        const prev = metrics[kw] || {};
+        metrics[kw] = Object.assign({}, prev,
+          (vol != null && !Number.isNaN(vol)) ? { volume: vol } : {},
+          (diff != null && !Number.isNaN(diff)) ? { difficulty: diff } : {});
+        await writeJsonFile('data/keyword-metrics.json', metrics, `Keyword metric: ${kw}`);
+        return res.status(200).json({ success: true, keyword: kw, metric: metrics[kw] });
+      }
+
       // ── ACTION: find-fusion-groups ── AI groups To Write keywords that share the SAME search intent
       // (so they'd fight each other in Google — cannibalisation WITHIN the write list, as opposed to
       // analyze-blog-titles above which only checks against ALREADY PUBLISHED blogs). Only sends
@@ -3252,6 +3276,7 @@ Include EXACTLY 3 items.`;
         if (req.body.reset) {
           try { await writeJsonFile('data/blog-fusion-pending.json', [], 'Fusion: reset pending (re-check all)'); } catch (e) {}
           try { await writeJsonFile('data/blog-fusion-checked.json', { singletons: [], grouped: [] }, 'Fusion: reset checked (re-check all)'); } catch (e) {}
+          try { await writeJsonFile('data/blog-fusion-singles.json', [], 'Fusion: reset singles (re-check all)'); } catch (e) {}
         }
         const ideasFile = await getGitHubFile('data/blog_ideas.csv');
         const lines = ideasFile.content.split('\n');
@@ -3543,15 +3568,23 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
             const gsc = gscLc[v.keyword.toLowerCase()];
             return { keyword: v.keyword, title: v.title || '', source: v.source || 'towrite', pageUrl: v.pageUrl || null, urlFree: !!v.urlFree, lockedToKeyword: v.lockedToKeyword || null, volume: met ? met.volume : null, difficulty: met ? met.seo_difficulty : null, impressions: (met && met.impressions) || v.impressions || (gsc ? gsc.impressions : null) };
           });
-          // Winner: highest search volume (our own data) > highest GSC impressions > AI's suggested_primary.
+          // Lead keyword priority (Mae): 1st already-ranks + good metrics, 2nd already-ranks, 3rd the rest
+          // by metrics. So prefer a ranked member (source 'rank'); among ties use volume > impressions.
           let winner = null, signal = 'ai-choice';
-          const withVolume = withSignals.filter(s => s.volume != null);
-          if (withVolume.length) {
-            winner = withVolume.slice().sort((a, b) => (b.volume - a.volume) || ((a.difficulty ?? 99) - (b.difficulty ?? 99)))[0];
-            signal = 'volume';
+          const metricScore = (s) => (s.volume != null ? s.volume : (s.impressions != null ? s.impressions : 0));
+          const rankedMembers = withSignals.filter(s => s.source === 'rank');
+          if (rankedMembers.length) {
+            winner = rankedMembers.slice().sort((a, b) => (metricScore(b) - metricScore(a)) || ((a.difficulty ?? 99) - (b.difficulty ?? 99)))[0];
+            signal = 'ranks';
           } else {
-            const withImpr = withSignals.filter(s => s.impressions != null);
-            if (withImpr.length) { winner = withImpr.slice().sort((a, b) => b.impressions - a.impressions)[0]; signal = 'impressions'; }
+            const withVolume = withSignals.filter(s => s.volume != null);
+            if (withVolume.length) {
+              winner = withVolume.slice().sort((a, b) => (b.volume - a.volume) || ((a.difficulty ?? 99) - (b.difficulty ?? 99)))[0];
+              signal = 'volume';
+            } else {
+              const withImpr = withSignals.filter(s => s.impressions != null);
+              if (withImpr.length) { winner = withImpr.slice().sort((a, b) => b.impressions - a.impressions)[0]; signal = 'impressions'; }
+            }
           }
           if (!winner) {
             const spIdx = parseInt(g.suggested_primary, 10);
@@ -3590,8 +3623,109 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
           await writeJsonFile('data/blog-fusion-pending.json', [...pending, ...newGroups], `Fusion: +${newGroups.length} pending group(s)`);
         }
 
+        // SINGLES = pool keywords that landed in NO group (not covered, not grouped). They feed the
+        // Duplicate check "Singles" sub-tab, where Mae groups them by hand. Ranked ones carry their page
+        // so the UI can offer "optimise in MPD". The saved file is replaced each run.
+        const singlesOut = tagged.filter(t => !nowGroupedLc.has(t.p.keyword.toLowerCase())).map(t => {
+          const lc = t.p.keyword.toLowerCase(); const met = metricsLc[lc]; const gsc = gscLc[lc];
+          return { keyword: t.p.keyword, title: t.p.title || '', source: t.p.source || 'towrite', style: t.tag.style, room: t.tag.room, pageUrl: t.p.pageUrl || null, urlFree: !!t.p.urlFree, lockedToKeyword: t.p.lockedToKeyword || null, volume: met ? met.volume : null, difficulty: met ? met.seo_difficulty : null, impressions: (met && met.impressions) || t.p.impressions || (gsc ? gsc.impressions : null), position: gsc ? gsc.position : null };
+        });
+        try { await writeJsonFile('data/blog-fusion-singles.json', singlesOut, `Fusion: ${singlesOut.length} single(s)`); } catch (e) {}
+
         const survivedNote = (aiProposedCount && aiProposedCount !== newGroups.length) ? ` (AI proposed ${aiProposedCount}, ${newGroups.length} valid — see data/blog-fusion-last-raw.json if that gap looks wrong)` : '';
-        return res.status(200).json({ success: true, newGroups, checkedCount: pool.length, aiProposedCount, message: `Checked ${pool.length} topics — found ${newGroups.length} new group${newGroups.length === 1 ? '' : 's'}.${survivedNote}` });
+        return res.status(200).json({ success: true, newGroups, singles: singlesOut, checkedCount: pool.length, aiProposedCount, message: `Checked ${pool.length} topics — found ${newGroups.length} new group${newGroups.length === 1 ? '' : 's'} + ${singlesOut.length} single${singlesOut.length === 1 ? '' : 's'}.${survivedNote}` });
+      }
+
+      // ── ACTION: fusion-manual-group ── Mae ticked several SINGLES and grouped them by hand. Match an
+      // existing published/scheduled blog by TITLE ONLY; if one shares the keywords → a 'covered' pending
+      // group (add angle); else a 'merge' pending group (new blog). The chosen keywords leave the singles
+      // list and are marked grouped so they don't resurface. Apply/remove/add-angle then do the CSV work.
+      if (req.body.action === 'fusion-manual-group') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const kws = (Array.isArray(req.body.keywords) ? req.body.keywords : []).map(k => String(k || '').trim()).filter(Boolean);
+        if (kws.length < 2) return res.status(400).json({ error: 'Pick at least 2 keywords to group.' });
+        const singles = await readJsonFileSafe('data/blog-fusion-singles.json', []);
+        const byLc = new Map((Array.isArray(singles) ? singles : []).map(s => [String(s.keyword || '').toLowerCase(), s]));
+        const members = kws.map(k => byLc.get(k.toLowerCase())).filter(Boolean);
+        if (members.length < 2) return res.status(400).json({ error: 'Those keywords are no longer in the singles list — re-run the check.' });
+
+        // TITLE-only match against LIVE Shopify blogs.
+        let existingBlogs = [];
+        try { existingBlogs = await fetchBlogsPubAndSched(); } catch (e) { existingBlogs = []; }
+        const STOP = new Set(['the','a','an','to','for','with','in','of','and','or','on','at','is','are','be','do','does','did','how','what','which','who','why','when','where','can','should','will','your','you','my','our','wall','walls','art','arts','artwork','decor','decoration','ideas','idea','guide','home','room','rooms','design','designs','best','make','use','ways','way','tips']);
+        const sig = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length >= 4 && !STOP.has(w));
+        const memberTokens = new Set(); members.forEach(m => sig(m.keyword).forEach(w => memberTokens.add(w)));
+        let best = null, bestScore = 0;
+        existingBlogs.forEach(b => { const ov = sig(b.title).filter(w => memberTokens.has(w)).length; if (ov > bestScore) { bestScore = ov; best = b; } });
+        const matchedBlog = bestScore >= 2 ? best : null;
+
+        // Lead keyword priority: already-ranks + metrics first.
+        const metricScore = (s) => (s.volume != null ? s.volume : (s.impressions != null ? s.impressions : 0));
+        const ordered = members.slice().sort((a, b) => ((b.source === 'rank') - (a.source === 'rank')) || (metricScore(b) - metricScore(a)));
+        const winner = ordered[0];
+        const secondary = ordered.slice(1).map(s => ({ keyword: s.keyword, title: s.title || '', source: s.source || 'towrite', pageUrl: s.pageUrl || null, urlFree: !!s.urlFree, lockedToKeyword: s.lockedToKeyword || null, volume: s.volume == null ? null : s.volume, difficulty: s.difficulty == null ? null : s.difficulty, impressions: s.impressions == null ? null : s.impressions }));
+        const group = {
+          id: `grp_${Date.now()}_manual`, bucketSig: null, type: matchedBlog ? 'covered' : 'merge',
+          winnerKeyword: winner.keyword, winnerTitle: winner.title || '', winnerSource: winner.source || 'towrite',
+          winnerPageUrl: winner.pageUrl || null, winnerUrlFree: !!winner.urlFree, winnerLockedTo: winner.lockedToKeyword || null,
+          reason: 'Grouped by hand', signals: 'manual', secondary,
+          coveredBlog: matchedBlog ? { id: matchedBlog.id, title: matchedBlog.title, handle: matchedBlog.handle, status: matchedBlog.status, url: matchedBlog.url } : null
+        };
+        const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+        await writeJsonFile('data/blog-fusion-pending.json', [...pending, group], `Fusion: manual group (${matchedBlog ? 'covered' : 'merge'})`);
+        const groupedLc = new Set(members.map(m => m.keyword.toLowerCase()));
+        const remaining = (Array.isArray(singles) ? singles : []).filter(s => !groupedLc.has(String(s.keyword || '').toLowerCase()));
+        await writeJsonFile('data/blog-fusion-singles.json', remaining, `Fusion: -${members.length} single(s) grouped by hand`);
+        const checked = await readJsonFileSafe('data/blog-fusion-checked.json', { singletons: [], grouped: [] });
+        const grouped = new Set((checked.grouped || []).map(s => String(s).toLowerCase())); groupedLc.forEach(k => grouped.add(k));
+        const singletons = new Set((checked.singletons || []).map(s => String(s).toLowerCase())); groupedLc.forEach(k => singletons.delete(k));
+        await writeJsonFile('data/blog-fusion-checked.json', { singletons: [...singletons], grouped: [...grouped] }, 'Fusion: mark hand-grouped keywords');
+        return res.status(200).json({ success: true, group, matched: !!matchedBlog });
+      }
+
+      // ── ACTION: fusion-single-to-write ── a lone SINGLE Mae wants as its own blog. A 'rank' keyword isn't
+      // in blog_ideas.csv yet → append a TO_WRITE row + hide it from the performing panel; a 'towrite' one is
+      // already there → just drop it from the singles list.
+      if (req.body.action === 'fusion-single-to-write') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const kw = String(req.body.keyword || '').trim();
+        if (!kw) return res.status(400).json({ error: 'keyword required' });
+        const singles = await readJsonFileSafe('data/blog-fusion-singles.json', []);
+        const s = (Array.isArray(singles) ? singles : []).find(x => String(x.keyword || '').toLowerCase() === kw.toLowerCase());
+        if (!s || s.source === 'rank') {
+          const esc = (c) => { const v = String(c == null ? '' : c); return (v.includes(',') || v.includes('"') || v.includes('\n')) ? `"${v.replace(/"/g, '""')}"` : v; };
+          const ideasFile = await getGitHubFile('data/blog_ideas.csv');
+          const lines = ideasFile.content.split('\n');
+          while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
+          const title = (s && s.title) ? s.title : kw;
+          lines.push([kw, title, '', 'NO CONFLICT', '', '', 'TO_WRITE', ''].map(esc).join(','));
+          await updateGitHubFile('data/blog_ideas.csv', lines.join('\n') + '\n', ideasFile.sha, `To Write: single "${kw}"`);
+          try { const pd = await readJsonFileSafe('data/gsc-performing-dismissed.json', []); const set = new Set((Array.isArray(pd) ? pd : []).map(x => String(x).toLowerCase())); set.add(kw.toLowerCase()); await writeJsonFile('data/gsc-performing-dismissed.json', [...set], 'Single→To Write: hide ranked keyword'); } catch (e) {}
+        }
+        const remaining = (Array.isArray(singles) ? singles : []).filter(x => String(x.keyword || '').toLowerCase() !== kw.toLowerCase());
+        await writeJsonFile('data/blog-fusion-singles.json', remaining, `Fusion: single "${kw}" → To Write`);
+        const checked = await readJsonFileSafe('data/blog-fusion-checked.json', { singletons: [], grouped: [] });
+        const grouped = new Set((checked.grouped || []).map(x => String(x).toLowerCase())); grouped.add(kw.toLowerCase());
+        const singletons = new Set((checked.singletons || []).map(x => String(x).toLowerCase())); singletons.delete(kw.toLowerCase());
+        await writeJsonFile('data/blog-fusion-checked.json', { singletons: [...singletons], grouped: [...grouped] }, 'Fusion: single to To Write');
+        return res.status(200).json({ success: true, keyword: kw });
+      }
+
+      // ── ACTION: fusion-drop-single ── remove a single from the list without writing a blog (used after
+      // "Optimise that page (MPD)"): drop from singles, mark grouped, and hide it from the performing panel.
+      if (req.body.action === 'fusion-drop-single') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const kw = String(req.body.keyword || '').trim();
+        if (!kw) return res.status(400).json({ error: 'keyword required' });
+        const singles = await readJsonFileSafe('data/blog-fusion-singles.json', []);
+        const remaining = (Array.isArray(singles) ? singles : []).filter(x => String(x.keyword || '').toLowerCase() !== kw.toLowerCase());
+        await writeJsonFile('data/blog-fusion-singles.json', remaining, `Fusion: drop single "${kw}"`);
+        const checked = await readJsonFileSafe('data/blog-fusion-checked.json', { singletons: [], grouped: [] });
+        const grouped = new Set((checked.grouped || []).map(x => String(x).toLowerCase())); grouped.add(kw.toLowerCase());
+        const singletons = new Set((checked.singletons || []).map(x => String(x).toLowerCase())); singletons.delete(kw.toLowerCase());
+        await writeJsonFile('data/blog-fusion-checked.json', { singletons: [...singletons], grouped: [...grouped] }, 'Fusion: drop single');
+        try { const pd = await readJsonFileSafe('data/gsc-performing-dismissed.json', []); const set = new Set((Array.isArray(pd) ? pd : []).map(x => String(x).toLowerCase())); set.add(kw.toLowerCase()); await writeJsonFile('data/gsc-performing-dismissed.json', [...set], 'Drop single: hide ranked keyword'); } catch (e) {}
+        return res.status(200).json({ success: true, keyword: kw });
       }
 
       // ── ACTION: apply-fusion-group ── Mae approved a proposed group: secondary keywords' rows go
