@@ -1,4 +1,9 @@
-// blogs.js — v6.9
+// blogs.js — v6.10
+// v6.10 (2026-11-16): ROOT-CAUSE fix for "no blogs found". fetchBlogsPubAndSched had query:"published_status:any"
+//   on the articles query, which Shopify honours by returning only ~21 articles (hasNextPage:false) instead
+//   of all ~250. So the dedup + blog search only ever saw ~21 (the scheduled ones) → published blogs like
+//   coastal/old-money/office were invisible, and "covered" only ever matched scheduled blogs. Removed the
+//   filter (the code already skips drafts by publishedAt), so the full catalogue is fetched.
 // v6.9 (2026-11-16): search-blogs-for-group now RETURNS already-used blogs too (with used:true) instead of
 //   hiding them — so Mae can see the search is working. Available first, used last; the UI greys the used
 //   ones out and disables them. Empty result now truly means "no blog matches".
@@ -546,7 +551,7 @@ If you genuinely cannot find one of the two, leave its two fields as empty strin
     const out = [];
     let cursor = null;
     const now = Date.now();
-    const QUERY = `query($cursor:String){ articles(first:100, after:$cursor, sortKey:PUBLISHED_AT, reverse:true, query:"published_status:any"){ edges{ cursor node{ id title handle publishedAt blog{ handle } } } pageInfo{ hasNextPage } } }`;
+    const QUERY = `query($cursor:String){ articles(first:100, after:$cursor, sortKey:PUBLISHED_AT, reverse:true){ edges{ cursor node{ id title handle publishedAt blog{ handle } } } pageInfo{ hasNextPage } } }`;
     for (let page = 0; page < 30; page++) {
       let data = null;
       try { data = await shopifyGraphQL(QUERY, { cursor }); }
