@@ -1,4 +1,9 @@
-// blogs.js — v6.7
+// blogs.js — v6.8
+// v6.8 (2026-11-16): duplicate-check reliability. (1) fetchBlogsPubAndSched made robust — 100/page +
+//   retry + partial results (first:250 was intermittently failing the WHOLE fetch → the dedup + the blog
+//   search found "no blogs"). (2) search-blogs-for-group now also matches by the room/style cascade, not
+//   only the literal typed words. (3) grouping no longer DROPS overflow to singles — a bucket of same
+//   style/room is split into groups of ≤4 so nothing (incl. low-volume "already ranks") falls through.
 // v6.7 (2026-11-16): duplicate-check matching rebuilt. Shared topic matcher (room/style) used by BOTH the
 //   automatic check AND the by-hand Singles grouping. Matches the PRINCIPAL word first, then synonyms, and
 //   pairs (style+room) before singles (style OR room) — exactly: (1) principal pair, (2) synonym pair,
@@ -532,15 +537,18 @@ If you genuinely cannot find one of the two, leave its two fields as empty strin
   // Helper: published AND future-scheduled blog articles (id + title + handle + status) — used by the
   // unified duplicate check (to flag a topic already covered) and by "add angle to an existing blog".
   async function fetchBlogsPubAndSched() {
+    // Robust: 100/page (first:250 intermittently failed the whole fetch → the dedup + blog search found
+    // "no blogs"), retry each page once, and keep whatever we already have if a later page still fails
+    // (partial beats empty). Never throws, so a Shopify hiccup never silently empties the blog list.
     const out = [];
     let cursor = null;
     const now = Date.now();
-    for (let page = 0; page < 12; page++) {
-      const data = await shopifyGraphQL(
-        `query($cursor:String){ articles(first:250, after:$cursor, sortKey:PUBLISHED_AT, reverse:true, query:"published_status:any"){ edges{ cursor node{ id title handle publishedAt blog{ handle } } } pageInfo{ hasNextPage } } }`,
-        { cursor }
-      );
-      const conn = data.articles; if (!conn) break;
+    const QUERY = `query($cursor:String){ articles(first:100, after:$cursor, sortKey:PUBLISHED_AT, reverse:true, query:"published_status:any"){ edges{ cursor node{ id title handle publishedAt blog{ handle } } } pageInfo{ hasNextPage } } }`;
+    for (let page = 0; page < 30; page++) {
+      let data = null;
+      try { data = await shopifyGraphQL(QUERY, { cursor }); }
+      catch (e1) { try { await new Promise(r => setTimeout(r, 400)); data = await shopifyGraphQL(QUERY, { cursor }); } catch (e2) { break; } }
+      const conn = data && data.articles; if (!conn) break;
       const edges = conn.edges || [];
       for (const e of edges) {
         const n = e.node; if (!n) continue;
@@ -3622,13 +3630,24 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
           else if (!isRejected(kwLc, pSig)) { if (!specificPairs.has(pSig)) specificPairs.set(pSig, []); specificPairs.get(pSig).push(t); }
           // else → rejected from every bucket it could join → singleton
         });
-        // Cap at 4 per blog so a merged post is never bloated: keep the top 4 by volume, drop the rest
-        // (they stay unchecked → reconsidered next run).
+        // Keep each merged post small (≤4) WITHOUT dropping anything: a bucket with more than 4 is SPLIT
+        // into several groups of ≤4 (sorted by volume), so low-volume "already ranks" keywords still get
+        // grouped instead of being thrown back to singles. A lone leftover (chunk of 1) is folded into the
+        // previous group (so it's never dropped); a genuinely alone keyword simply stays a single.
         const volOf = (t) => { const m = metricsLc[t.p.keyword.toLowerCase()]; const g = gscLc[t.p.keyword.toLowerCase()]; return (m && m.volume) || t.p.impressions || (g && g.impressions) || 0; };
-        const cap4 = (arr) => arr.slice().sort((a, b) => volOf(b) - volOf(a)).slice(0, 4);
-        styleGenerals.forEach((arr, name) => { if (arr.length >= 2) { const c = cap4(arr); aiGroups.push({ members: c.map(t => t.idx), suggested_primary: c[0].idx, covered_by: null, reason: 'Same style: ' + name, sig: 'S:' + name }); } });
-        roomGenerals.forEach((arr, name) => { if (arr.length >= 2) { const c = cap4(arr); aiGroups.push({ members: c.map(t => t.idx), suggested_primary: c[0].idx, covered_by: null, reason: 'Same room: ' + name, sig: 'R:' + name }); } });
-        specificPairs.forEach((arr, pSig) => { if (arr.length >= 2) { const c = cap4(arr); aiGroups.push({ members: c.map(t => t.idx), suggested_primary: c[0].idx, covered_by: null, reason: pSig.replace('SP:', '').replace('|', ' + '), sig: pSig }); } });
+        const chunk4 = (arr) => {
+          const s = arr.slice().sort((a, b) => volOf(b) - volOf(a));
+          const out = [];
+          for (let i = 0; i < s.length; i += 4) out.push(s.slice(i, i + 4));
+          if (out.length >= 2 && out[out.length - 1].length === 1) out[out.length - 2] = out[out.length - 2].concat(out.pop());
+          return out;
+        };
+        const emitGroups = (arr, reason, baseSig) => {
+          chunk4(arr).forEach((c, ci) => { if (c.length >= 2) aiGroups.push({ members: c.map(t => t.idx), suggested_primary: c[0].idx, covered_by: null, reason, sig: baseSig + (ci ? ('#' + (ci + 1)) : '') }); });
+        };
+        styleGenerals.forEach((arr, name) => emitGroups(arr, 'Same style: ' + name, 'S:' + name));
+        roomGenerals.forEach((arr, name) => emitGroups(arr, 'Same room: ' + name, 'R:' + name));
+        specificPairs.forEach((arr, pSig) => emitGroups(arr, pSig.replace('SP:', '').replace('|', ' + '), pSig));
         const aiProposedCount = aiGroups.length;
 
         // Persist the deterministic result (replaces the old raw-AI dump) — read this to debug grouping.
@@ -3798,9 +3817,15 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         (Array.isArray(pend) ? pend : []).forEach(g => { if (g && g.type === 'covered' && g.coveredBlog) usedHandles.add(String(g.coveredBlog.handle || g.coveredBlog.id || '').toLowerCase()); });
         const fused = await readJsonFileSafe('data/blog-fused-groups.json', {});
         Object.values(fused && typeof fused === 'object' ? fused : {}).forEach(g => { if (g && g.coveredBlog) usedHandles.add(String(g.coveredBlog.handle || g.coveredBlog.id || '').toLowerCase()); });
+        const qTag = topicTagBoth(q); // match by room/style cascade too, not only the literal words
         const blogs = existingBlogs
           .filter(b => !usedHandles.has(String(b.handle || b.id || '').toLowerCase()))
-          .filter(b => { const bt = topicNorm(b.title).split(' ').filter(Boolean); return qTokens.every(w => topicSynHit(bt, w)); })
+          .filter(b => {
+            const bt = topicNorm(b.title).split(' ').filter(Boolean);
+            const literal = qTokens.every(w => topicSynHit(bt, w));
+            const byTopic = (qTag.tagS.style || qTag.tagS.room) && TOPIC_PHASES.some(m => m(qTag, topicTagBoth(b.title)));
+            return literal || byTopic;
+          })
           .map(b => ({ id: b.id, title: b.title, handle: b.handle, status: b.status, url: b.url }))
           .slice(0, 30);
         return res.status(200).json({ success: true, blogs });
