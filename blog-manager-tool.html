@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.24 - 2026-11-16</p>
+        <p class="version">v6.25 - 2026-11-16</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -709,10 +709,10 @@
             setDupCount('singles', singles.length);
             if (!singles.length) { box.innerHTML = '<div style="color:#888;font-size:13px;padding:8px;">No singles — run the check.</div>'; return; }
             const header = '<div style="margin-bottom:10px;">'
-                + '<input id="singles-search" type="text" placeholder="🔍 Search a keyword (e.g. old money)…" oninput="filterSingles()" value="' + escBlog(window._singlesQuery || '') + '" style="width:100%;box-sizing:border-box;padding:9px 11px;border:1px solid #ccc;border-radius:8px;font-size:14px;margin-bottom:10px;">'
+                + '<input id="singles-search" type="text" placeholder="🔍 Search one or more words (e.g. masculine male men)…" oninput="filterSingles()" value="' + escBlog(window._singlesQuery || '') + '" style="width:100%;box-sizing:border-box;padding:9px 11px;border:1px solid #ccc;border-radius:8px;font-size:14px;margin-bottom:10px;">'
                 + '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
                 + '<button onclick="groupSelectedSingles()" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;">✅ Group selected</button>'
-                + '<span style="color:#666;font-size:12.5px;">Search a keyword to pull all that include it, tick them, then Group. Ranked ones on top.</span></div></div>';
+                + '<span style="color:#666;font-size:12.5px;">Type one or more words (space or comma) to pull all that include any of them, tick them, then Group. Ranked ones on top.</span></div></div>';
             box.innerHTML = header + singles.map(s => {
                 const kwEnc = encodeURIComponent(s.keyword);
                 const ranks = s.source === 'rank';
@@ -729,16 +729,20 @@
                     + '<div style="font-size:12px;color:#888;margin-top:2px;">' + escBlog(tagLine) + (metrics ? (' · ' + metrics) : '') + '</div>'
                     + whereLine
                     + '<div style="margin-top:8px;">' + mpdBtn
-                    + '<button onclick="singleToWrite(\'' + kwEnc + '\')" style="background:#1f6fb2;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;font-size:13px;cursor:pointer;">② Write its own blog</button></div>'
+                    + '<button onclick="singleToWrite(\'' + kwEnc + '\')" style="background:#1f6fb2;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;font-size:13px;cursor:pointer;">② Write its own blog</button>'
+                    + '<button onclick="ignoreSingle(\'' + kwEnc + '\')" style="background:#fff;color:#a33;border:1px solid #ccc;border-radius:6px;padding:6px 12px;font-weight:700;font-size:13px;cursor:pointer;margin-left:8px;">✕ Ignore</button></div>'
                     + '</div></label></div>';
             }).join('');
             filterSingles();
         }
         function filterSingles() {
-            const q = ((document.getElementById('singles-search') || {}).value || '').toLowerCase().trim();
-            window._singlesQuery = q;
+            const raw = ((document.getElementById('singles-search') || {}).value || '').toLowerCase().trim();
+            window._singlesQuery = raw;
+            // Several words (separated by space or comma) → show a single if it matches ANY of them.
+            const terms = raw.split(/[,\s]+/).filter(Boolean);
             document.querySelectorAll('#dupcheck-singles .single-row').forEach(el => {
-                el.style.display = (!q || (el.getAttribute('data-kw') || '').includes(q)) ? '' : 'none';
+                const kw = el.getAttribute('data-kw') || '';
+                el.style.display = (!terms.length || terms.some(t => kw.includes(t))) ? '' : 'none';
             });
         }
         async function groupSelectedSingles() {
@@ -759,6 +763,15 @@
                 FUSION_SINGLES = FUSION_SINGLES.filter(s => (s.keyword || '').toLowerCase() !== kw.toLowerCase());
                 renderSingles(); refreshAll();
             } catch (e) { alert('Could not add: ' + e.message); }
+        }
+        async function ignoreSingle(encKw) {
+            const kw = decodeURIComponent(encKw);
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'fusion-ignore-single', keyword: kw }) }).then(x => x.json());
+                if (!r.success) throw new Error(r.error || 'Could not ignore.');
+                FUSION_SINGLES = FUSION_SINGLES.filter(s => (s.keyword || '').toLowerCase() !== kw.toLowerCase());
+                renderSingles(); refreshAll();
+            } catch (e) { alert('Could not ignore: ' + e.message); }
         }
         async function optimiseSingleMpd(encKw) {
             const kw = decodeURIComponent(encKw);
@@ -893,17 +906,18 @@
             const keywords = [g.winnerKeyword].concat(secs.map(s => s.keyword));
             // Which of these already rank elsewhere → their ranking page should link here (MPD auto-queues it).
             const rankKeywords = [];
-            if (g.winnerSource === 'rank') rankKeywords.push(g.winnerKeyword);
-            secs.forEach(s => { if (s.source === 'rank') rankKeywords.push(s.keyword); });
+            const rankPages = [];
+            if (g.winnerSource === 'rank') { rankKeywords.push(g.winnerKeyword); rankPages.push({ keyword: g.winnerKeyword, pageUrl: g.winnerPageUrl || '' }); }
+            secs.forEach(s => { if (s.source === 'rank') { rankKeywords.push(s.keyword); rankPages.push({ keyword: s.keyword, pageUrl: s.pageUrl || '' }); } });
             const blogUrl = (g.coveredBlog && g.coveredBlog.url) || '';
             const ov = showAngleOverlay('Writing the preview… (a few seconds)');
             try {
                 const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add-angle-preview', articleId: g.coveredBlog.id, keywords }) }).then(x => x.json());
                 if (!r.success) throw new Error(r.error || 'Failed');
-                renderAnglePreview(ov, r, g, keywords, rankKeywords, blogUrl);
+                renderAnglePreview(ov, r, g, keywords, rankKeywords, rankPages, blogUrl);
             } catch (e) { ov.remove(); alert('Could not write the preview: ' + e.message); }
         }
-        function renderAnglePreview(ov, r, g, keywords, rankKeywords, blogUrl) {
+        function renderAnglePreview(ov, r, g, keywords, rankKeywords, rankPages, blogUrl) {
             const inner = ov.firstChild;
             const beforeBlock = r.mode === 'rewrite'
                 ? '<div style="font-size:12px;color:#888;margin:10px 0 2px;">BEFORE (this paragraph):</div><div style="background:#f6f6f6;border-radius:6px;padding:10px;font-size:14px;white-space:pre-wrap;">' + escBlog(r.originalParagraph || '') + '</div>'
@@ -921,7 +935,7 @@
             inner.querySelector('#angle-apply').onclick = async () => {
                 const btn = inner.querySelector('#angle-apply'); btn.disabled = true; btn.textContent = 'Applying…';
                 try {
-                    const ap = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add-angle-apply', articleId: r.articleId, newBody: r.newBody, keywords, rankKeywords: rankKeywords || [], blogUrl: blogUrl || '' }) }).then(x => x.json());
+                    const ap = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add-angle-apply', articleId: r.articleId, newBody: r.newBody, keywords, rankKeywords: rankKeywords || [], rankPages: rankPages || [], blogUrl: blogUrl || '' }) }).then(x => x.json());
                     if (!ap.success) throw new Error(ap.error || 'Failed');
                     try { await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'remove-covered', winnerKeyword: g.winnerKeyword }) }); } catch (e) {}
                     FUSION_PENDING = FUSION_PENDING.filter(x => (x.winnerKeyword || '').toLowerCase() !== (g.winnerKeyword || '').toLowerCase());
