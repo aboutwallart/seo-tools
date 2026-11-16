@@ -1,4 +1,7 @@
-// blogs.js — v6.8
+// blogs.js — v6.9
+// v6.9 (2026-11-16): search-blogs-for-group now RETURNS already-used blogs too (with used:true) instead of
+//   hiding them — so Mae can see the search is working. Available first, used last; the UI greys the used
+//   ones out and disables them. Empty result now truly means "no blog matches".
 // v6.8 (2026-11-16): duplicate-check reliability. (1) fetchBlogsPubAndSched made robust — 100/page +
 //   retry + partial results (first:250 was intermittently failing the WHOLE fetch → the dedup + the blog
 //   search found "no blogs"). (2) search-blogs-for-group now also matches by the room/style cascade, not
@@ -547,7 +550,7 @@ If you genuinely cannot find one of the two, leave its two fields as empty strin
     for (let page = 0; page < 30; page++) {
       let data = null;
       try { data = await shopifyGraphQL(QUERY, { cursor }); }
-      catch (e1) { try { await new Promise(r => setTimeout(r, 400)); data = await shopifyGraphQL(QUERY, { cursor }); } catch (e2) { break; } }
+      catch (e1) { try { await new Promise(r => setTimeout(r, 600)); data = await shopifyGraphQL(QUERY, { cursor }); } catch (e2) { console.error('fetchBlogsPubAndSched page ' + page + ' failed:', (e2 && e2.message) || e2); break; } }
       const conn = data && data.articles; if (!conn) break;
       const edges = conn.edges || [];
       for (const e of edges) {
@@ -3819,16 +3822,16 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         Object.values(fused && typeof fused === 'object' ? fused : {}).forEach(g => { if (g && g.coveredBlog) usedHandles.add(String(g.coveredBlog.handle || g.coveredBlog.id || '').toLowerCase()); });
         const qTag = topicTagBoth(q); // match by room/style cascade too, not only the literal words
         const blogs = existingBlogs
-          .filter(b => !usedHandles.has(String(b.handle || b.id || '').toLowerCase()))
           .filter(b => {
             const bt = topicNorm(b.title).split(' ').filter(Boolean);
             const literal = qTokens.every(w => topicSynHit(bt, w));
             const byTopic = (qTag.tagS.style || qTag.tagS.room) && TOPIC_PHASES.some(m => m(qTag, topicTagBoth(b.title)));
             return literal || byTopic;
           })
-          .map(b => ({ id: b.id, title: b.title, handle: b.handle, status: b.status, url: b.url }))
-          .slice(0, 30);
-        return res.status(200).json({ success: true, blogs });
+          .map(b => ({ id: b.id, title: b.title, handle: b.handle, status: b.status, url: b.url, used: usedHandles.has(String(b.handle || b.id || '').toLowerCase()) }))
+          .sort((a, b) => (a.used ? 1 : 0) - (b.used ? 1 : 0)) // available first, already-used last
+          .slice(0, 40);
+        return res.status(200).json({ success: true, blogs, _blogCount: existingBlogs.length });
       }
 
       // ── ACTION: fusion-attach-blog ── Mae picked a blog from the search for a grouped (merge) card →
