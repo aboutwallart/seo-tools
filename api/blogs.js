@@ -1,4 +1,12 @@
-// blogs.js — v6.6
+// blogs.js — v6.7
+// v6.7 (2026-11-16): duplicate-check matching rebuilt. Shared topic matcher (room/style) used by BOTH the
+//   automatic check AND the by-hand Singles grouping. Matches the PRINCIPAL word first, then synonyms, and
+//   pairs (style+room) before singles (style OR room) — exactly: (1) principal pair, (2) synonym pair,
+//   (3) principal single, (4) synonym single. Tolerant of plurals (office/offices) and words written
+//   joined or split (playroom / play room). The style/room list now includes each name as its own
+//   principal (e.g. "old money" was missing → that's why old-money keywords never matched/grouped). New
+//   actions: search-blogs-for-group (live blog search by title, hides blogs already used as covered) and
+//   fusion-attach-blog (attach a chosen blog to a grouped card → moves it to Already covered).
 // v6.6 (2026-11-15): "one place at a time" flow. To Write only shows APPROVED blogs now — a topic lives in
 //   the Duplicate check (Singles/Grouped/Covered) until Mae approves it, then it moves to To Write. New
 //   data/blog-approved.json (lowercased keywords); apply-fusion-group + fusion-single-to-write add to it;
@@ -548,6 +556,92 @@ If you genuinely cannot find one of the two, leave its two fields as empty strin
     }
     return out;
   }
+
+  // ── Shared topic matcher (duplicate check) ──────────────────────────────────────────────────────────
+  // Tags a keyword / blog TITLE with a STYLE and a ROOM. The FIRST word in each list is the PRINCIPAL
+  // (the canonical word, e.g. "old money", "office"); the rest are synonyms. Matching is plural-tolerant
+  // (office/offices) and joined/split tolerant (playroom = play room). Used by find-fusion-groups AND
+  // fusion-manual-group so the automatic check and the by-hand grouping behave identically.
+  const TOPIC_STYLE_DICT = [
+    ['Biophilic', ['biophilic','botanical','plants','greenery','nature']],
+    ['Farmhouse', ['farmhouse','floral','rustic','country','barn','cottage','cottagecore','wildflower']],
+    ['Shabby chic', ['shabby chic','romantic','pastel','antique rose']],
+    ['Vintage', ['vintage','retro','antique','nostalgic','heritage','old-fashioned']],
+    ['Japandi', ['japandi','japan','japanese','asian','oriental','wabi-sabi','crane','cranes']],
+    ['Zen', ['zen','buddha','buddhist','buddhism','lotus','meditation','mindfulness','yoga','spiritual']],
+    ['Scandinavian', ['scandinavian','scandi','nordic','hygge']],
+    ['Travel', ['travel','world','wanderlust']],
+    ['Christian', ['christian','faith','bible','scripture','cross','jesus','god','prayer','psalm','verse','church','blessing','holy']],
+    ['Islamic', ['islamic','islam','muslim','quran','arabic','arab','arabesque','mosque','allah','calligraphy','ayat','ramadan','eid','kaaba']],
+    ['Minimalism', ['minimalist','minimal','minimalism']],
+    ['Masculine', ['masculine','male','manly','gentleman']],
+    ['Industrial', ['industrial','urban','loft','steampunk']],
+    ['Moroccan', ['moroccan','morocco','marrakech','mosaic','tile']],
+    ['Abstract', ['abstract','modern art']],
+    ['Bohemian', ['bohemian','boho','hippie']],
+    ['Coastal', ['coastal','beach','sea','ocean','nautical','seaside','shells','waves','lighthouse','sailing','hamptons']],
+    ['Tropical', ['tropical','jungle','exotic']],
+    ['Wildlife', ['wildlife','safari','elephant','lion','tiger']],
+    ['Sun & moon', ['sun and moon','celestial','moon','stars','lunar','galaxy','constellation']],
+    ['Black & white', ['black and white','monochrome','greyscale']],
+    ['Chinoiserie', ['chinoiserie']],
+    ['Mid century', ['mid century','midcentury','retro','lux','luxury']],
+    ['Mediterranean', ['mediterranean']],
+    ['Contemporary', ['contemporary','modern']],
+    ['Maximalism', ['maximalism','maximalist','eclectic']],
+    ['French country', ['french country','provence','bees','hives','beehive']],
+    ['Old money', ['old money','heritage','classic']]
+  ];
+  const TOPIC_ROOM_DICT = [
+    ['Living room', ['living room','lounge','sitting room','tv room','snug']],
+    ['Family room', ['family room']],
+    ['Bedroom', ['bedroom','master bedroom','guest room','above bed']],
+    ['Nursery/Kids', ['nursery','kids','children','child','baby','playroom','boys room','girls room','teen']],
+    ['Bathroom', ['bathroom','toilet','washroom','restroom']],
+    ['Kitchen', ['kitchen','breakfast nook','breakfast']],
+    ['Dining', ['dining room','dining']],
+    ['Hallway', ['hallway','corridor','entryway','entrance','foyer']],
+    ['Office', ['office','home office','study','workspace','desk']],
+    ['Outdoor', ['outdoor','garden','patio','balcony']]
+  ];
+  const topicNorm = (s) => String(s || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  const topicDepl = (w) => (w.length > 3 && w.endsWith('s')) ? w.slice(0, -1) : w; // singular/plural tolerant
+  // A synonym "hits" if it appears as a whole word / consecutive phrase (plural tolerant), OR two adjacent
+  // words joined equal it (play room → playroom), OR a multi-word synonym joined equals one token.
+  const topicSynHit = (tokens, synRaw) => {
+    const syn = topicNorm(synRaw); if (!syn) return false;
+    const sw = syn.split(' ');
+    if (sw.length === 1) {
+      const s = topicDepl(syn);
+      for (let i = 0; i < tokens.length; i++) { if (topicDepl(tokens[i]) === s) return true; }
+      for (let i = 0; i + 1 < tokens.length; i++) { if (topicDepl(tokens[i] + tokens[i + 1]) === s) return true; }
+      return false;
+    }
+    const swd = sw.map(topicDepl);
+    for (let i = 0; i + sw.length <= tokens.length; i++) {
+      let ok = true; for (let j = 0; j < sw.length; j++) { if (topicDepl(tokens[i + j]) !== swd[j]) { ok = false; break; } }
+      if (ok) return true;
+    }
+    const joined = topicDepl(sw.join(''));
+    for (let i = 0; i < tokens.length; i++) { if (topicDepl(tokens[i]) === joined) return true; }
+    return false;
+  };
+  const topicTag = (text, principalOnly) => {
+    const tokens = topicNorm(text).split(' ').filter(Boolean);
+    let style = null, room = null;
+    for (const e of TOPIC_STYLE_DICT) { const syns = principalOnly ? [e[1][0]] : e[1]; if (syns.some(s => topicSynHit(tokens, s))) { style = e[0]; break; } }
+    for (const e of TOPIC_ROOM_DICT) { const syns = principalOnly ? [e[1][0]] : e[1]; if (syns.some(s => topicSynHit(tokens, s))) { room = e[0]; break; } }
+    return { style, room };
+  };
+  const topicTagBoth = (text) => ({ tagP: topicTag(text, true), tagS: topicTag(text, false) });
+  // The 4-step cascade: (1) principal pair, (2) synonym pair, (3) principal single, (4) synonym single.
+  // Each returns true if keyword-tag t matches blog-tag b at that level (both carry tagP + tagS).
+  const TOPIC_PHASES = [
+    (t, b) => !!(t.tagP.style && t.tagP.room && b.tagP.style === t.tagP.style && b.tagP.room === t.tagP.room),
+    (t, b) => !!(t.tagS.style && t.tagS.room && b.tagS.style === t.tagS.style && b.tagS.room === t.tagS.room),
+    (t, b) => !!((t.tagP.style && b.tagP.style === t.tagP.style) || (t.tagP.room && b.tagP.room === t.tagP.room)),
+    (t, b) => !!((t.tagS.style && b.tagS.style === t.tagS.style) || (t.tagS.room && b.tagS.room === t.tagS.room))
+  ];
 
   // Helper: the "You already rank" pool (informational keywords you already get clicks on, not locked,
   // not already a blog, not dismissed) — mirrors the performing-keywords-blog action, returns ALL of them
@@ -3447,8 +3541,8 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
           return { style, room, tokens };
         };
 
-        const tagged = pool.map((p, i) => ({ idx: i + 1, p, tag: tagOne(p.keyword + ' ' + (p.title || '')) }));
-        const blogTags = existingBlogs.map((b, i) => ({ idx: i + 1, b, tag: tagOne(b.title || '') }));
+        const tagged = pool.map((p, i) => { const tb = topicTagBoth(p.keyword + ' ' + (p.title || '')); return { idx: i + 1, p, tag: tb.tagS, tagP: tb.tagP, tagS: tb.tagS }; });
+        const blogTags = existingBlogs.map((b, i) => { const tb = topicTagBoth(b.title || ''); return { idx: i + 1, b, tag: tb.tagS, tagP: tb.tagP, tagS: tb.tagS }; });
 
         // Persisted rejections: Mae said "this keyword does NOT belong in that group". We never re-form the
         // same grouping for it. Map keyword(lowercase) -> array of forbidden bucket signatures
@@ -3489,21 +3583,15 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
           if (!coveredAssign.has(bt.idx)) coveredAssign.set(bt.idx, []);
           coveredAssign.get(bt.idx).push(t); coveredUsed.add(t.idx); return true;
         };
-        // Phase 1 — specifics (style AND room), grouped by the exact style+room, into same style+room blogs.
-        const byPair = new Map();
-        tagged.forEach(t => { if (t.tag.style && t.tag.room) { const k = t.tag.style + '|' + t.tag.room; if (!byPair.has(k)) byPair.set(k, []); byPair.get(k).push(t); } });
-        byPair.forEach((kws, key) => {
-          const st = key.split('|')[0], rm = key.split('|')[1];
-          const blogs = blogTags.filter(bt => bt.tag.style === st && bt.tag.room === rm);
-          kws.forEach(t => placeIn(t, blogs)); // overflow (no blog with space) stays unassigned
-        });
-        // Phase 2 — everything still unassigned (style-only, room-only, or specific overflow) → a blog that
-        //    shares style OR room (same 5-per-blog cap, no repeat).
-        tagged.forEach(t => {
-          if (coveredUsed.has(t.idx)) return;
-          if (!t.tag.style && !t.tag.room) return; // untagged → never covered
-          const blogs = blogTags.filter(bt => (t.tag.style && bt.tag.style === t.tag.style) || (t.tag.room && bt.tag.room === t.tag.room));
-          placeIn(t, blogs);
+        // 4-step cascade (Mae): principal pair → synonym pair → principal single → synonym single. Pairs
+        //    are matched first so a strong style+room blog is "used up" before a looser single match can
+        //    claim it. Same 5-per-blog cap, never the same blog twice. Untagged keywords are never covered.
+        TOPIC_PHASES.forEach(match => {
+          tagged.forEach(t => {
+            if (coveredUsed.has(t.idx)) return;
+            if (!(t.tag.style || t.tag.room)) return;
+            placeIn(t, blogTags.filter(bt => match(t, bt)));
+          });
         });
         // Emit one covered card per blog.
         coveredAssign.forEach((arr, blogIdx) => {
@@ -3657,15 +3745,20 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         const members = kws.map(k => byLc.get(k.toLowerCase())).filter(Boolean);
         if (members.length < 2) return res.status(400).json({ error: 'Those keywords are no longer in the singles list — re-run the check.' });
 
-        // TITLE-only match against LIVE Shopify blogs.
+        // TITLE-only match against LIVE Shopify blogs — SAME 4-step cascade as the automatic check
+        // (principal pair → synonym pair → principal single → synonym single).
         let existingBlogs = [];
         try { existingBlogs = await fetchBlogsPubAndSched(); } catch (e) { existingBlogs = []; }
-        const STOP = new Set(['the','a','an','to','for','with','in','of','and','or','on','at','is','are','be','do','does','did','how','what','which','who','why','when','where','can','should','will','your','you','my','our','wall','walls','art','arts','artwork','decor','decoration','ideas','idea','guide','home','room','rooms','design','designs','best','make','use','ways','way','tips']);
-        const sig = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length >= 4 && !STOP.has(w));
-        const memberTokens = new Set(); members.forEach(m => sig(m.keyword).forEach(w => memberTokens.add(w)));
-        let best = null, bestScore = 0;
-        existingBlogs.forEach(b => { const ov = sig(b.title).filter(w => memberTokens.has(w)).length; if (ov > bestScore) { bestScore = ov; best = b; } });
-        const matchedBlog = bestScore >= 2 ? best : null;
+        const memberTags = members.map(m => topicTagBoth(m.keyword + ' ' + (m.title || '')));
+        const blogTags = existingBlogs.map((b) => ({ b, ...topicTagBoth(b.title || '') }));
+        let matchedBlog = null;
+        for (const match of TOPIC_PHASES) {
+          for (const mt of memberTags) {
+            const hit = blogTags.find(bt => match(mt, bt));
+            if (hit) { matchedBlog = hit.b; break; }
+          }
+          if (matchedBlog) break;
+        }
 
         // Lead keyword priority: already-ranks + metrics first.
         const metricScore = (s) => (s.volume != null ? s.volume : (s.impressions != null ? s.impressions : 0));
@@ -3689,6 +3782,44 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         const singletons = new Set((checked.singletons || []).map(s => String(s).toLowerCase())); groupedLc.forEach(k => singletons.delete(k));
         await writeJsonFile('data/blog-fusion-checked.json', { singletons: [...singletons], grouped: [...grouped] }, 'Fusion: mark hand-grouped keywords');
         return res.status(200).json({ success: true, group, matched: !!matchedBlog });
+      }
+
+      // ── ACTION: search-blogs-for-group ── Mae types a keyword; return LIVE published/scheduled blogs
+      // whose TITLE contains those words (plural + joined/split tolerant). Blogs ALREADY used as a covered
+      // target (pending covered groups + already-applied fused groups) are hidden so she never double-adds.
+      if (req.body.action === 'search-blogs-for-group') {
+        const q = topicNorm(req.body.query || '');
+        const qTokens = q.split(' ').filter(Boolean);
+        if (!qTokens.length) return res.status(200).json({ success: true, blogs: [] });
+        let existingBlogs = [];
+        try { existingBlogs = await fetchBlogsPubAndSched(); } catch (e) { existingBlogs = []; }
+        const usedHandles = new Set();
+        const pend = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+        (Array.isArray(pend) ? pend : []).forEach(g => { if (g && g.type === 'covered' && g.coveredBlog) usedHandles.add(String(g.coveredBlog.handle || g.coveredBlog.id || '').toLowerCase()); });
+        const fused = await readJsonFileSafe('data/blog-fused-groups.json', {});
+        Object.values(fused && typeof fused === 'object' ? fused : {}).forEach(g => { if (g && g.coveredBlog) usedHandles.add(String(g.coveredBlog.handle || g.coveredBlog.id || '').toLowerCase()); });
+        const blogs = existingBlogs
+          .filter(b => !usedHandles.has(String(b.handle || b.id || '').toLowerCase()))
+          .filter(b => { const bt = topicNorm(b.title).split(' ').filter(Boolean); return qTokens.every(w => topicSynHit(bt, w)); })
+          .map(b => ({ id: b.id, title: b.title, handle: b.handle, status: b.status, url: b.url }))
+          .slice(0, 30);
+        return res.status(200).json({ success: true, blogs });
+      }
+
+      // ── ACTION: fusion-attach-blog ── Mae picked a blog from the search for a grouped (merge) card →
+      // turn that pending group into a 'covered' one for the chosen blog (it moves to Already covered).
+      if (req.body.action === 'fusion-attach-blog') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const groupId = String(req.body.groupId || '');
+        const blog = req.body.blog || null;
+        if (!groupId || !blog || !(blog.handle || blog.id)) return res.status(400).json({ error: 'Need a group and a blog.' });
+        const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+        const arr = Array.isArray(pending) ? pending : [];
+        const i = arr.findIndex(g => g && g.id === groupId);
+        if (i < 0) return res.status(404).json({ error: 'That group is no longer here — re-run the check.' });
+        arr[i] = { ...arr[i], type: 'covered', coveredBlog: { id: blog.id || null, title: blog.title || '', handle: blog.handle || '', status: blog.status || 'published', url: blog.url || '' } };
+        await writeJsonFile('data/blog-fusion-pending.json', arr, `Fusion: attached blog to group ${groupId}`);
+        return res.status(200).json({ success: true, group: arr[i] });
       }
 
       // ── ACTION: fusion-single-to-write ── a lone SINGLE Mae wants as its own blog. A 'rank' keyword isn't
