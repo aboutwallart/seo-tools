@@ -1,4 +1,9 @@
-// blogs.js — v6.10
+// blogs.js — v6.11
+// v6.11 (2026-11-16): covered match tightened — a single-dimension match (style-only OR room-only) now only
+//   covers a GENERAL blog on the other dimension (style-only kw ↔ style-only blog, room-only kw ↔ room-only
+//   blog). Before, "old money living room" / "grey and beige living room" were flagged covered by an
+//   "Abstract + Living room" blog just because both were Living room. Now those genuinely different topics go
+//   to Grouped/Singles for a new blog instead of being wrongly marked already-covered. Pair matches unchanged.
 // v6.10 (2026-11-16): ROOT-CAUSE fix for "no blogs found". fetchBlogsPubAndSched had query:"published_status:any"
 //   on the articles query, which Shopify honours by returning only ~21 articles (hasNextPage:false) instead
 //   of all ~250. So the dedup + blog search only ever saw ~21 (the scheduled ones) → published blogs like
@@ -652,11 +657,21 @@ If you genuinely cannot find one of the two, leave its two fields as empty strin
   const topicTagBoth = (text) => ({ tagP: topicTag(text, true), tagS: topicTag(text, false) });
   // The 4-step cascade: (1) principal pair, (2) synonym pair, (3) principal single, (4) synonym single.
   // Each returns true if keyword-tag t matches blog-tag b at that level (both carry tagP + tagS).
+  // A single-dimension match (style-only or room-only) only covers a GENERAL blog on the other dimension —
+  // a style-only keyword is covered by a style-only blog, a room-only keyword by a room-only blog. So a
+  // Living-room keyword is never flagged covered by a specific "Abstract + Living room" blog (that blog is
+  // about abstract art, not the keyword's topic). Specific topics instead go to Grouped for a new blog.
+  // Pair matches (style+room both) stay exact.
+  const singleMatch = (tag, bt) => {
+    const styleOk = tag.style && bt.style === tag.style && !bt.room;  // keyword's style ↔ a general style blog
+    const roomOk  = tag.room  && bt.room  === tag.room  && !bt.style; // keyword's room  ↔ a general room blog
+    return !!(styleOk || roomOk);
+  };
   const TOPIC_PHASES = [
     (t, b) => !!(t.tagP.style && t.tagP.room && b.tagP.style === t.tagP.style && b.tagP.room === t.tagP.room),
     (t, b) => !!(t.tagS.style && t.tagS.room && b.tagS.style === t.tagS.style && b.tagS.room === t.tagS.room),
-    (t, b) => !!((t.tagP.style && b.tagP.style === t.tagP.style) || (t.tagP.room && b.tagP.room === t.tagP.room)),
-    (t, b) => !!((t.tagS.style && b.tagS.style === t.tagS.style) || (t.tagS.room && b.tagS.room === t.tagS.room))
+    (t, b) => singleMatch(t.tagP, b.tagP),
+    (t, b) => singleMatch(t.tagS, b.tagS)
   ];
 
   // Helper: the "You already rank" pool (informational keywords you already get clicks on, not locked,
