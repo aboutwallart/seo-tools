@@ -1,4 +1,10 @@
-// blogs.js — v6.11
+// blogs.js — v6.12
+// v6.12 (2026-11-16): (A) new action fusion-ignore-single → sets the keyword IGNORED in blog_ideas.csv (adds
+//   a row if it's a rank keyword) so it moves to the Ignored tab and leaves Singles for good. (B) add-angle-
+//   apply now AUTO-PLACES the internal link on the OLD ranking page instead of only queuing it in MPD: old
+//   page = BLOG → append a short "Related reading" link paragraph (body backed up to blog-angle-backups.json,
+//   undo-able); old page = PRODUCT → add this blog to the product's custom.linked_blogs metafield (previous
+//   value saved to linked-blogs-backups.json). Anything that fails falls back to the MPD "Add the link" queue.
 // v6.11 (2026-11-16): covered match tightened — a single-dimension match (style-only OR room-only) now only
 //   covers a GENERAL blog on the other dimension (style-only kw ↔ style-only blog, room-only kw ↔ room-only
 //   blog). Before, "old money living room" / "grey and beige living room" were flagged covered by an
@@ -3916,6 +3922,38 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         return res.status(200).json({ success: true, keyword: kw });
       }
 
+      // ── ACTION: fusion-ignore-single ── Mae doesn't want this single → mark it IGNORED in blog_ideas.csv
+      // (it moves to the Ignored tab) and remove it from Singles so it never resurfaces.
+      if (req.body.action === 'fusion-ignore-single') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const kw = String(req.body.keyword || '').trim();
+        if (!kw) return res.status(400).json({ error: 'keyword required' });
+        const kwLc = kw.toLowerCase();
+        const escCsv = (c) => { const s = String(c == null ? '' : c); return (s.includes(',') || s.includes('"') || s.includes('\n')) ? `"${s.replace(/"/g, '""')}"` : s; };
+        const ideasFile = await getGitHubFile('data/blog_ideas.csv');
+        const lines = ideasFile.content.split('\n');
+        const colCount = Math.max(parseCSVLine((lines[0] || '').replace(/\r/g, '')).length, 10);
+        let found = false;
+        const updated = lines.map((line, i) => {
+          if (i === 0) return line;
+          const trimmed = line.trim().replace(/\r/g, '');
+          if (!trimmed) return line;
+          const cols = parseCSVLine(trimmed);
+          if ((cols[0] || '').trim().toLowerCase() === kwLc) { while (cols.length < 10) cols.push(''); cols[6] = 'IGNORED'; found = true; return cols.map(escCsv).join(','); }
+          return line;
+        });
+        if (!found) { const row = new Array(colCount).fill(''); row[0] = kw; row[6] = 'IGNORED'; updated.push(row.map(escCsv).join(',')); }
+        await updateGitHubFile('data/blog_ideas.csv', updated.join('\n'), ideasFile.sha, `Ignore single: ${kw}`);
+        const singles = await readJsonFileSafe('data/blog-fusion-singles.json', []);
+        await writeJsonFile('data/blog-fusion-singles.json', (Array.isArray(singles) ? singles : []).filter(x => String(x.keyword || '').toLowerCase() !== kwLc), `Fusion: ignore single "${kw}"`);
+        const checked = await readJsonFileSafe('data/blog-fusion-checked.json', { singletons: [], grouped: [] });
+        const grouped = new Set((checked.grouped || []).map(x => String(x).toLowerCase())); grouped.add(kwLc);
+        const singletons = new Set((checked.singletons || []).map(x => String(x).toLowerCase())); singletons.delete(kwLc);
+        await writeJsonFile('data/blog-fusion-checked.json', { singletons: [...singletons], grouped: [...grouped] }, 'Fusion: ignore single');
+        try { const pd = await readJsonFileSafe('data/gsc-performing-dismissed.json', []); const set = new Set((Array.isArray(pd) ? pd : []).map(x => String(x).toLowerCase())); set.add(kwLc); await writeJsonFile('data/gsc-performing-dismissed.json', [...set], 'Ignore single: hide ranked keyword'); } catch (e) {}
+        return res.status(200).json({ success: true, keyword: kw });
+      }
+
       // ── ACTION: apply-fusion-group ── Mae approved a proposed group: secondary keywords' rows go
       // IGNORED (marked FUSED, pointing at the winner); the winner's secondary angles are recorded
       // permanently in blog-fused-groups.json so "Write blog" can cover them as extra H2 sections.
@@ -4230,18 +4268,51 @@ ${numbered || '(no suitable paragraphs — use mode add)'}`;
         const ue = (up && up.articleUpdate && up.articleUpdate.userErrors) || [];
         if (ue.length) return res.status(500).json({ error: ue.map(e => e.message).join('; ') });
         if (keywords.length) { try { const pd = await readJsonFileSafe('data/gsc-performing-dismissed.json', []); const set = new Set((Array.isArray(pd) ? pd : []).map(s => String(s).toLowerCase())); keywords.forEach(k => set.add(k.toLowerCase())); await writeJsonFile('data/gsc-performing-dismissed.json', [...set], 'Angle added — hide folded keyword(s)'); } catch (e) { } }
-        // Auto-queue the internal link in Money Page Doctor: for each folded keyword that already RANKS on
-        // another page, lock it to THIS blog's URL in the registry. MPD's Do First then surfaces it under
-        // "Add the link" (ranking page → this blog) on its own — no second step to remember.
-        const linkQueued = [];
-        if (rankKeywords.length) {
-          const blogUrl = String(req.body.blogUrl || '').trim() || ('https://www.aboutwallart.com/blogs/' + ((art.blog && art.blog.handle) || 'news-articles-home-decor-inspiration') + '/' + art.handle);
-          const origin = 'https://' + (req.headers['x-forwarded-host'] || req.headers.host || 'tools.aboutwallart.com');
-          for (const kw of rankKeywords) {
-            try { const r = await fetch(origin + '/api/keywords', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'claim-to-registry', keyword: kw, url: blogUrl, intent: 'INFORMATIONAL' }) }); if (r.ok) linkQueued.push(kw); } catch (e) { /* non-blocking */ }
-          }
+        // AUTO-PLACE the internal link on the OLD ranking page (no manual MPD step). BLOG → append a short
+        // link paragraph (body backed up, undo-able). PRODUCT → add this blog to custom.linked_blogs (prev
+        // value saved). Anything that fails falls back to the MPD "Add the link" queue so it is never lost.
+        const blogUrl = String(req.body.blogUrl || '').trim() || ('https://aboutwallart.com/blogs/' + ((art.blog && art.blog.handle) || 'news-articles-home-decor-inspiration') + '/' + art.handle);
+        const targetGid = articleId;
+        const handleFromUrl = (u) => { try { return String(u || '').split('?')[0].replace(/\/+$/, '').split('/').pop().toLowerCase(); } catch (e) { return ''; } };
+        let rankPages = Array.isArray(req.body.rankPages) ? req.body.rankPages : [];
+        if (!rankPages.length && rankKeywords.length) rankPages = rankKeywords.map(k => ({ keyword: k, pageUrl: '' }));
+        const origin = 'https://' + (req.headers['x-forwarded-host'] || req.headers.host || 'tools.aboutwallart.com');
+        const linkedBlogs = [], linkedProducts = [], queued = [];
+        const queueInMpd = async (kw) => { try { const r = await fetch(origin + '/api/keywords', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'claim-to-registry', keyword: kw, url: blogUrl, intent: 'INFORMATIONAL' }) }); if (r.ok) queued.push(kw); } catch (e) {} };
+        for (const rp of rankPages) {
+          const kw = String(rp && rp.keyword || '').trim(); const pageUrl = String(rp && rp.pageUrl || '').trim();
+          if (!kw) continue;
+          if (!pageUrl) { await queueInMpd(kw); continue; }
+          const handle = handleFromUrl(pageUrl);
+          try {
+            if (pageUrl.includes('/products/')) {
+              const pd = await shopifyGraphQL(`query($q:String!){ products(first:1, query:$q){ nodes{ id metafield(namespace:"custom", key:"linked_blogs"){ value } } } }`, { q: 'handle:' + handle });
+              const prod = pd && pd.products && pd.products.nodes && pd.products.nodes[0];
+              if (!prod) { await queueInMpd(kw); continue; }
+              let list = []; try { list = JSON.parse((prod.metafield && prod.metafield.value) || '[]'); } catch (e) { list = []; }
+              if (!Array.isArray(list)) list = [];
+              if (!list.includes(targetGid)) {
+                try { const lb = await readJsonFileSafe('data/linked-blogs-backups.json', {}); lb[prod.id] = { prev: (prod.metafield && prod.metafield.value) || '[]', at: new Date().toISOString() }; await writeJsonFile('data/linked-blogs-backups.json', lb, 'linked_blogs backup: ' + handle); } catch (e) {}
+                const ms = await shopifyGraphQL(`mutation($mf:[MetafieldsSetInput!]!){ metafieldsSet(metafields:$mf){ userErrors{ field message } } }`, { mf: [{ ownerId: prod.id, namespace: 'custom', key: 'linked_blogs', type: 'list.article_reference', value: JSON.stringify([...list, targetGid]) }] });
+                const mue = (ms && ms.metafieldsSet && ms.metafieldsSet.userErrors) || [];
+                if (mue.length) { await queueInMpd(kw); continue; }
+              }
+              linkedProducts.push(kw);
+            } else if (pageUrl.includes('/blogs/')) {
+              const adq = await shopifyGraphQL(`query($q:String!){ articles(first:1, query:$q){ nodes{ id title body } } }`, { q: 'handle:' + handle });
+              const old = adq && adq.articles && adq.articles.nodes && adq.articles.nodes[0];
+              if (!old) { await queueInMpd(kw); continue; }
+              const oldBody = String(old.body || '');
+              if (oldBody.includes(blogUrl)) { linkedBlogs.push(kw); continue; }
+              try { const bk = await readJsonFileSafe('data/blog-angle-backups.json', {}); if (!bk[old.id]) bk[old.id] = { title: old.title, handle, originalBody: oldBody, keywords: [kw], at: new Date().toISOString() }; await writeJsonFile('data/blog-angle-backups.json', bk, 'Old-page link backup: ' + handle); } catch (e) {}
+              const up2 = await shopifyGraphQL(`mutation($id:ID!,$article:ArticleUpdateInput!){ articleUpdate(id:$id, article:$article){ article{ id } userErrors{ field message } } }`, { id: old.id, article: { body: oldBody + '\n<p>Related reading: <a href="' + blogUrl + '">' + (art.title || 'read more') + '</a>.</p>' } });
+              const u2e = (up2 && up2.articleUpdate && up2.articleUpdate.userErrors) || [];
+              if (u2e.length) { await queueInMpd(kw); continue; }
+              linkedBlogs.push(kw);
+            } else { await queueInMpd(kw); }
+          } catch (e) { await queueInMpd(kw); }
         }
-        return res.status(200).json({ success: true, articleId, title: art.title, linkQueued });
+        return res.status(200).json({ success: true, articleId, title: art.title, linkedBlogs, linkedProducts, queued });
       }
 
       // ── ACTION: add-angle-undo ── restore a blog's body from the backup taken before the angle edit.
