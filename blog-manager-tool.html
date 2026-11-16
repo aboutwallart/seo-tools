@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.27 - 2026-11-16</p>
+        <p class="version">v6.29 - 2026-11-16</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -1315,6 +1315,14 @@
         // DISPLAY TO WRITE (Tab 2)
         // ============================================
         // To Write shows ONLY approved blogs (one place at a time) — the full process cards.
+        // Ranking potential of an idea: higher volume first, then lower difficulty. No data sinks to the bottom.
+        function kwPotential(idea) {
+            const m = (window._kwMetrics && window._kwMetrics[(idea.currentKeyword || idea.keyword || '').toLowerCase()]) || {};
+            const v = (m.volume != null) ? m.volume : -1;
+            const d = (m.difficulty != null) ? m.difficulty : (m.seo_difficulty != null ? m.seo_difficulty : 101);
+            return { v, d };
+        }
+        function byPotential(a, b) { const A = kwPotential(a), B = kwPotential(b); return (B.v - A.v) || (A.d - B.d); }
         function displayToWrite() {
             const container = document.getElementById('towrite-container');
             if (!container) return;
@@ -1323,8 +1331,8 @@
                 container.innerHTML = `<div class="empty-state">Nothing approved yet — approve groups or singles in the Duplicate check and they land here.</div>`;
                 return;
             }
-            const unsent = all.filter(i => i.status !== 'TO_WRITE_SENT');
-            const sent   = all.filter(i => i.status === 'TO_WRITE_SENT');
+            const unsent = all.filter(i => i.status !== 'TO_WRITE_SENT').sort(byPotential);
+            const sent   = all.filter(i => i.status === 'TO_WRITE_SENT').sort(byPotential);
             container.innerHTML = [...unsent, ...sent].map(idea => buildIdeaCard(idea, 'towrite')).join('');
             [...unsent, ...sent].forEach(idea => { restoreDraft(idea.index); restoreBriefNote(idea.index); restoreProducts(idea.index); restoreFinish(idea.index); restorePublish(idea.index); });
         }
@@ -3993,6 +4001,8 @@
             const buckets = new Map();
             items.forEach(it => { const b = bucketOf(it.title); if (!buckets.has(b)) buckets.set(b, []); buckets.get(b).push(it); });
             const lists = [...buckets.values()];
+            lists.forEach(l => l.sort(byPotential));        // within each theme → best ranking potential first
+            lists.sort((a, b) => byPotential(a[0], b[0]));  // strongest theme leads each round (variety kept)
             const out = []; let added = true;
             while (added) { added = false; for (const l of lists) { if (l.length) { out.push(l.shift()); added = true; } } }
             return out;
