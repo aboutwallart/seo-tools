@@ -1,4 +1,6 @@
-// blogs.js — v6.12
+// blogs.js — v6.13
+// v6.13 (2026-11-16): add-angle-preview now also accepts a blogUrl (resolves it to the article id) so the
+//   Blog Ideas "Add paragraph to that blog" button can add an angle to the conflicting blog directly.
 // v6.12 (2026-11-16): (A) new action fusion-ignore-single → sets the keyword IGNORED in blog_ideas.csv (adds
 //   a row if it's a rank keyword) so it moves to the Ignored tab and leaves Singles for good. (B) add-angle-
 //   apply now AUTO-PLACES the internal link on the OLD ranking page instead of only queuing it in MPD: old
@@ -4213,9 +4215,14 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
       // ── ACTION: add-angle-preview ── propose a light edit to an EXISTING blog so it naturally includes
       // the keyword(s). Returns before/after for Mae to approve. NOTHING is written to Shopify here.
       if (req.body.action === 'add-angle-preview') {
-        const articleId = String(req.body.articleId || '').trim();
+        let articleId = String(req.body.articleId || '').trim();
         const keywords = Array.isArray(req.body.keywords) ? req.body.keywords.map(k => String(k || '').trim()).filter(Boolean) : [];
-        if (!articleId || !keywords.length) return res.status(400).json({ error: 'articleId and keywords required' });
+        if (!keywords.length) return res.status(400).json({ error: 'keywords required' });
+        if (!articleId && req.body.blogUrl) {
+          const h = String(req.body.blogUrl).split('?')[0].replace(/\/+$/, '').split('/').pop().toLowerCase();
+          try { const q = await shopifyGraphQL(`query($q:String!){ articles(first:1, query:$q){ nodes{ id } } }`, { q: 'handle:' + h }); articleId = (q && q.articles && q.articles.nodes && q.articles.nodes[0] && q.articles.nodes[0].id) || ''; } catch (e) {}
+        }
+        if (!articleId) return res.status(404).json({ error: 'Could not find that blog.' });
         const data = await shopifyGraphQL(`query($id:ID!){ node(id:$id){ ... on Article { id title handle body } } }`, { id: articleId });
         const art = data && data.node;
         if (!art || art.body == null) return res.status(404).json({ error: 'Could not read that blog.' });
