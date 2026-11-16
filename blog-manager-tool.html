@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.29 - 2026-11-16</p>
+        <p class="version">v6.30 - 2026-11-16</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -1814,6 +1814,14 @@
                 }
             }
 
+            // To Write: show the ranking score so the order (best-potential first) is visible, not hidden.
+            let metaLineHTML = '';
+            if (tab === 'towrite') {
+                const _tm = (window._kwMetrics && window._kwMetrics[(idea.currentKeyword || '').toLowerCase()]) || {};
+                const v = (_tm.volume != null) ? Number(_tm.volume).toLocaleString('en-GB') : '—';
+                const d = (_tm.difficulty != null) ? _tm.difficulty : (_tm.seo_difficulty != null ? _tm.seo_difficulty : '—');
+                metaLineHTML = `<div style="font-size:13px;color:#555;margin:4px 0 2px;">Volume <strong>${v}</strong> · Difficulty <strong>${d}</strong></div>`;
+            }
             // To Write cards are already approved — show them neutral (no conflict colour/badge).
             // Sent-to-sheet ones stay grey to mark them done. Ignored = grey.
             const _checked = (level === 'NO CONFLICT' || level === 'CAUTION' || level === 'DANGER');
@@ -1842,7 +1850,7 @@
                     ${tab === 'ideas' ? ideasBodyHTML : `
                     <div class="keyword">${idea.currentKeyword}</div>
                     <div class="title">${idea.currentTitle}</div>
-                    <div class="perspective">${idea.perspective}</div>${fusionNoteHTML}`}
+                    ${metaLineHTML}<div class="perspective">${idea.perspective}</div>${fusionNoteHTML}`}
                     <div class="card-actions">${actionsHTML}</div>
                     ${compHTML}
                     ${manualFormHTML}
