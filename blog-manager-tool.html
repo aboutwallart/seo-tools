@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.26 - 2026-11-16</p>
+        <p class="version">v6.27 - 2026-11-16</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -1675,7 +1675,9 @@
 
             if (tab === 'ideas') {
                 checkboxHTML = `<input type="checkbox" class="card-checkbox" id="cb-${index}" ${isSelected ? 'checked' : ''} onchange="toggleSelect(${index})">`;
+                const _coveredClash = (level === 'CAUTION' || level === 'DANGER') && idea.conflictingUrl && !String(idea.conflictingKeyword || '').includes(' | ');
                 actionsHTML = `
+                    ${_coveredClash ? `<button class="btn-mark" style="background:#1565c0;" onclick="addParagraphToBlog(${index})">➕ Add paragraph to that blog</button>` : ''}
                     <button class="btn-mark" onclick="markForWriting(${index})">Mark for Writing</button>
                     <button class="btn-keyword-change" onclick="toggleEditBar(${index})">Change Keyword</button>
                     <button class="btn-ignore" onclick="ignoreIdea(${index})">Ignore</button>
@@ -1778,9 +1780,13 @@
                         <button onclick="saveIdeaMetric(${index})" style="background:#1565c0;color:#fff;border:none;border-radius:6px;padding:7px 12px;font-weight:700;font-size:13px;cursor:pointer;">Save</button>
                         <span id="kw-meta-note-${index}" style="color:#2e7d32;font-size:12px;"></span>
                     </div>`;
-                return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:20px;">
-                        <div style="flex:1.1;font-size:18px;font-weight:500;color:#1a1a1a;">${bigKw || '—'}</div>
-                        <div style="flex:1;text-align:right;font-size:14px;color:#444;">${escHtml(idea.currentTitle || '')}</div>
+                const _volTxt = (_m.volume != null) ? Number(_m.volume).toLocaleString('en-GB') : '<span style="color:#999;">needs research</span>';
+                const _difVal = (_m.difficulty != null) ? _m.difficulty : (_m.seo_difficulty != null ? _m.seo_difficulty : null);
+                const _difTxt = (_difVal != null) ? _difVal : '<span style="color:#999;">—</span>';
+                return `<div style="display:grid;grid-template-columns:92px 1fr;gap:7px 12px;font-size:15px;">
+                        <span style="color:#777;">Keyword</span><span style="font-weight:500;color:#1a1a1a;">${bigKw || '—'}</span>
+                        <span style="color:#777;">Volume</span><span>${_volTxt} &nbsp;·&nbsp; <span style="color:#777;">Difficulty</span> ${_difTxt}</span>
+                        <span style="color:#777;">Title</span><span style="color:#333;">${escHtml(idea.currentTitle || '')}</span>
                     </div>${clashSection}${editBar}${kwMetaBar}`;
             })() : '';
 
@@ -1802,11 +1808,22 @@
 
             // To Write cards are already approved — show them neutral (no conflict colour/badge).
             // Sent-to-sheet ones stay grey to mark them done. Ignored = grey.
+            const _checked = (level === 'NO CONFLICT' || level === 'CAUTION' || level === 'DANGER');
             let cardColorClass;
             if (tab === 'ignored') cardColorClass = 'grey';
             else if (tab === 'towrite') cardColorClass = (idea.status === 'TO_WRITE_SENT') ? 'grey' : '';
+            else if (tab === 'ideas' && !_checked) cardColorClass = '';
             else cardColorClass = cardClass;
-            const badgeHtml = (tab === 'towrite') ? '' : `<span class="status-badge ${tab === 'ignored' ? 'badge-grey' : badgeClass}">${tab === 'ignored' ? 'IGNORED' : level}</span>`;
+            let badgeHtml;
+            if (tab === 'towrite') badgeHtml = '';
+            else if (tab === 'ideas') {
+                let bt, bc;
+                if (level === 'NO CONFLICT') { bt = 'No conflict — safe to write'; bc = 'badge-green'; }
+                else if (level === 'CAUTION') { bt = 'Caution — a blog may cover this'; bc = 'badge-yellow'; }
+                else if (level === 'DANGER') { bt = 'Already covered — add to that blog'; bc = 'badge-red'; }
+                else { bt = 'Not checked yet'; bc = 'badge-grey'; }
+                badgeHtml = `<span class="status-badge ${bc}">${bt}</span>`;
+            } else badgeHtml = `<span class="status-badge ${tab === 'ignored' ? 'badge-grey' : badgeClass}">${tab === 'ignored' ? 'IGNORED' : level}</span>`;
 
             return `
                 <div class="idea-card ${cardColorClass}${isSelected ? ' selected-card' : ''}" id="card-${index}">
@@ -3597,6 +3614,39 @@
                     body: JSON.stringify({ action: 'update-blog-status', keyword: idea.keyword, status: 'IGNORED' })
                 });
             } catch(e) { console.error('Ignore save error:', e); }
+        }
+        // Blog Ideas → "Add paragraph to that blog": add an angle to the conflicting blog instead of writing a new one.
+        async function addParagraphToBlog(index) {
+            const idea = allIdeas.find(i => i.index === index);
+            if (!idea) return;
+            const kw = idea.currentKeyword || idea.keyword || '';
+            const blogUrl = idea.conflictingUrl || '';
+            if (!blogUrl) { alert('No existing blog is linked to this idea.'); return; }
+            const ov = showAngleOverlay('Writing the preview… (a few seconds)');
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add-angle-preview', blogUrl, keywords: [kw] }) }).then(x => x.json());
+                if (!r.success) throw new Error(r.error || 'Failed');
+                const inner = ov.firstChild;
+                const before = r.mode === 'rewrite'
+                    ? '<div style="font-size:12px;color:#888;margin:10px 0 2px;">BEFORE:</div><div style="background:#f6f6f6;border-radius:6px;padding:10px;font-size:14px;white-space:pre-wrap;">' + escBlog(r.originalParagraph || '') + '</div>'
+                    : '<div style="font-size:12px;color:#888;margin:10px 0 2px;">A NEW short paragraph will be added:</div>';
+                inner.innerHTML =
+                    '<div style="font-weight:700;font-size:16px;margin-bottom:4px;">Add "' + escBlog(kw) + '" to this blog</div>'
+                    + '<div style="font-size:13px;color:#555;margin-bottom:6px;"><a href="' + escBlog(r.url || blogUrl) + '" target="_blank" rel="noopener">' + escBlog(r.title || idea.conflictingKeyword || 'the blog') + '</a></div>'
+                    + before
+                    + '<div style="font-size:12px;color:#2e7d32;margin:10px 0 2px;">AFTER:</div><div style="background:#eefaf0;border-radius:6px;padding:10px;font-size:14px;white-space:pre-wrap;">' + escBlog(r.newParagraph || '') + '</div>'
+                    + '<div style="margin-top:16px;display:flex;gap:10px;justify-content:flex-end;"><button id="ap-cancel" style="background:#fff;color:#555;border:1px solid #ccc;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">Cancel</button><button id="ap-apply" style="background:#1f6fb2;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">✅ Apply to the live blog</button></div>';
+                inner.querySelector('#ap-cancel').onclick = () => ov.remove();
+                inner.querySelector('#ap-apply').onclick = async () => {
+                    const btn = inner.querySelector('#ap-apply'); btn.disabled = true; btn.textContent = 'Applying…';
+                    try {
+                        const ap = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add-angle-apply', articleId: r.articleId, newBody: r.newBody, keywords: [kw], rankPages: [], blogUrl: r.url || blogUrl }) }).then(x => x.json());
+                        if (!ap.success) throw new Error(ap.error || 'Failed');
+                        ov.remove();
+                        ignoreIdea(index); // it's covered now → leaves Blog Ideas
+                    } catch (e) { btn.disabled = false; btn.textContent = '✅ Apply to the live blog'; alert('Could not apply: ' + e.message); }
+                };
+            } catch (e) { ov.remove(); alert('Could not write the preview: ' + e.message); }
         }
 
         // ============================================
