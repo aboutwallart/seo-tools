@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.25 - 2026-11-16</p>
+        <p class="version">v6.26 - 2026-11-16</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -738,11 +738,13 @@
         function filterSingles() {
             const raw = ((document.getElementById('singles-search') || {}).value || '').toLowerCase().trim();
             window._singlesQuery = raw;
-            // Several words (separated by space or comma) → show a single if it matches ANY of them.
-            const terms = raw.split(/[,\s]+/).filter(Boolean);
+            // Several words (space or comma) → show a single if it contains ANY of them as a WHOLE word
+            // (plural tolerant), so "men" matches "men" but NOT "apartment".
+            const depl = w => (w.length > 3 && w.endsWith('s')) ? w.slice(0, -1) : w;
+            const terms = raw.split(/[,\s]+/).filter(Boolean).map(depl);
             document.querySelectorAll('#dupcheck-singles .single-row').forEach(el => {
-                const kw = el.getAttribute('data-kw') || '';
-                el.style.display = (!terms.length || terms.some(t => kw.includes(t))) ? '' : 'none';
+                const words = (el.getAttribute('data-kw') || '').split(/[^a-z0-9]+/).filter(Boolean).map(depl);
+                el.style.display = (!terms.length || terms.some(t => words.includes(t))) ? '' : 'none';
             });
         }
         async function groupSelectedSingles() {
