@@ -1,4 +1,8 @@
-// blogs.js — v6.14
+// blogs.js — v6.15
+// v6.15 (2026-11-17): (A) updateGitHubFile now RETRIES on a 409 SHA conflict (re-fetch the current SHA, up to
+//   3 tries) — fixes "Failed to update …: status 409" when GitHub's contents API returns a stale SHA. (B)
+//   reject-fusion-keyword ("✕ not this one") now puts the rejected keyword straight back into the Singles list
+//   (and kept members too if the group dissolves), so it's usable immediately without re-running the check.
 // v6.14 (2026-11-17): three new dedup actions. (1) fusion-suggest-singles-for-group → singles that fit a
 //   grouped card by the same 4-step room/style cascade. (2) fusion-add-single-to-group → move a single into an
 //   existing group's secondary and drop it from Singles. (3) fusion-single-to-blog → match a single to a chosen
@@ -270,24 +274,33 @@ export default async function handler(req, res) {
 
   // Helper: update file on GitHub
   async function updateGitHubFile(filePath, content, sha, message) {
-    const response = await fetch(`https://api.github.com/repos/${REPO}/contents/${filePath}`, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `token ${GITHUB_TOKEN}`,
-        'Accept': 'application/vnd.github.v3+json',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        message,
-        content: Buffer.from(content).toString('base64'),
-        sha
-      })
-    });
-    if (!response.ok) {
-      const err = await response.text();
-      throw new Error(`Failed to update ${filePath}: ${err}`);
+    // Retry on a 409 SHA conflict: GitHub's contents API is read-after-write lagged, so a freshly-read SHA
+    // can already be stale → re-fetch the current SHA and try again (up to 3 attempts) instead of failing.
+    let attempt = 0, lastErr = '';
+    while (attempt < 3) {
+      const response = await fetch(`https://api.github.com/repos/${REPO}/contents/${filePath}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `token ${GITHUB_TOKEN}`,
+          'Accept': 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          message,
+          content: Buffer.from(content).toString('base64'),
+          sha
+        })
+      });
+      if (response.ok) return true;
+      lastErr = await response.text();
+      const isConflict = response.status === 409 || /but expected|does not match|sha/i.test(lastErr);
+      if (!isConflict) throw new Error(`Failed to update ${filePath}: ${lastErr}`);
+      attempt++;
+      if (attempt >= 3) break;
+      await new Promise(r => setTimeout(r, 400 * attempt));
+      try { const cur = await getGitHubFile(filePath); sha = cur.sha; } catch (e) { /* keep old sha, retry anyway */ }
     }
-    return true;
+    throw new Error(`Failed to update ${filePath}: ${lastErr}`);
   }
 
   // Helper: quote a CSV field if it contains commas, quotes or newlines
@@ -4186,6 +4199,21 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         const isCovered = group.type === 'covered' && group.coveredBlog;
         // A merge needs ≥2 members; a covered group is fine with 1 (or even 0 → gone).
         const dissolve = (!isCovered && kept.length < 2) || kept.length < 1;
+
+        // Put the rejected keyword straight back into the Singles list (so Mae can re-group it or send it to a
+        // blog right away, without re-running the whole check). If the group dissolves, its kept members go too.
+        try {
+          const rejectedMember = allMembers.find(m => (m.keyword || '').toLowerCase() === rejectLc) || { keyword: rejectKeyword, title: '', source: 'towrite' };
+          const freedMembers = dissolve ? [rejectedMember, ...kept] : [rejectedMember];
+          const toSingle = (m) => { const t = topicTag((m.keyword || '') + ' ' + (m.title || ''), false); return { keyword: m.keyword, title: m.title || '', source: m.source || 'towrite', style: t.style, room: t.room, pageUrl: m.pageUrl || null, urlFree: !!m.urlFree, lockedToKeyword: m.lockedToKeyword || null, volume: m.volume == null ? null : m.volume, difficulty: m.difficulty == null ? null : m.difficulty, impressions: m.impressions == null ? null : m.impressions, position: m.position == null ? null : m.position }; };
+          const singlesNow = await readJsonFileSafe('data/blog-fusion-singles.json', []);
+          const sArr = Array.isArray(singlesNow) ? singlesNow : [];
+          const haveLc = new Set(sArr.map(s => String(s.keyword || '').toLowerCase()));
+          let added = 0;
+          freedMembers.forEach(m => { const lc = (m.keyword || '').toLowerCase(); if (lc && !haveLc.has(lc)) { sArr.push(toSingle(m)); haveLc.add(lc); added++; } });
+          if (added) await writeJsonFile('data/blog-fusion-singles.json', sArr, `Fusion: ${added} rejected keyword(s) → Singles`);
+        } catch (e) { /* non-blocking — worst case it comes back on the next check run */ }
+
         if (dissolve) {
           pending.splice(idx, 1);
           await writeJsonFile('data/blog-fusion-pending.json', pending, `Fusion: dissolved group after rejecting "${rejectKeyword}"`);
