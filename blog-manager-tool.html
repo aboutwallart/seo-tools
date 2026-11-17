@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.32 - 2026-11-17</p>
+        <p class="version">v6.33 - 2026-11-17</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -434,7 +434,9 @@
         // 'IGNORED'          → Ignored
         // 'DELETED'          → hidden everywhere
 
-        let selectedToSend = new Set(); // selection in To Write tab for bulk sheet send
+        let selectedToSend = new Set(); // selection in Plan a month (the month's plan)
+        let selectedToWrite = new Set(); // ticks in To Write, to push into Plan a month
+        window._planExcluded = new Set(); // blogs removed from the current month plan with ✕
 
         // ============================================
         // GALLERY DATA
@@ -643,7 +645,14 @@
                     + '<div style="display:flex;gap:6px;flex-wrap:wrap;">'
                     + '<input id="blogsearch-' + safe + '" type="text" placeholder="🔍 Search a blog by keyword (e.g. office)…" onkeydown="if(event.key===\'Enter\')searchBlogForGroup(\'' + gidEnc + '\')" style="flex:1;min-width:200px;box-sizing:border-box;padding:7px 10px;border:1px solid #ccc;border-radius:6px;font-size:13px;">'
                     + '<button onclick="searchBlogForGroup(\'' + gidEnc + '\')" style="background:#1f6fb2;color:#fff;border:none;border-radius:6px;padding:7px 14px;font-weight:700;font-size:13px;cursor:pointer;">Search</button>'
-                    + '</div><div id="blogresults-' + safe + '" style="margin-top:6px;"></div></div>';
+                    + '</div><div id="blogresults-' + safe + '" style="margin-top:6px;"></div>'
+                    + '<div style="margin-top:11px;">'
+                    + '<div style="font-size:12.5px;color:#666;margin-bottom:5px;">Add singles that belong in this group:</div>'
+                    + '<div style="display:flex;gap:6px;flex-wrap:wrap;">'
+                    + '<input id="singlesearch-' + safe + '" type="text" placeholder="🔍 Search singles by keyword…" onkeydown="if(event.key===\'Enter\')searchSinglesForGroup(\'' + gidEnc + '\')" style="flex:1;min-width:200px;box-sizing:border-box;padding:7px 10px;border:1px solid #ccc;border-radius:6px;font-size:13px;">'
+                    + '<button onclick="searchSinglesForGroup(\'' + gidEnc + '\')" style="background:#1f6fb2;color:#fff;border:none;border-radius:6px;padding:7px 14px;font-weight:700;font-size:13px;cursor:pointer;">Search</button>'
+                    + '<button onclick="suggestSinglesForGroup(\'' + gidEnc + '\')" style="background:#6a1b9a;color:#fff;border:none;border-radius:6px;padding:7px 14px;font-weight:700;font-size:13px;cursor:pointer;">✨ Suggest matches</button>'
+                    + '</div><div id="singleresults-' + safe + '" style="margin-top:6px;"></div></div></div>';
             }
             return '<div style="border:1px solid ' + border + ';border-radius:8px;padding:12px;margin-bottom:10px;background:' + bg + ';">'
                 + head + body2 + rankNote
@@ -705,6 +714,105 @@
                 switchDupSub('covered');
             } catch (e) { alert('Could not attach: ' + e.message); }
         }
+        // ── Add singles to an existing group ── suggested (deterministic match) OR manual keyword search.
+        function _singlesWholeWordMatch(kw, terms) {
+            const depl = w => (w.length > 3 && w.endsWith('s')) ? w.slice(0, -1) : w;
+            const words = String(kw || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).map(depl);
+            return terms.every(t => words.includes(depl(t)));
+        }
+        function renderSingleResultsForGroup(gid, list) {
+            const safe = String(gid).replace(/[^a-zA-Z0-9_-]/g, '');
+            const box = document.getElementById('singleresults-' + safe); if (!box) return;
+            if (!list.length) { box.innerHTML = '<div style="font-size:12px;color:#888;">No matching singles.</div>'; return; }
+            box.innerHTML = list.map(s => {
+                const kwEnc = encodeURIComponent(s.keyword);
+                const tag = [s.style, s.room].filter(Boolean).join(' · ');
+                const met = (s.volume != null) ? ('vol ' + s.volume) : (s.impressions != null ? (s.impressions + ' impr') : '');
+                const sub = [tag, met].filter(Boolean).join(' · ');
+                return '<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;border:1px solid #cfe3cf;border-radius:6px;padding:7px 10px;margin-bottom:5px;background:#fff;">'
+                    + '<div style="font-size:13px;color:#333;min-width:0;"><div>' + escBlog(s.keyword) + '</div>' + (sub ? '<div style="font-size:11px;color:#999;">' + escBlog(sub) + '</div>' : '') + '</div>'
+                    + '<button onclick="addSingleToGroup(\'' + encodeURIComponent(gid) + '\',\'' + kwEnc + '\')" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:6px 11px;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;">Add to group</button>'
+                    + '</div>';
+            }).join('');
+        }
+        function searchSinglesForGroup(encId) {
+            const gid = decodeURIComponent(encId);
+            const safe = gid.replace(/[^a-zA-Z0-9_-]/g, '');
+            const inp = document.getElementById('singlesearch-' + safe);
+            const box = document.getElementById('singleresults-' + safe);
+            const raw = ((inp && inp.value) || '').toLowerCase().trim();
+            if (!box) return;
+            if (!raw) { box.innerHTML = '<div style="font-size:12px;color:#a33;">Type a keyword first.</div>'; return; }
+            const terms = raw.split(/[,\s]+/).filter(Boolean);
+            const list = (FUSION_SINGLES || []).filter(s => _singlesWholeWordMatch(s.keyword, terms));
+            renderSingleResultsForGroup(gid, list);
+        }
+        async function suggestSinglesForGroup(encId) {
+            const gid = decodeURIComponent(encId);
+            const safe = gid.replace(/[^a-zA-Z0-9_-]/g, '');
+            const box = document.getElementById('singleresults-' + safe); if (!box) return;
+            box.innerHTML = '<div style="font-size:12px;color:#888;">Finding matches…</div>';
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'fusion-suggest-singles-for-group', groupId: gid }) }).then(x => x.json());
+                if (!r.success) throw new Error(r.error || 'Failed.');
+                renderSingleResultsForGroup(gid, r.singles || []);
+            } catch (e) { box.innerHTML = '<div style="font-size:12px;color:#a33;">' + escBlog(e.message) + '</div>'; }
+        }
+        async function addSingleToGroup(encId, encKw) {
+            const gid = decodeURIComponent(encId);
+            const kw = decodeURIComponent(encKw);
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'fusion-add-single-to-group', groupId: gid, keyword: kw }) }).then(x => x.json());
+                if (!r.success) throw new Error(r.error || 'Could not add.');
+                await loadFusionPending();
+                switchDupSub('grouped');
+            } catch (e) { alert('Could not add: ' + e.message); }
+        }
+        // ── Put a single into an existing published/scheduled blog → it becomes Already covered ──
+        function toggleSingleBlogSearch(encKw, skw) {
+            const panel = document.getElementById('sbs-' + skw); if (!panel) return;
+            if (panel.style.display !== 'none') { panel.style.display = 'none'; return; }
+            panel.style.display = 'block';
+            const kw = decodeURIComponent(encKw);
+            panel.innerHTML = '<div style="font-size:12.5px;color:#666;margin-bottom:5px;">Find a published or scheduled blog to put this in:</div>'
+                + '<div style="display:flex;gap:6px;flex-wrap:wrap;">'
+                + '<input id="sbsq-' + skw + '" type="text" value="' + escBlog(kw) + '" onkeydown="if(event.key===\'Enter\')searchBlogForSingle(\'' + encKw + '\',\'' + skw + '\')" style="flex:1;min-width:200px;box-sizing:border-box;padding:7px 10px;border:1px solid #ccc;border-radius:6px;font-size:13px;">'
+                + '<button onclick="searchBlogForSingle(\'' + encKw + '\',\'' + skw + '\')" style="background:#1f6fb2;color:#fff;border:none;border-radius:6px;padding:7px 14px;font-weight:700;font-size:13px;cursor:pointer;">Search</button>'
+                + '</div><div id="sbsr-' + skw + '" style="margin-top:6px;"></div>';
+            searchBlogForSingle(encKw, skw);
+        }
+        async function searchBlogForSingle(encKw, skw) {
+            const box = document.getElementById('sbsr-' + skw); if (!box) return;
+            const inp = document.getElementById('sbsq-' + skw);
+            const q = ((inp && inp.value) || decodeURIComponent(encKw)).trim();
+            if (!q) { box.innerHTML = '<div style="font-size:12px;color:#a33;">Type a keyword first.</div>'; return; }
+            box.innerHTML = '<div style="font-size:12px;color:#888;">Searching…</div>';
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'search-blogs-for-group', query: q }) }).then(x => x.json());
+                if (!r.success) throw new Error(r.error || 'Search failed.');
+                if (!r.blogs || !r.blogs.length) { box.innerHTML = '<div style="font-size:12px;color:#888;">No published or scheduled blog matches “' + escBlog(q) + '”.</div>'; return; }
+                window._singleBlogResults = window._singleBlogResults || {};
+                window._singleBlogResults[skw] = r.blogs;
+                box.innerHTML = r.blogs.map((b, idx) => {
+                    const sched = b.status === 'scheduled' ? ' <span style="color:#1f6fb2;font-size:11px;">(scheduled)</span>' : '';
+                    if (b.used) {
+                        return '<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;border:1px solid #eee;border-radius:6px;padding:7px 10px;margin-bottom:5px;background:#f4f4f4;opacity:0.65;"><div style="font-size:13px;color:#999;text-decoration:line-through;">' + escBlog(b.title) + sched + '</div><span style="font-size:11px;color:#999;white-space:nowrap;">already used</span></div>';
+                    }
+                    return '<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;border:1px solid #cfe3cf;border-radius:6px;padding:7px 10px;margin-bottom:5px;background:#fff;"><div style="font-size:13px;color:#333;">' + escBlog(b.title) + sched + '</div><button onclick="attachSingleToBlog(\'' + encKw + '\',\'' + skw + '\',' + idx + ')" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:6px 11px;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;">Use this</button></div>';
+                }).join('');
+            } catch (e) { box.innerHTML = '<div style="font-size:12px;color:#a33;">' + escBlog(e.message) + '</div>'; }
+        }
+        async function attachSingleToBlog(encKw, skw, idx) {
+            const kw = decodeURIComponent(encKw);
+            const blog = ((window._singleBlogResults || {})[skw] || [])[idx];
+            if (!blog || blog.used) return;
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'fusion-single-to-blog', keyword: kw, blog }) }).then(x => x.json());
+                if (!r.success) throw new Error(r.error || 'Could not attach.');
+                await loadFusionPending();
+                switchDupSub('covered');
+            } catch (e) { alert('Could not attach: ' + e.message); }
+        }
         function renderSingles() {
             const box = document.getElementById('dupcheck-singles'); if (!box) return;
             const singles = (FUSION_SINGLES || []).slice().sort((a, b) => ((b.source === 'rank') - (a.source === 'rank')) || ((b.volume || b.impressions || 0) - (a.volume || a.impressions || 0)));
@@ -717,6 +825,7 @@
                 + '<span style="color:#666;font-size:12.5px;">Type one or more words (space or comma) to pull all that include any of them, tick them, then Group. Ranked ones on top.</span></div></div>';
             box.innerHTML = header + singles.map(s => {
                 const kwEnc = encodeURIComponent(s.keyword);
+                const skw = (s.keyword || '').toLowerCase().replace(/[^a-z0-9]+/g, '-');
                 const ranks = s.source === 'rank';
                 const tagLine = [s.style, s.room].filter(Boolean).join(' · ') || 'no style / room';
                 const metrics = ranks ? ('pos ' + (s.position != null ? s.position : '—') + ' · ' + (s.impressions != null ? s.impressions : '—') + ' impr') : (s.volume != null ? ('vol ' + s.volume) : (s.impressions != null ? (s.impressions + ' impr') : ''));
@@ -732,7 +841,9 @@
                     + whereLine
                     + '<div style="margin-top:8px;">' + mpdBtn
                     + '<button onclick="singleToWrite(\'' + kwEnc + '\')" style="background:#1f6fb2;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;font-size:13px;cursor:pointer;">② Write its own blog</button>'
+                    + '<button onclick="toggleSingleBlogSearch(\'' + kwEnc + '\',\'' + skw + '\')" style="background:#fff;color:#1f6fb2;border:1px solid #1f6fb2;border-radius:6px;padding:6px 12px;font-weight:700;font-size:13px;cursor:pointer;margin-left:8px;">③ Put in an existing blog</button>'
                     + '<button onclick="ignoreSingle(\'' + kwEnc + '\')" style="background:#fff;color:#a33;border:1px solid #ccc;border-radius:6px;padding:6px 12px;font-weight:700;font-size:13px;cursor:pointer;margin-left:8px;">✕ Ignore</button></div>'
+                    + '<div id="sbs-' + skw + '" style="display:none;margin-top:8px;border-top:1px dashed #e0d4a8;padding-top:8px;"></div>'
                     + '</div></label></div>';
             }).join('');
             filterSingles();
@@ -1059,7 +1170,11 @@
             if (tab === 'priority') loadGscBlogTopics();
             if (tab === 'dupcheck') loadFusionPending();
             if (tab === 'towrite') displayToWrite();
-            if (tab === 'planmonth') { selectedToSend.clear(); window._monthlyOrder = []; displayPlanMonth(); }
+            if (tab === 'planmonth') {
+                if (window._keepPlanSel) { window._keepPlanSel = false; }
+                else { selectedToSend.clear(); window._monthlyOrder = []; window._planExcluded = new Set(); }
+                displayPlanMonth();
+            }
         }
 
         function setTabColor(tab, pending) {
@@ -1333,9 +1448,17 @@
                 container.innerHTML = `<div class="empty-state">Nothing approved yet — approve groups or singles in the Duplicate check and they land here.</div>`;
                 return;
             }
-            // Clean, prioritised backlog list (no writing system — that lives in Month in progress).
+            // Clean, prioritised backlog list. Tick the ones you want and push them into Plan a month.
+            const validIdx = new Set(all.map(i => i.index));
+            [...selectedToWrite].forEach(ix => { if (!validIdx.has(ix)) selectedToWrite.delete(ix); });
             const ordered = all.slice().sort(byPotential);
-            container.innerHTML = ordered.map(idea => {
+            const nSel = selectedToWrite.size;
+            const bar = `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+                <button onclick="addToWriteToMonth()" ${nSel ? '' : 'disabled'} style="background:${nSel ? '#1565c0' : '#9bbbe0'};color:#fff;border:none;border-radius:8px;padding:9px 16px;font-weight:700;cursor:${nSel ? 'pointer' : 'default'};">➕ Add selected to Plan a month${nSel ? ' (' + nSel + ')' : ''}</button>
+                <button onclick="clearToWriteSel()" style="background:#fff;color:#555;border:1px solid #ccc;border-radius:8px;padding:9px 14px;font-weight:700;cursor:pointer;">Clear</button>
+                <span style="font-size:12px;color:#888;">Tick the ones you want, then add them — they spread into Plan a month by the usual rules.</span>
+            </div>`;
+            container.innerHTML = bar + ordered.map(idea => {
                 const m = (window._kwMetrics && window._kwMetrics[(idea.currentKeyword || idea.keyword || '').toLowerCase()]) || {};
                 const v = (m.volume != null) ? Number(m.volume).toLocaleString('en-GB') : '—';
                 const d = (m.difficulty != null) ? m.difficulty : (m.seo_difficulty != null ? m.seo_difficulty : '—');
@@ -1343,45 +1466,111 @@
                 const secLine = (sec && sec.length)
                     ? `<div style="font-size:12px;color:#8a6d1a;margin-top:4px;">+ also covers: ${sec.map(s => escHtml(s.keyword || s.title || '')).join(', ')}</div>`
                     : '';
-                return `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 14px;border:1px solid #e3e3e3;border-radius:8px;margin-bottom:6px;background:#fff;">
-                    <div style="flex:1;min-width:0;"><div style="font-weight:500;font-size:15px;">${escHtml(idea.currentKeyword || idea.keyword || '')}</div>
-                    <div style="font-size:13px;color:#666;">${escHtml(idea.currentTitle || idea.title || '')}</div>${secLine}</div>
+                const ck = selectedToWrite.has(idea.index) ? 'checked' : '';
+                return `<label style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 14px;border:1px solid #e3e3e3;border-radius:8px;margin-bottom:6px;background:#fff;cursor:pointer;">
+                    <div style="display:flex;gap:10px;align-items:flex-start;flex:1;min-width:0;">
+                        <input type="checkbox" ${ck} onchange="toggleToWriteSel(${idea.index})" style="margin-top:3px;">
+                        <div style="flex:1;min-width:0;"><div style="font-weight:500;font-size:15px;">${escHtml(idea.currentKeyword || idea.keyword || '')}</div>
+                        <div style="font-size:13px;color:#666;">${escHtml(idea.currentTitle || idea.title || '')}</div>${secLine}</div>
+                    </div>
                     <div style="font-size:13px;color:#555;white-space:nowrap;">Vol <strong>${v}</strong> · Diff <strong>${d}</strong></div>
-                </div>`;
+                </label>`;
             }).join('');
+        }
+        function toggleToWriteSel(index) {
+            if (selectedToWrite.has(index)) selectedToWrite.delete(index); else selectedToWrite.add(index);
+            displayToWrite();
+        }
+        function clearToWriteSel() { selectedToWrite.clear(); displayToWrite(); }
+        // Push the ticked To Write blogs into Plan a month, spread by the usual rules (variety + potential).
+        function addToWriteToMonth() {
+            const sel = allIdeas.filter(i => selectedToWrite.has(i.index) && ['TO_WRITE','TO_WRITE_PENDING','TO_WRITE_SENT'].includes(i.status) && !i.month && !isPublishedBlog(i) && isApprovedIdea(i));
+            if (!sel.length) { alert('Tick at least one blog first.'); return; }
+            const ordered = diversityOrder(sel.map(i => ({ ...i, title: i.currentTitle || i.title })));
+            selectedToSend = new Set(ordered.map(i => i.index));
+            window._monthlyOrder = ordered.map(i => i.index);
+            window._planExcluded = new Set();
+            selectedToWrite.clear();
+            window._keepPlanSel = true;
+            switchTab('planmonth');
+            const note = document.getElementById('monthly-note');
+            if (note) note.textContent = `${ordered.length} added from To Write. Adjust, then Save selection to month.`;
         }
 
         // Plan a month shows a COMPACT pick-list of the approved blogs (not the full cards — no duplication).
         function displayPlanMonth() {
             const container = document.getElementById('planmonth-container');
             if (!container) return;
-            // Empty until you press Auto-pick — so you start each month from scratch.
-            if (!(Array.isArray(window._monthlyOrder) && window._monthlyOrder.length)) {
-                container.innerHTML = `<div class="empty-state">Pick the month above and press “Auto-pick for this month” to plan it.</div>`;
+            if (!window._planExcluded) window._planExcluded = new Set();
+            const eligible = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && !i.month && !isPublishedBlog(i) && isApprovedIdea(i));
+            // The plan = the ticked blogs only. Empty until Auto-pick (or added from To Write).
+            const selList = eligible.filter(i => selectedToSend.has(i.index));
+            if (!selList.length) {
+                container.innerHTML = `<div class="empty-state">Pick the month above and press “Auto-pick for this month”, or add blogs from the To Write tab.</div>`;
                 updateBulkSendBar(); return;
             }
-            let all = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && !i.month && !isPublishedBlog(i) && isApprovedIdea(i));
-            if (!all.length) { container.innerHTML = `<div class="empty-state">No approved blogs to plan yet.</div>`; updateBulkSendBar(); return; }
-            if (Array.isArray(window._monthlyOrder) && window._monthlyOrder.length) {
-                const pos = new Map(window._monthlyOrder.map((idx, k) => [idx, k]));
-                all = all.slice().sort((a, b) => (pos.has(a.index) ? pos.get(a.index) : 1e9) - (pos.has(b.index) ? pos.get(b.index) : 1e9));
-            } else {
-                all = all.slice().sort(byPotential);
-            }
-            container.innerHTML = all.map(idea => {
-                const checked = selectedToSend.has(idea.index) ? 'checked' : '';
-                const b = bucketOf(idea.currentTitle || idea.title);
+            const ordered = diversityOrder(selList.map(i => ({ ...i, title: i.currentTitle || i.title })));
+            const rowHtml = ordered.map(idea => {
                 const m = (window._kwMetrics && window._kwMetrics[(idea.currentKeyword || idea.keyword || '').toLowerCase()]) || {};
                 const v = (m.volume != null) ? Number(m.volume).toLocaleString('en-GB') : '—';
                 const d = (m.difficulty != null) ? m.difficulty : (m.seo_difficulty != null ? m.seo_difficulty : '—');
-                return `<label style="display:flex;gap:10px;align-items:center;padding:9px 12px;border:1px solid #e3e3e3;border-radius:8px;margin-bottom:6px;background:#fff;cursor:pointer;">
-                    <input type="checkbox" class="pm-cb" id="pm-cb-${idea.index}" ${checked} onchange="toggleToSend(${idea.index})">
-                    <span style="flex:1;font-size:14px;">${escHtml(idea.currentTitle || idea.title || idea.keyword || '')}</span>
+                const b = bucketOf(idea.currentTitle || idea.title);
+                const sec = (typeof fusionFor === 'function') ? fusionFor(idea) : [];
+                const secLine = (sec && sec.length)
+                    ? `<div style="font-size:12px;color:#8a6d1a;margin-top:4px;">+ also covers: ${sec.map(s => escHtml(s.keyword || s.title || '')).join(', ')}</div>`
+                    : '';
+                return `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 12px;border:1px solid #e3e3e3;border-radius:8px;margin-bottom:6px;background:#fff;">
+                    <div style="flex:1;min-width:0;"><div style="font-size:14px;font-weight:500;">${escHtml(idea.currentTitle || idea.title || idea.keyword || '')}</div>${secLine}</div>
                     <span style="font-size:12px;color:#555;white-space:nowrap;">Vol <strong>${v}</strong> · Diff <strong>${d}</strong></span>
                     <span style="font-size:11px;color:#999;">${escHtml(b || '')}</span>
-                </label>`;
+                    <button onclick="removeFromPlan(${idea.index})" title="Remove from this month — goes back to To Write for another month" style="background:#fbe6e4;color:#8f1c16;border:none;border-radius:6px;padding:5px 10px;font-weight:700;cursor:pointer;white-space:nowrap;">✕</button>
+                </div>`;
             }).join('');
+            container.innerHTML = rowHtml
+                + `<div style="margin-top:10px;"><button onclick="togglePlanChooser()" style="background:#fff;color:#1565c0;border:1.5px solid #1565c0;border-radius:8px;padding:9px 16px;font-weight:700;cursor:pointer;">➕ Choose another blog</button></div>`
+                + `<div id="plan-chooser" style="display:none;margin-top:10px;"></div>`;
             updateBulkSendBar();
+        }
+        // ✕ — take a blog off this month's plan; it stays in To Write for another month.
+        function removeFromPlan(index) {
+            selectedToSend.delete(index);
+            if (!window._planExcluded) window._planExcluded = new Set();
+            window._planExcluded.add(index);
+            const chOpen = (() => { const c = document.getElementById('plan-chooser'); return c && c.style.display !== 'none'; })();
+            displayPlanMonth();
+            if (chOpen) { const c = document.getElementById('plan-chooser'); if (c) { c.style.display = 'block'; renderPlanChooser(); } }
+        }
+        function togglePlanChooser() {
+            const ch = document.getElementById('plan-chooser'); if (!ch) return;
+            if (ch.style.display === 'none') { ch.style.display = 'block'; renderPlanChooser(); }
+            else { ch.style.display = 'none'; }
+        }
+        // The pool of blogs you can still add to the month — title + metrics, best potential first.
+        function renderPlanChooser() {
+            const ch = document.getElementById('plan-chooser'); if (!ch) return;
+            const cand = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && !i.month && !isPublishedBlog(i) && isApprovedIdea(i) && !selectedToSend.has(i.index));
+            const list = cand.slice().sort(byPotential);
+            if (!list.length) { ch.innerHTML = `<div style="font-size:13px;color:#888;padding:8px;">No more blogs available to add.</div>`; return; }
+            ch.innerHTML = `<div style="font-size:12px;color:#666;margin-bottom:6px;">Pick one to add (ordered by ranking potential):</div>` + list.map(idea => {
+                const m = (window._kwMetrics && window._kwMetrics[(idea.currentKeyword || idea.keyword || '').toLowerCase()]) || {};
+                const v = (m.volume != null) ? Number(m.volume).toLocaleString('en-GB') : '—';
+                const d = (m.difficulty != null) ? m.difficulty : (m.seo_difficulty != null ? m.seo_difficulty : '—');
+                const sec = (typeof fusionFor === 'function') ? fusionFor(idea) : [];
+                const secLine = (sec && sec.length)
+                    ? `<div style="font-size:12px;color:#8a6d1a;margin-top:3px;">+ also covers: ${sec.map(s => escHtml(s.keyword || s.title || '')).join(', ')}</div>`
+                    : '';
+                return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 11px;border:1px solid #e8e8e8;border-radius:7px;margin-bottom:5px;background:#fafafa;">
+                    <div style="flex:1;min-width:0;"><div style="font-size:13px;">${escHtml(idea.currentTitle || idea.title || idea.keyword || '')}</div>${secLine}</div>
+                    <span style="font-size:12px;color:#555;white-space:nowrap;">Vol <strong>${v}</strong> · Diff <strong>${d}</strong></span>
+                    <button onclick="addToPlan(${idea.index})" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:5px 11px;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;">Add</button>
+                </div>`;
+            }).join('');
+        }
+        function addToPlan(index) {
+            selectedToSend.add(index);
+            if (window._planExcluded) window._planExcluded.delete(index);
+            displayPlanMonth();
+            const ch = document.getElementById('plan-chooser'); if (ch) { ch.style.display = 'block'; renderPlanChooser(); }
         }
 
         function toggleToSend(index) {
@@ -1395,6 +1584,7 @@
         function clearToSendSelection() {
             selectedToSend.clear();
             window._monthlyOrder = [];
+            window._planExcluded = new Set();
             displayPlanMonth();
             updateBulkSendBar();
         }
@@ -1414,7 +1604,9 @@
 
         function selectAllUnsent() {
             const all = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && !i.month && !isPublishedBlog(i) && isApprovedIdea(i));
-            all.forEach(idea => { selectedToSend.add(idea.index); const cb = document.getElementById(`pm-cb-${idea.index}`); if (cb) cb.checked = true; });
+            all.forEach(idea => selectedToSend.add(idea.index));
+            if (window._planExcluded) window._planExcluded.clear();
+            displayPlanMonth();
             updateBulkSendBar();
         }
 
@@ -4091,6 +4283,7 @@
                 return;
             }
             const monthStr = `${year}-${String(month).padStart(2, '0')}`;
+            window._planExcluded = new Set(); // fresh pick — clear any earlier ✕ removals
             // Publishing is every other day now, so plan ~half the month's days, minus what's already scheduled.
             const alreadySched = (window._publishedMonthCount && window._publishedMonthCount[monthStr]) || 0;
             const count = Math.max(0, Math.ceil(daysInMonth(year, month) / 2) - alreadySched);
