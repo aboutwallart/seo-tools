@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.33 - 2026-11-17</p>
+        <p class="version">v6.34 - 2026-11-17</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -965,8 +965,8 @@
                 }
                 // Add to the session-only "put back" list so Mae can undo this reject until she reloads.
                 if (r.previousGroup) REJECTED_SESSION.unshift({ keyword: kw, previousGroup: r.previousGroup, sig: r.sig || null });
-                renderFusionPending();
-                renderRejectedBlock();
+                // Reload so the freed keyword shows in Singles right away (and the group list refreshes).
+                await loadFusionPending();
             } catch (e) { alert('Could not remove: ' + e.message); }
         }
         // The session-only "Recently rejected" block — lets Mae put a keyword back into its original group
@@ -1503,6 +1503,10 @@
             if (!container) return;
             if (!window._planExcluded) window._planExcluded = new Set();
             const eligible = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && !i.month && !isPublishedBlog(i) && isApprovedIdea(i));
+            // Self-heal: drop any ticked index that isn't actually shown here (e.g. not approved), so the
+            // "N selected" count ALWAYS matches the rows — and Save only ever sends what you see.
+            const eligIdx = new Set(eligible.map(i => i.index));
+            [...selectedToSend].forEach(ix => { if (!eligIdx.has(ix)) selectedToSend.delete(ix); });
             // The plan = the ticked blogs only. Empty until Auto-pick (or added from To Write).
             const selList = eligible.filter(i => selectedToSend.has(i.index));
             if (!selList.length) {
@@ -4287,8 +4291,9 @@
             // Publishing is every other day now, so plan ~half the month's days, minus what's already scheduled.
             const alreadySched = (window._publishedMonthCount && window._publishedMonthCount[monthStr]) || 0;
             const count = Math.max(0, Math.ceil(daysInMonth(year, month) / 2) - alreadySched);
-            // Eligible = To Write, not already tagged to a DIFFERENT month.
-            const pool = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && (!i.month || i.month === monthStr) && !isPublishedBlog(i));
+            // Eligible = APPROVED To Write, not already tagged to a DIFFERENT month (same filter the list uses,
+            // so the "selected" count always matches the rows shown).
+            const pool = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && (!i.month || i.month === monthStr) && !isPublishedBlog(i) && isApprovedIdea(i));
             if (!pool.length) { alert('No available To Write blogs to plan.'); return; }
             const seasonalThis = [], evergreen = [];
             pool.forEach(i => {
@@ -4309,7 +4314,12 @@
             window._monthlyOrder = finalOrder.map(i => i.index);
             displayPlanMonth();
             const seasonalUsed = pick.filter(i => seasonalMonths(i.title).includes(month)).length;
-            document.getElementById('monthly-note').textContent = `${pick.length} picked for ${MONTH_NAMES[month - 1]} ${year} (every other day, ~${count}${seasonalUsed ? `, ${seasonalUsed} seasonal` : ''}). Adjust ticks, then Save selection to month.`;
+            const note = document.getElementById('monthly-note');
+            if (pick.length < count) {
+                note.innerHTML = `<span style="color:#b3261e;font-weight:700;">⚠ Only ${pick.length} approved blog${pick.length === 1 ? '' : 's'} available — ${MONTH_NAMES[month - 1]} needs ~${count}.</span> Approve more in the Duplicate check (or add some from To Write), then run Auto-pick again.`;
+            } else {
+                note.textContent = `${pick.length} picked for ${MONTH_NAMES[month - 1]} ${year} (every other day, ~${count}${seasonalUsed ? `, ${seasonalUsed} seasonal` : ''}). Adjust ticks, then Save selection to month.`;
+            }
         }
 
         // Save the currently-ticked blogs to the chosen month (persists a MONTH tag).
@@ -4317,7 +4327,7 @@
             const month = parseInt(document.getElementById('plan-month').value, 10);
             const year = parseInt(document.getElementById('plan-year').value, 10);
             const monthStr = `${year}-${String(month).padStart(2, '0')}`;
-            const picked = allIdeas.filter(i => selectedToSend.has(i.index));
+            const picked = allIdeas.filter(i => selectedToSend.has(i.index) && (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && !i.month && !isPublishedBlog(i) && isApprovedIdea(i));
             if (!picked.length) { alert('Nothing selected. Auto-pick or tick blogs first.'); return; }
             const note = document.getElementById('monthly-note');
             note.textContent = '💾 Saving…';
