@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.31 - 2026-11-17</p>
+        <p class="version">v6.32 - 2026-11-17</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -515,7 +515,7 @@
                 + '<div style="display:grid;grid-template-columns:auto 1fr auto auto auto;gap:6px 14px;align-items:center;font-size:13px;">'
                 + '<div></div><div style="font-weight:700;color:#666;">Keyword</div><div style="font-weight:700;color:#666;">Impr.</div><div style="font-weight:700;color:#666;">Clicks</div><div style="font-weight:700;color:#666;">Pos.</div>'
                 + opts.map((o, i) =>
-                    '<div><button title="Remove for good" onclick="removeGscTopic(' + i + ')" style="background:#fbe6e4;color:#8f1c16;border:none;border-radius:6px;padding:3px 9px;font-weight:700;cursor:pointer;">✕</button></div>'
+                    '<div><button title="Ignore — moves it to the Ignored tab" onclick="removeGscTopic(' + i + ')" style="background:#fbe6e4;color:#8f1c16;border:none;border-radius:6px;padding:4px 12px;font-weight:700;cursor:pointer;">✕ Ignore</button></div>'
                     + '<div style="font-weight:600;">' + escBlog(o.keyword) + '</div>'
                     + '<div>' + (o.impressions != null ? o.impressions : '—') + '</div>'
                     + '<div>' + (o.clicks != null ? o.clicks : '—') + '</div>'
@@ -528,6 +528,8 @@
             GSC_BLOG_KEPT.splice(i, 1);
             renderGscBlogList();
             try { await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'dismiss-gsc-blog-topic', keyword: o.keyword }) }); } catch (e) {}
+            try { await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'fusion-ignore-single', keyword: o.keyword }) }); } catch (e) {}
+            try { if (typeof refreshAll === 'function') refreshAll(); } catch (e) {}
         }
         async function approveGscTopics(btn) {
             const kept = GSC_BLOG_KEPT.slice();
@@ -1337,9 +1339,13 @@
                 const m = (window._kwMetrics && window._kwMetrics[(idea.currentKeyword || idea.keyword || '').toLowerCase()]) || {};
                 const v = (m.volume != null) ? Number(m.volume).toLocaleString('en-GB') : '—';
                 const d = (m.difficulty != null) ? m.difficulty : (m.seo_difficulty != null ? m.seo_difficulty : '—');
+                const sec = (typeof fusionFor === 'function') ? fusionFor(idea) : [];
+                const secLine = (sec && sec.length)
+                    ? `<div style="font-size:12px;color:#8a6d1a;margin-top:4px;">+ also covers: ${sec.map(s => escHtml(s.keyword || s.title || '')).join(', ')}</div>`
+                    : '';
                 return `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 14px;border:1px solid #e3e3e3;border-radius:8px;margin-bottom:6px;background:#fff;">
                     <div style="flex:1;min-width:0;"><div style="font-weight:500;font-size:15px;">${escHtml(idea.currentKeyword || idea.keyword || '')}</div>
-                    <div style="font-size:13px;color:#666;">${escHtml(idea.currentTitle || idea.title || '')}</div></div>
+                    <div style="font-size:13px;color:#666;">${escHtml(idea.currentTitle || idea.title || '')}</div>${secLine}</div>
                     <div style="font-size:13px;color:#555;white-space:nowrap;">Vol <strong>${v}</strong> · Diff <strong>${d}</strong></div>
                 </div>`;
             }).join('');
@@ -1349,6 +1355,11 @@
         function displayPlanMonth() {
             const container = document.getElementById('planmonth-container');
             if (!container) return;
+            // Empty until you press Auto-pick — so you start each month from scratch.
+            if (!(Array.isArray(window._monthlyOrder) && window._monthlyOrder.length)) {
+                container.innerHTML = `<div class="empty-state">Pick the month above and press “Auto-pick for this month” to plan it.</div>`;
+                updateBulkSendBar(); return;
+            }
             let all = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && !i.month && !isPublishedBlog(i) && isApprovedIdea(i));
             if (!all.length) { container.innerHTML = `<div class="empty-state">No approved blogs to plan yet.</div>`; updateBulkSendBar(); return; }
             if (Array.isArray(window._monthlyOrder) && window._monthlyOrder.length) {
