@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.30 - 2026-11-16</p>
+        <p class="version">v6.31 - 2026-11-17</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -1057,7 +1057,7 @@
             if (tab === 'priority') loadGscBlogTopics();
             if (tab === 'dupcheck') loadFusionPending();
             if (tab === 'towrite') displayToWrite();
-            if (tab === 'planmonth') displayPlanMonth();
+            if (tab === 'planmonth') { selectedToSend.clear(); window._monthlyOrder = []; displayPlanMonth(); }
         }
 
         function setTabColor(tab, pending) {
@@ -1331,10 +1331,18 @@
                 container.innerHTML = `<div class="empty-state">Nothing approved yet — approve groups or singles in the Duplicate check and they land here.</div>`;
                 return;
             }
-            const unsent = all.filter(i => i.status !== 'TO_WRITE_SENT').sort(byPotential);
-            const sent   = all.filter(i => i.status === 'TO_WRITE_SENT').sort(byPotential);
-            container.innerHTML = [...unsent, ...sent].map(idea => buildIdeaCard(idea, 'towrite')).join('');
-            [...unsent, ...sent].forEach(idea => { restoreDraft(idea.index); restoreBriefNote(idea.index); restoreProducts(idea.index); restoreFinish(idea.index); restorePublish(idea.index); });
+            // Clean, prioritised backlog list (no writing system — that lives in Month in progress).
+            const ordered = all.slice().sort(byPotential);
+            container.innerHTML = ordered.map(idea => {
+                const m = (window._kwMetrics && window._kwMetrics[(idea.currentKeyword || idea.keyword || '').toLowerCase()]) || {};
+                const v = (m.volume != null) ? Number(m.volume).toLocaleString('en-GB') : '—';
+                const d = (m.difficulty != null) ? m.difficulty : (m.seo_difficulty != null ? m.seo_difficulty : '—');
+                return `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 14px;border:1px solid #e3e3e3;border-radius:8px;margin-bottom:6px;background:#fff;">
+                    <div style="flex:1;min-width:0;"><div style="font-weight:500;font-size:15px;">${escHtml(idea.currentKeyword || idea.keyword || '')}</div>
+                    <div style="font-size:13px;color:#666;">${escHtml(idea.currentTitle || idea.title || '')}</div></div>
+                    <div style="font-size:13px;color:#555;white-space:nowrap;">Vol <strong>${v}</strong> · Diff <strong>${d}</strong></div>
+                </div>`;
+            }).join('');
         }
 
         // Plan a month shows a COMPACT pick-list of the approved blogs (not the full cards — no duplication).
@@ -1346,13 +1354,19 @@
             if (Array.isArray(window._monthlyOrder) && window._monthlyOrder.length) {
                 const pos = new Map(window._monthlyOrder.map((idx, k) => [idx, k]));
                 all = all.slice().sort((a, b) => (pos.has(a.index) ? pos.get(a.index) : 1e9) - (pos.has(b.index) ? pos.get(b.index) : 1e9));
+            } else {
+                all = all.slice().sort(byPotential);
             }
             container.innerHTML = all.map(idea => {
                 const checked = selectedToSend.has(idea.index) ? 'checked' : '';
                 const b = bucketOf(idea.currentTitle || idea.title);
+                const m = (window._kwMetrics && window._kwMetrics[(idea.currentKeyword || idea.keyword || '').toLowerCase()]) || {};
+                const v = (m.volume != null) ? Number(m.volume).toLocaleString('en-GB') : '—';
+                const d = (m.difficulty != null) ? m.difficulty : (m.seo_difficulty != null ? m.seo_difficulty : '—');
                 return `<label style="display:flex;gap:10px;align-items:center;padding:9px 12px;border:1px solid #e3e3e3;border-radius:8px;margin-bottom:6px;background:#fff;cursor:pointer;">
                     <input type="checkbox" class="pm-cb" id="pm-cb-${idea.index}" ${checked} onchange="toggleToSend(${idea.index})">
                     <span style="flex:1;font-size:14px;">${escHtml(idea.currentTitle || idea.title || idea.keyword || '')}</span>
+                    <span style="font-size:12px;color:#555;white-space:nowrap;">Vol <strong>${v}</strong> · Diff <strong>${d}</strong></span>
                     <span style="font-size:11px;color:#999;">${escHtml(b || '')}</span>
                 </label>`;
             }).join('');
@@ -1369,7 +1383,8 @@
 
         function clearToSendSelection() {
             selectedToSend.clear();
-            document.querySelectorAll('.pm-cb').forEach(cb => { cb.checked = false; });
+            window._monthlyOrder = [];
+            displayPlanMonth();
             updateBulkSendBar();
         }
 
