@@ -1,4 +1,8 @@
-// blogs.js — v6.13
+// blogs.js — v6.14
+// v6.14 (2026-11-17): three new dedup actions. (1) fusion-suggest-singles-for-group → singles that fit a
+//   grouped card by the same 4-step room/style cascade. (2) fusion-add-single-to-group → move a single into an
+//   existing group's secondary and drop it from Singles. (3) fusion-single-to-blog → match a single to a chosen
+//   published/scheduled blog, turning it into an Already-covered group (where the angle paragraph is written).
 // v6.13 (2026-11-16): add-angle-preview now also accepts a blogUrl (resolves it to the article id) so the
 //   Blog Ideas "Add paragraph to that blog" button can add an angle to the conflicting blog directly.
 // v6.12 (2026-11-16): (A) new action fusion-ignore-single → sets the keyword IGNORED in blog_ideas.csv (adds
@@ -3876,6 +3880,82 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         arr[i] = { ...arr[i], type: 'covered', coveredBlog: { id: blog.id || null, title: blog.title || '', handle: blog.handle || '', status: blog.status || 'published', url: blog.url || '' } };
         await writeJsonFile('data/blog-fusion-pending.json', arr, `Fusion: attached blog to group ${groupId}`);
         return res.status(200).json({ success: true, group: arr[i] });
+      }
+
+      // ── ACTION: fusion-suggest-singles-for-group ── singles that fit a grouped (merge) card, by the SAME
+      // 4-step room/style cascade used everywhere else. Lets Mae pull leftover singles into an existing group.
+      if (req.body.action === 'fusion-suggest-singles-for-group') {
+        const groupId = String(req.body.groupId || '');
+        const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+        const g = (Array.isArray(pending) ? pending : []).find(x => x && x.id === groupId);
+        if (!g) return res.status(404).json({ error: 'That group is no longer here — re-run the check.' });
+        const singles = await readJsonFileSafe('data/blog-fusion-singles.json', []);
+        const memberKws = [g.winnerKeyword + ' ' + (g.winnerTitle || ''), ...((g.secondary || []).map(s => s.keyword || ''))];
+        const memberTags = memberKws.map(topicTagBoth);
+        const matches = (Array.isArray(singles) ? singles : []).filter(s => {
+          const st = topicTagBoth((s.keyword || '') + ' ' + (s.title || ''));
+          return TOPIC_PHASES.some(m => memberTags.some(mt => m(st, mt)));
+        });
+        return res.status(200).json({ success: true, singles: matches });
+      }
+
+      // ── ACTION: fusion-add-single-to-group ── move a single INTO an existing group's secondary list
+      // (suggested or found by manual search) and drop it from the singles list.
+      if (req.body.action === 'fusion-add-single-to-group') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const groupId = String(req.body.groupId || '');
+        const kw = String(req.body.keyword || '').trim();
+        if (!groupId || !kw) return res.status(400).json({ error: 'Need a group and a keyword.' });
+        const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+        const arr = Array.isArray(pending) ? pending : [];
+        const gi = arr.findIndex(x => x && x.id === groupId);
+        if (gi < 0) return res.status(404).json({ error: 'That group is no longer here — re-run the check.' });
+        const singles = await readJsonFileSafe('data/blog-fusion-singles.json', []);
+        const sArr = Array.isArray(singles) ? singles : [];
+        const s = sArr.find(x => String(x.keyword || '').toLowerCase() === kw.toLowerCase());
+        if (!s) return res.status(404).json({ error: 'That single is no longer in the list — re-run the check.' });
+        const sec = (arr[gi].secondary || []).slice();
+        if (!sec.some(x => String(x.keyword || '').toLowerCase() === kw.toLowerCase())) {
+          sec.push({ keyword: s.keyword, title: s.title || '', source: s.source || 'towrite', pageUrl: s.pageUrl || null, urlFree: !!s.urlFree, lockedToKeyword: s.lockedToKeyword || null, volume: s.volume == null ? null : s.volume, difficulty: s.difficulty == null ? null : s.difficulty, impressions: s.impressions == null ? null : s.impressions });
+        }
+        arr[gi] = { ...arr[gi], secondary: sec };
+        await writeJsonFile('data/blog-fusion-pending.json', arr, `Fusion: +single "${kw}" to group ${groupId}`);
+        const remaining = sArr.filter(x => String(x.keyword || '').toLowerCase() !== kw.toLowerCase());
+        await writeJsonFile('data/blog-fusion-singles.json', remaining, `Fusion: -single "${kw}" (added to group)`);
+        const checked = await readJsonFileSafe('data/blog-fusion-checked.json', { singletons: [], grouped: [] });
+        const grouped = new Set((checked.grouped || []).map(x => String(x).toLowerCase())); grouped.add(kw.toLowerCase());
+        const singletons = new Set((checked.singletons || []).map(x => String(x).toLowerCase())); singletons.delete(kw.toLowerCase());
+        await writeJsonFile('data/blog-fusion-checked.json', { singletons: [...singletons], grouped: [...grouped] }, 'Fusion: single added to group');
+        return res.status(200).json({ success: true, group: arr[gi] });
+      }
+
+      // ── ACTION: fusion-single-to-blog ── Mae picks a published/scheduled blog for a SINGLE → make it a
+      // 'covered' group for that blog (moves to Already covered, where she adds the angle paragraph).
+      if (req.body.action === 'fusion-single-to-blog') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const kw = String(req.body.keyword || '').trim();
+        const blog = req.body.blog || null;
+        if (!kw || !blog || !(blog.handle || blog.id)) return res.status(400).json({ error: 'Need a single and a blog.' });
+        const singles = await readJsonFileSafe('data/blog-fusion-singles.json', []);
+        const sArr = Array.isArray(singles) ? singles : [];
+        const s = sArr.find(x => String(x.keyword || '').toLowerCase() === kw.toLowerCase());
+        if (!s) return res.status(404).json({ error: 'That single is no longer in the list — re-run the check.' });
+        const group = {
+          id: `grp_${Date.now()}_single`, bucketSig: null, type: 'covered',
+          winnerKeyword: s.keyword, winnerTitle: s.title || '', winnerSource: s.source || 'towrite',
+          winnerPageUrl: s.pageUrl || null, winnerUrlFree: !!s.urlFree, winnerLockedTo: s.lockedToKeyword || null,
+          reason: 'Matched to a blog by hand', signals: 'manual', secondary: [],
+          coveredBlog: { id: blog.id || null, title: blog.title || '', handle: blog.handle || '', status: blog.status || 'published', url: blog.url || '' }
+        };
+        const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+        await writeJsonFile('data/blog-fusion-pending.json', [...(Array.isArray(pending) ? pending : []), group], `Fusion: single "${kw}" → covered`);
+        const remaining = sArr.filter(x => String(x.keyword || '').toLowerCase() !== kw.toLowerCase());
+        await writeJsonFile('data/blog-fusion-singles.json', remaining, `Fusion: -single "${kw}" (matched to blog)`);
+        const checked = await readJsonFileSafe('data/blog-fusion-checked.json', { singletons: [], grouped: [] });
+        const grouped = new Set((checked.grouped || []).map(x => String(x).toLowerCase())); grouped.add(kw.toLowerCase());
+        const singletons = new Set((checked.singletons || []).map(x => String(x).toLowerCase())); singletons.delete(kw.toLowerCase());
+        await writeJsonFile('data/blog-fusion-checked.json', { singletons: [...singletons], grouped: [...grouped] }, 'Fusion: single matched to blog');
+        return res.status(200).json({ success: true, group });
       }
 
       // ── ACTION: fusion-single-to-write ── a lone SINGLE Mae wants as its own blog. A 'rank' keyword isn't
