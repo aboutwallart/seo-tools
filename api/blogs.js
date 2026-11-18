@@ -1,4 +1,10 @@
-// blogs.js — v6.16
+// blogs.js — v6.17
+// v6.17 (2026-11-18): Discover polish. discover-promote now sends an approved topic STRAIGHT TO TO WRITE
+//   (status TO_WRITE + adds the keyword to blog-approved.json so it shows; updates the existing row instead of
+//   duplicating) and clears the same-seed angle topics from the pool. discover-gaps + discover-search now also
+//   count IN-PROGRESS topics (To Write / pending / Blog Ideas / month, plus Grouped winners+secondary and
+//   Singles) via gatherPipelineTexts, so a room/style already being worked on is greyed ("in pipeline") and
+//   never re-offered. Ignored topics are NOT counted (can resurface).
 // v6.16 (2026-11-18): DISCOVER topics (Serper). New actions: discover-gaps (per-room general count + which
 //   styles are covered/already searched, from the room+style dictionaries), discover-search (searches each
 //   seed × 2 terms "wall art"/"home decor" on Serper via SERPER_KEY, keeps only questions NOT already covered
@@ -3983,14 +3989,29 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
       // Find room+style gaps, search Serper for the questions people ask, keep only NEW ones (duplicate check),
       // park them in a pool. Claude fills the main keyword (Ubersuggest) → promote to Blog Ideas.
       const DISCOVER_TERMS = ['wall art', 'home decor']; // 2 terms per seed (2 credits each)
+      // Topics already IN PROGRESS (not written yet but on their way) — so Discover doesn't re-offer them:
+      // To Write / pending / sent / Blog Ideas / any with a month, plus Grouped winners+secondary and Singles.
+      const gatherPipelineTexts = async () => {
+        const texts = [];
+        try {
+          const f = await getGitHubFile('data/blog_ideas.csv');
+          f.content.split('\n').forEach((l, i) => { if (i === 0) return; const t = l.trim(); if (!t) return; const c = parseCSVLine(t.replace(/\r/g, '')); const st = (c[6] || '').trim().toUpperCase(); const hasMonth = !!(c[9] || '').trim(); if (c[0] && (['TO_WRITE', 'TO_WRITE_PENDING', 'TO_WRITE_SENT', ''].includes(st) || hasMonth)) texts.push((c[0] || '') + ' ' + (c[1] || '')); });
+        } catch (e) {}
+        try { const pend = await readJsonFileSafe('data/blog-fusion-pending.json', []); (Array.isArray(pend) ? pend : []).forEach(g => { if (g.winnerKeyword) texts.push(g.winnerKeyword + ' ' + (g.winnerTitle || '')); (g.secondary || []).forEach(s => { if (s.keyword) texts.push(s.keyword); }); }); } catch (e) {}
+        try { const sing = await readJsonFileSafe('data/blog-fusion-singles.json', []); (Array.isArray(sing) ? sing : []).forEach(s => { if (s.keyword) texts.push((s.keyword || '') + ' ' + (s.title || '')); }); } catch (e) {}
+        return texts;
+      };
 
-      // ── ACTION: discover-gaps ── per room: general blog count + which styles are covered / already searched.
+      // ── ACTION: discover-gaps ── per room: general blog count + which styles are covered (written), in the
+      // pipeline (being worked on), or already searched.
       if (req.body.action === 'discover-gaps') {
         let blogs = [];
         try { blogs = await fetchBlogsPubAndSched(); } catch (e) { blogs = []; }
         if (!blogs.length) { try { const bi = await getGitHubFile('data/blog-index.json'); const j = JSON.parse(bi.content); blogs = (j.articles || []).map(a => ({ title: a.title })); } catch (e) {} }
-        const coveredPairs = new Set(); const roomCount = {};
-        blogs.forEach(b => { const { style, room } = topicTag(b.title || '', false); if (room) roomCount[room] = (roomCount[room] || 0) + 1; if (style && room) coveredPairs.add(style + '|' + room); });
+        const publishedPairs = new Set(); const roomCount = {};
+        blogs.forEach(b => { const { style, room } = topicTag(b.title || '', false); if (room) roomCount[room] = (roomCount[room] || 0) + 1; if (style && room) publishedPairs.add(style + '|' + room); });
+        const pipePairs = new Set(); const pipeRoom = new Set();
+        (await gatherPipelineTexts()).forEach(t => { const { style, room } = topicTag(t, false); if (room) pipeRoom.add(room); if (style && room) pipePairs.add(style + '|' + room); });
         const searched = await readJsonFileSafe('data/discover-searched.json', []);
         const searchedSet = new Set((Array.isArray(searched) ? searched : []).map(x => String(x).toLowerCase()));
         const styleList = TOPIC_STYLE_DICT.map(e => ({ name: e[0], term: e[1][0], synonyms: e[1].slice(1) }));
@@ -3998,10 +4019,11 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
           const room = e[0], roomTerm = e[1][0], roomSyn = e[1].slice(1);
           const styles = styleList.map(s => ({
             style: s.name, term: s.term, synonyms: s.synonyms,
-            covered: coveredPairs.has(s.name + '|' + room),
+            covered: publishedPairs.has(s.name + '|' + room),
+            inPipeline: !publishedPairs.has(s.name + '|' + room) && pipePairs.has(s.name + '|' + room),
             searched: searchedSet.has((s.term + ' ' + roomTerm).toLowerCase())
           }));
-          return { room, roomTerm, roomSynonyms: roomSyn, generalCount: roomCount[room] || 0, generalSearched: searchedSet.has(roomTerm.toLowerCase()), styles };
+          return { room, roomTerm, roomSynonyms: roomSyn, generalCount: roomCount[room] || 0, generalInPipeline: pipeRoom.has(room), generalSearched: searchedSet.has(roomTerm.toLowerCase()), styles };
         });
         return res.status(200).json({ success: true, rooms, terms: DISCOVER_TERMS });
       }
@@ -4016,6 +4038,8 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         const TERMS = (Array.isArray(req.body.terms) && req.body.terms.length) ? req.body.terms.map(t => String(t).trim()).filter(Boolean) : DISCOVER_TERMS;
         let blogs = []; try { blogs = await fetchBlogsPubAndSched(); } catch (e) { blogs = []; }
         const blogTags = blogs.map(b => topicTagBoth(b.title || ''));
+        const pipeTags = (await gatherPipelineTexts()).map(t => topicTagBoth(t)); // in-progress topics count as covered too
+        const allTags = blogTags.concat(pipeTags);
         const ideaKw = new Set();
         try { const f = await getGitHubFile('data/blog_ideas.csv'); f.content.split('\n').forEach((l, i) => { if (i === 0) return; const c = parseCSVLine(l.replace(/\r/g, '')); if (c[0]) ideaKw.add((c[0] || '').trim().toLowerCase()); }); } catch (e) {}
         const pool = await readJsonFileSafe('data/discover-pool.json', []);
@@ -4040,7 +4064,7 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
                 const lc = String(question).toLowerCase().trim();
                 if (!lc || seenRun.has(lc) || poolQ.has(lc) || ideaKw.has(lc)) return;
                 const qt = topicTagBoth(question);
-                const covered = (qt.tagS.style || qt.tagS.room) && blogTags.some(bt => TOPIC_PHASES.some(m => m(qt, bt)));
+                const covered = (qt.tagS.style || qt.tagS.room) && allTags.some(bt => TOPIC_PHASES.some(m => m(qt, bt)));
                 if (covered) return;
                 seenRun.add(lc);
                 newCandidates.push({ id: `disc_${Date.now()}_${newCandidates.length}`, question, seed, term, mainKeyword: '', title: '', status: 'needs_keyword', createdAt: new Date().toISOString() });
@@ -4078,7 +4102,10 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         return res.status(200).json({ success: true, item: arr[i] });
       }
 
-      // ── ACTION: discover-promote ── add a 'ready' pool item (keyword + title set) to blog_ideas.csv as a Blog Idea.
+      // ── ACTION: discover-promote ── Discover already kept only NOT-written combos, so an approved topic goes
+      // STRAIGHT TO TO WRITE (no re-triage): set the row TO_WRITE + add the keyword to blog-approved.json so it
+      // shows. If a row for that keyword already exists it's updated (no duplicate). The other pool topics from
+      // the SAME seed are its angles → they're cleared too.
       if (req.body.action === 'discover-promote') {
         if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
         const id = String(req.body.id || '');
@@ -4088,14 +4115,24 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         const item = arr.find(p => p.id === id);
         if (!item) return res.status(404).json({ error: 'pool item not found' });
         if (!item.mainKeyword) return res.status(400).json({ error: 'This topic has no main keyword yet.' });
+        const kwLc = item.mainKeyword.toLowerCase();
         const esc = (c) => { const v = String(c == null ? '' : c); return (v.includes(',') || v.includes('"') || v.includes('\n')) ? `"${v.replace(/"/g, '""')}"` : v; };
         const ideasFile = await getGitHubFile('data/blog_ideas.csv');
         const lines = ideasFile.content.split('\n');
         while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
-        lines.push([item.mainKeyword, item.title || item.mainKeyword, '', 'NO CONFLICT', '', '', '', '', '', ''].map(esc).join(','));
-        await updateGitHubFile('data/blog_ideas.csv', lines.join('\n') + '\n', ideasFile.sha, `Discover → Blog Idea: ${item.mainKeyword}`);
-        const i = arr.findIndex(p => p.id === id); arr[i] = { ...arr[i], status: 'added' };
-        await writeJsonFile('data/discover-pool.json', arr, `Discover: promoted ${id}`);
+        let updated = false;
+        for (let li = 1; li < lines.length; li++) {
+          const t = lines[li].trim(); if (!t) continue;
+          const c = parseCSVLine(t.replace(/\r/g, ''));
+          if ((c[0] || '').trim().toLowerCase() === kwLc) { while (c.length < 10) c.push(''); c[6] = 'TO_WRITE'; lines[li] = c.map(esc).join(','); updated = true; break; }
+        }
+        if (!updated) lines.push([item.mainKeyword, item.title || item.mainKeyword, '', 'NO CONFLICT', '', '', 'TO_WRITE', '', '', ''].map(esc).join(','));
+        await updateGitHubFile('data/blog_ideas.csv', lines.join('\n') + '\n', ideasFile.sha, `Discover → To Write: ${item.mainKeyword}`);
+        try { const ap = await readJsonFileSafe('data/blog-approved.json', []); const set = new Set((Array.isArray(ap) ? ap : []).map(x => String(x).toLowerCase())); set.add(kwLc); await writeJsonFile('data/blog-approved.json', [...set], `Approved: ${item.mainKeyword}`); } catch (e) {}
+        // Clear this item + its same-seed siblings (angles of the same blog) from the pool.
+        const seedLc = String(item.seed || '').toLowerCase();
+        arr.forEach(p => { if (p.id === id || (seedLc && String(p.seed || '').toLowerCase() === seedLc && p.status !== 'added')) p.status = 'added'; });
+        await writeJsonFile('data/discover-pool.json', arr, `Discover: promoted ${item.mainKeyword} (+ cleared same-seed angles)`);
         return res.status(200).json({ success: true });
       }
 
