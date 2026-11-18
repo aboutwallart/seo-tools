@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.34 - 2026-11-17</p>
+        <p class="version">v6.35 - 2026-11-18</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -309,6 +309,19 @@
                     <button id="paste-ideas-btn" onclick="pasteNewIdeas()" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:10px 18px;font-weight:700;cursor:pointer;">Add all</button>
                     <span id="paste-ideas-note" style="color:#666;font-size:13px;"></span>
                 </div>
+            </div>
+
+            <div style="background:#f6f0ff;border:1px solid #e0cffb;border-radius:10px;padding:14px;margin-bottom:16px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+                    <div>
+                        <div style="font-weight:700;margin-bottom:2px;">✨ Discover topics</div>
+                        <div style="color:#6a4ca0;font-size:13px;">Find room + style gaps, search the questions people ask (Serper), and keep only what's new.</div>
+                    </div>
+                    <button id="discover-open-btn" onclick="loadDiscover()" style="background:#6a1b9a;color:#fff;border:none;border-radius:6px;padding:9px 16px;font-weight:700;cursor:pointer;">Open Discover</button>
+                </div>
+                <div id="discover-credits" style="font-size:13px;color:#6a4ca0;margin-top:8px;"></div>
+                <div id="discover-container" style="margin-top:12px;"></div>
+                <div id="discover-pool" style="margin-top:14px;"></div>
             </div>
             <div id="filter-bar" class="filter-bar" style="display:none;">
                 <span class="filter-label">Filter:</span>
@@ -1397,6 +1410,110 @@
                 document.getElementById('stats').innerHTML = `<strong>Error:</strong> ${error.message}`;
                 document.getElementById('ideas-container').innerHTML = `<div class="loading">❌ Could not load blog ideas.</div>`;
             }
+        }
+
+        // ============================================
+        // ════════ DISCOVER TOPICS (Serper) ════════
+        window._discSel = window._discSel || new Set();
+        window._discTerms = window._discTerms || ['wall art', 'home decor'];
+        window._discCreditsLeft = (window._discCreditsLeft != null) ? window._discCreditsLeft : 1259;
+        function discUpdateCounter() {
+            const n = window._discSel.size, cost = n * window._discTerms.length;
+            const el = document.getElementById('disc-selbar');
+            if (el) el.innerHTML = n ? (`<strong>${n}</strong> seed${n > 1 ? 's' : ''} × ${window._discTerms.length} terms = <strong>${cost}</strong> credits`) : 'No seeds selected.';
+            const btn = document.getElementById('disc-search-btn');
+            if (btn) { btn.disabled = !n; btn.style.opacity = n ? '1' : '0.5'; btn.style.cursor = n ? 'pointer' : 'default'; }
+            const cr = document.getElementById('discover-credits');
+            if (cr) cr.textContent = `Credits left: ~${window._discCreditsLeft}` + (n ? `  ·  this batch will use ${cost}` : '');
+        }
+        function discToggle(cb) { if (cb.checked) window._discSel.add(cb.value); else window._discSel.delete(cb.value); discUpdateCounter(); }
+        function discToggleSyn(_x, boxId) { const b = document.getElementById(boxId); if (b) b.style.display = (b.style.display === 'none' ? 'block' : 'none'); }
+        async function loadDiscover() {
+            const box = document.getElementById('discover-container'); const btn = document.getElementById('discover-open-btn');
+            if (!box) return;
+            box.innerHTML = '<div style="font-size:13px;color:#888;">Loading your room/style gaps…</div>';
+            if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'discover-gaps' }) }).then(x => x.json());
+                if (!r.success) throw new Error(r.error || 'Failed');
+                window._discTerms = r.terms || window._discTerms;
+                window._discSel = new Set();
+                renderDiscoverBoard(r.rooms);
+                loadDiscoverPool();
+            } catch (e) { box.innerHTML = '<div style="font-size:13px;color:#a33;">' + escHtml(e.message) + '</div>'; }
+            if (btn) { btn.disabled = false; btn.textContent = 'Refresh Discover'; }
+        }
+        function renderDiscoverBoard(rooms) {
+            const box = document.getElementById('discover-container'); if (!box) return;
+            let html = '';
+            (rooms || []).forEach((rm, ri) => {
+                const statusTag = rm.generalCount >= 10 ? `<span style="font-size:12px;color:#2e7d32;">${rm.generalCount} blogs</span>`
+                    : (rm.generalCount > 0 ? `<span style="background:#fff4e0;color:#8a5a00;font-size:12px;padding:2px 8px;border-radius:6px;">thin — ${rm.generalCount} blogs</span>`
+                    : `<span style="background:#fde8e6;color:#8f1c16;font-size:12px;padding:2px 8px;border-radius:6px;">no general content yet</span>`);
+                const genRow = rm.generalSearched
+                    ? `<label style="display:flex;align-items:center;gap:8px;opacity:0.5;padding:6px 0;"><span style="font-size:14px;text-decoration:line-through;">${escHtml(rm.room)} — general</span><span style="font-size:11px;color:#999;">searched</span></label>`
+                    : `<label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer;border-bottom:1px solid #eee;"><input type="checkbox" value="${escHtml(rm.roomTerm)}" onchange="discToggle(this)"><span style="font-size:14px;font-weight:600;">${escHtml(rm.room)} — general</span><span style="font-size:11px;color:#999;">(no style)</span></label>`;
+                let styleHtml = '';
+                (rm.styles || []).forEach((st, si) => {
+                    if (st.covered || st.searched) {
+                        styleHtml += `<label style="display:flex;align-items:center;gap:8px;opacity:0.5;"><span style="font-size:13px;text-decoration:line-through;">${escHtml(st.style)}</span><span style="font-size:11px;color:#999;">${st.covered ? 'covered' : 'searched'}</span></label>`;
+                    } else {
+                        const seed = st.term + ' ' + rm.roomTerm;
+                        const synBoxId = `discsyn-${ri}-${si}`;
+                        const synToggle = (st.synonyms && st.synonyms.length) ? ` <a onclick="discToggleSyn(0,'${synBoxId}')" style="font-size:11px;color:#1f6fb2;cursor:pointer;">+syn</a>` : '';
+                        let synBox = '';
+                        if (st.synonyms && st.synonyms.length) {
+                            synBox = `<div id="${synBoxId}" style="display:none;margin:2px 0 6px 22px;">` + st.synonyms.map(sy => `<label style="display:inline-flex;align-items:center;gap:5px;margin-right:12px;cursor:pointer;"><input type="checkbox" value="${escHtml(sy + ' ' + rm.roomTerm)}" onchange="discToggle(this)"><span style="font-size:12px;color:#555;">${escHtml(sy)}</span></label>`).join('') + `</div>`;
+                        }
+                        styleHtml += `<div><label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" value="${escHtml(seed)}" onchange="discToggle(this)"><span style="font-size:13px;">${escHtml(st.style)}</span></label>${synToggle}${synBox}</div>`;
+                    }
+                });
+                html += `<div style="background:#fff;border:1px solid #e3e3e3;border-radius:10px;padding:12px 14px;margin-bottom:10px;">
+                    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;"><span style="font-size:15px;font-weight:700;">${escHtml(rm.room)}</span>${statusTag}</div>
+                    ${genRow}
+                    <div style="font-size:12px;color:#888;margin:8px 0 6px;">Styles not covered yet</div>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:4px 14px;">${styleHtml}</div>
+                </div>`;
+            });
+            html += `<div style="position:sticky;bottom:0;background:#f6f0ff;border-top:1px solid #e0cffb;padding:10px 0;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+                <span id="disc-selbar" style="font-size:13px;color:#555;">No seeds selected.</span>
+                <button id="disc-search-btn" disabled onclick="searchDiscover()" style="background:#6a1b9a;color:#fff;border:none;border-radius:6px;padding:9px 18px;font-weight:700;opacity:0.5;cursor:default;">🔍 Search selected</button>
+            </div>`;
+            box.innerHTML = html;
+            discUpdateCounter();
+        }
+        async function searchDiscover() {
+            const seeds = [...window._discSel]; if (!seeds.length) return;
+            const btn = document.getElementById('disc-search-btn');
+            if (btn) { btn.disabled = true; btn.textContent = 'Searching… (may take a bit)'; }
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'discover-search', seeds, terms: window._discTerms }) }).then(x => x.json());
+                if (!r.success) throw new Error(r.error || 'Search failed');
+                if (r.creditsRemaining != null) window._discCreditsLeft = r.creditsRemaining; else window._discCreditsLeft = Math.max(0, window._discCreditsLeft - (r.creditsUsed || 0));
+                alert(`Done. ${r.found} new topic(s) saved to the pool. Used ${r.creditsUsed} credits${r.failed ? ` (${r.failed} searches failed)` : ''}.`);
+                loadDiscover();
+            } catch (e) { alert('Search error: ' + e.message); if (btn) { btn.disabled = false; btn.textContent = '🔍 Search selected'; } }
+        }
+        async function loadDiscoverPool() {
+            const box = document.getElementById('discover-pool'); if (!box) return;
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'discover-list-pool' }) }).then(x => x.json());
+                const pool = (r && r.pool) || [];
+                const active = pool.filter(p => p.status !== 'added');
+                if (!active.length) { box.innerHTML = ''; return; }
+                const needs = active.filter(p => p.status === 'needs_keyword');
+                const ready = active.filter(p => p.status === 'ready');
+                box.innerHTML = `<div style="font-weight:700;font-size:14px;margin-bottom:8px;">Found topics (${active.length})</div>`
+                    + (ready.length ? `<div style="font-size:12px;color:#2e7d32;margin-bottom:4px;">Ready (keyword set) — add to Blog Ideas:</div>` + ready.map(p => `<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;border:1px solid #cfe3cf;border-radius:6px;padding:7px 10px;margin-bottom:5px;background:#fff;"><div style="font-size:13px;"><strong>${escHtml(p.mainKeyword)}</strong> — ${escHtml(p.title || '')}</div><button onclick="promoteDiscover('${p.id}')" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:6px 11px;font-weight:700;font-size:12px;cursor:pointer;">Add to Blog Ideas</button></div>`).join('') : '')
+                    + (needs.length ? `<div style="font-size:12px;color:#8a6d1a;margin:8px 0 4px;">Waiting for a main keyword (Claude adds these from Ubersuggest):</div>` + needs.slice(0, 40).map(p => `<div style="font-size:13px;color:#555;padding:4px 10px;border:1px solid #eee;border-radius:6px;margin-bottom:4px;background:#fafafa;">${escHtml(p.question)} <span style="color:#aaa;font-size:11px;">· from "${escHtml(p.seed)}"</span></div>`).join('') + (needs.length > 40 ? `<div style="font-size:12px;color:#888;">…and ${needs.length - 40} more</div>` : '') : '');
+            } catch (e) {}
+        }
+        async function promoteDiscover(id) {
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'discover-promote', id }) }).then(x => x.json());
+                if (!r.success) throw new Error(r.error || 'Failed');
+                loadDiscoverPool(); refreshAll();
+            } catch (e) { alert('Could not add: ' + e.message); }
         }
 
         // ============================================
