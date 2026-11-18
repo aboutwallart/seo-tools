@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.35 - 2026-11-18</p>
+        <p class="version">v6.36 - 2026-11-18</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -1354,8 +1354,8 @@
         // ============================================
         async function loadData() {
             try {
-                const csvUrl = 'https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/blog_ideas.csv';
-                const response = await fetch(csvUrl);
+                const csvUrl = 'https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/blog_ideas.csv?t=' + Date.now();
+                const response = await fetch(csvUrl, { cache: 'no-store' });
                 if (!response.ok) throw new Error(`Failed to fetch CSV: ${response.status}`);
                 const csvText = await response.text();
                 const rows = parseCSV(csvText);
@@ -1449,14 +1449,17 @@
             (rooms || []).forEach((rm, ri) => {
                 const statusTag = rm.generalCount >= 10 ? `<span style="font-size:12px;color:#2e7d32;">${rm.generalCount} blogs</span>`
                     : (rm.generalCount > 0 ? `<span style="background:#fff4e0;color:#8a5a00;font-size:12px;padding:2px 8px;border-radius:6px;">thin — ${rm.generalCount} blogs</span>`
-                    : `<span style="background:#fde8e6;color:#8f1c16;font-size:12px;padding:2px 8px;border-radius:6px;">no general content yet</span>`);
-                const genRow = rm.generalSearched
-                    ? `<label style="display:flex;align-items:center;gap:8px;opacity:0.5;padding:6px 0;"><span style="font-size:14px;text-decoration:line-through;">${escHtml(rm.room)} — general</span><span style="font-size:11px;color:#999;">searched</span></label>`
+                    : (rm.generalInPipeline ? `<span style="background:#ede7f6;color:#5e35b1;font-size:12px;padding:2px 8px;border-radius:6px;">in pipeline</span>`
+                    : `<span style="background:#fde8e6;color:#8f1c16;font-size:12px;padding:2px 8px;border-radius:6px;">no general content yet</span>`));
+                const genDone = rm.generalSearched || rm.generalInPipeline;
+                const genRow = genDone
+                    ? `<label style="display:flex;align-items:center;gap:8px;opacity:0.5;padding:6px 0;"><span style="font-size:14px;text-decoration:line-through;">${escHtml(rm.room)} — general</span><span style="font-size:11px;color:#999;">${rm.generalSearched ? 'searched' : 'in pipeline'}</span></label>`
                     : `<label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer;border-bottom:1px solid #eee;"><input type="checkbox" value="${escHtml(rm.roomTerm)}" onchange="discToggle(this)"><span style="font-size:14px;font-weight:600;">${escHtml(rm.room)} — general</span><span style="font-size:11px;color:#999;">(no style)</span></label>`;
                 let styleHtml = '';
                 (rm.styles || []).forEach((st, si) => {
-                    if (st.covered || st.searched) {
-                        styleHtml += `<label style="display:flex;align-items:center;gap:8px;opacity:0.5;"><span style="font-size:13px;text-decoration:line-through;">${escHtml(st.style)}</span><span style="font-size:11px;color:#999;">${st.covered ? 'covered' : 'searched'}</span></label>`;
+                    if (st.covered || st.inPipeline || st.searched) {
+                        const tg = st.covered ? 'covered' : (st.inPipeline ? 'in pipeline' : 'searched');
+                        styleHtml += `<label style="display:flex;align-items:center;gap:8px;opacity:0.5;"><span style="font-size:13px;text-decoration:line-through;">${escHtml(st.style)}</span><span style="font-size:11px;color:#999;">${tg}</span></label>`;
                     } else {
                         const seed = st.term + ' ' + rm.roomTerm;
                         const synBoxId = `discsyn-${ri}-${si}`;
@@ -1504,7 +1507,7 @@
                 const needs = active.filter(p => p.status === 'needs_keyword');
                 const ready = active.filter(p => p.status === 'ready');
                 box.innerHTML = `<div style="font-weight:700;font-size:14px;margin-bottom:8px;">Found topics (${active.length})</div>`
-                    + (ready.length ? `<div style="font-size:12px;color:#2e7d32;margin-bottom:4px;">Ready (keyword set) — add to Blog Ideas:</div>` + ready.map(p => `<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;border:1px solid #cfe3cf;border-radius:6px;padding:7px 10px;margin-bottom:5px;background:#fff;"><div style="font-size:13px;"><strong>${escHtml(p.mainKeyword)}</strong> — ${escHtml(p.title || '')}</div><button onclick="promoteDiscover('${p.id}')" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:6px 11px;font-weight:700;font-size:12px;cursor:pointer;">Add to Blog Ideas</button></div>`).join('') : '')
+                    + (ready.length ? `<div style="font-size:12px;color:#2e7d32;margin-bottom:4px;">Ready (keyword set) — add to To Write:</div>` + ready.map(p => `<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;border:1px solid #cfe3cf;border-radius:6px;padding:7px 10px;margin-bottom:5px;background:#fff;"><div style="font-size:13px;"><strong>${escHtml(p.mainKeyword)}</strong> — ${escHtml(p.title || '')}</div><button onclick="promoteDiscover('${p.id}')" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:6px 11px;font-weight:700;font-size:12px;cursor:pointer;">Add to To Write</button></div>`).join('') : '')
                     + (needs.length ? `<div style="font-size:12px;color:#8a6d1a;margin:8px 0 4px;">Waiting for a main keyword (Claude adds these from Ubersuggest):</div>` + needs.slice(0, 40).map(p => `<div style="font-size:13px;color:#555;padding:4px 10px;border:1px solid #eee;border-radius:6px;margin-bottom:4px;background:#fafafa;">${escHtml(p.question)} <span style="color:#aaa;font-size:11px;">· from "${escHtml(p.seed)}"</span></div>`).join('') + (needs.length > 40 ? `<div style="font-size:12px;color:#888;">…and ${needs.length - 40} more</div>` : '') : '');
             } catch (e) {}
         }
@@ -1512,7 +1515,10 @@
             try {
                 const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'discover-promote', id }) }).then(x => x.json());
                 if (!r.success) throw new Error(r.error || 'Failed');
-                loadDiscoverPool(); refreshAll();
+                await loadData();                 // reload so it shows in To Write right away (no manual refresh)
+                if (typeof refreshAll === 'function') refreshAll();
+                loadDiscoverPool();
+                alert('Added to To Write.');
             } catch (e) { alert('Could not add: ' + e.message); }
         }
 
