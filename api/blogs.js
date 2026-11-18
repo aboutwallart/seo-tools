@@ -1,4 +1,9 @@
-// blogs.js — v6.17
+// blogs.js — v6.18
+// v6.18 (2026-11-18): (1) discover-promote now ATTACHES the same-seed angle topics to the blog (writes them as
+//   secondary in blog-fused-groups.json → "+ also covers" + used as sections when writing). (2) New delete-blog-row
+//   (removes ONE matching keyword[+title] row from blog_ideas.csv — for the To Write 🗑 delete button; a duplicate
+//   pair loses exactly one). (3) New gsc-approve-dedup: approving GSC topics runs the duplicate check right there —
+//   covered → a 'covered' group, the rest → Singles — so nothing lands in limbo.
 // v6.17 (2026-11-18): Discover polish. discover-promote now sends an approved topic STRAIGHT TO TO WRITE
 //   (status TO_WRITE + adds the keyword to blog-approved.json so it shows; updates the existing row instead of
 //   duplicating) and clears the same-seed angle topics from the pool. discover-gaps + discover-search now also
@@ -4129,11 +4134,84 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         if (!updated) lines.push([item.mainKeyword, item.title || item.mainKeyword, '', 'NO CONFLICT', '', '', 'TO_WRITE', '', '', ''].map(esc).join(','));
         await updateGitHubFile('data/blog_ideas.csv', lines.join('\n') + '\n', ideasFile.sha, `Discover → To Write: ${item.mainKeyword}`);
         try { const ap = await readJsonFileSafe('data/blog-approved.json', []); const set = new Set((Array.isArray(ap) ? ap : []).map(x => String(x).toLowerCase())); set.add(kwLc); await writeJsonFile('data/blog-approved.json', [...set], `Approved: ${item.mainKeyword}`); } catch (e) {}
-        // Clear this item + its same-seed siblings (angles of the same blog) from the pool.
+        // The other search results from the SAME seed are the angles of THIS blog — save them so they show as
+        // "+ also covers" in To Write and get used as sections when the blog is written (via blog-fused-groups).
         const seedLc = String(item.seed || '').toLowerCase();
+        const angleItems = arr.filter(p => seedLc && String(p.seed || '').toLowerCase() === seedLc && p.status !== 'added');
+        const angles = angleItems.map(p => ({ keyword: p.question, title: '', source: 'discover' }));
+        if (angles.length) {
+          try {
+            const fused = await readJsonFileSafe('data/blog-fused-groups.json', {});
+            fused[kwLc] = { winnerKeyword: item.mainKeyword, winnerTitle: item.title || '', secondary: angles, reason: 'Discover — angles from search', appliedAt: new Date().toISOString() };
+            await writeJsonFile('data/blog-fused-groups.json', fused, `Discover angles for ${item.mainKeyword}`);
+          } catch (e) {}
+        }
+        // Now clear this item + its same-seed siblings from the pool (they're attached to the blog now).
         arr.forEach(p => { if (p.id === id || (seedLc && String(p.seed || '').toLowerCase() === seedLc && p.status !== 'added')) p.status = 'added'; });
-        await writeJsonFile('data/discover-pool.json', arr, `Discover: promoted ${item.mainKeyword} (+ cleared same-seed angles)`);
+        await writeJsonFile('data/discover-pool.json', arr, `Discover: promoted ${item.mainKeyword} (+ ${angles.length} angles)`);
+        return res.status(200).json({ success: true, angles: angles.length });
+      }
+
+      // ── ACTION: delete-blog-row ── remove ONE matching row (keyword [+ title]) straight from blog_ideas.csv.
+      // First match only, so a duplicate pair loses exactly one row.
+      if (req.body.action === 'delete-blog-row') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const kw = String(req.body.keyword || '').trim().toLowerCase();
+        const title = String(req.body.title || '').trim().toLowerCase();
+        if (!kw) return res.status(400).json({ error: 'keyword required' });
+        const ideasFile = await getGitHubFile('data/blog_ideas.csv');
+        const lines = ideasFile.content.split('\n');
+        let removed = false; const out = [];
+        for (let i = 0; i < lines.length; i++) {
+          const t = lines[i].trim();
+          if (i === 0 || !t) { out.push(lines[i]); continue; }
+          if (!removed) {
+            const c = parseCSVLine(t.replace(/\r/g, ''));
+            if ((c[0] || '').trim().toLowerCase() === kw && (!title || (c[1] || '').trim().toLowerCase() === title)) { removed = true; continue; }
+          }
+          out.push(lines[i]);
+        }
+        if (!removed) return res.status(404).json({ error: 'Row not found — reload and try again.' });
+        let txt = out.join('\n'); if (!txt.endsWith('\n')) txt += '\n';
+        await updateGitHubFile('data/blog_ideas.csv', txt, ideasFile.sha, `Delete row: ${req.body.keyword}`);
         return res.status(200).json({ success: true });
+      }
+
+      // ── ACTION: gsc-approve-dedup ── approve GSC topics THROUGH the duplicate check: each one is matched
+      // against existing blogs — if covered → a 'covered' group (Already covered); if not → a Single for Mae to
+      // place. Nothing lands in limbo.
+      if (req.body.action === 'gsc-approve-dedup') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const kws = (Array.isArray(req.body.keywords) ? req.body.keywords : []).map(k => String(k || '').trim()).filter(Boolean);
+        if (!kws.length) return res.status(400).json({ error: 'keywords required' });
+        let blogs = []; try { blogs = await fetchBlogsPubAndSched(); } catch (e) { blogs = []; }
+        const blogTags = blogs.map(b => ({ b, ...topicTagBoth(b.title || '') }));
+        const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+        const pArr = Array.isArray(pending) ? pending : [];
+        const singles = await readJsonFileSafe('data/blog-fusion-singles.json', []);
+        const sArr = Array.isArray(singles) ? singles : [];
+        const singHave = new Set(sArr.map(s => String(s.keyword || '').toLowerCase()));
+        const checked = await readJsonFileSafe('data/blog-fusion-checked.json', { singletons: [], grouped: [] });
+        const groupedSet = new Set((checked.grouped || []).map(x => String(x).toLowerCase()));
+        const singletonsSet = new Set((checked.singletons || []).map(x => String(x).toLowerCase()));
+        let coveredN = 0, singleN = 0;
+        kws.forEach((kw, ix) => {
+          const kt = topicTagBoth(kw);
+          let matchedBlog = null;
+          if (kt.tagS.style || kt.tagS.room) { for (const bt of blogTags) { if (TOPIC_PHASES.some(m => m(kt, bt))) { matchedBlog = bt.b; break; } } }
+          const lc = kw.toLowerCase();
+          if (matchedBlog) {
+            pArr.push({ id: `grp_${Date.now()}_gsc${ix}`, bucketSig: null, type: 'covered', winnerKeyword: kw, winnerTitle: '', winnerSource: 'rank', winnerPageUrl: null, winnerUrlFree: false, winnerLockedTo: null, reason: 'GSC approve — already covered', signals: 'gsc', secondary: [], coveredBlog: { id: matchedBlog.id, title: matchedBlog.title, handle: matchedBlog.handle, status: matchedBlog.status, url: matchedBlog.url } });
+            groupedSet.add(lc); singletonsSet.delete(lc); coveredN++;
+          } else {
+            if (!singHave.has(lc)) { const t = topicTag(kw, false); sArr.push({ keyword: kw, title: '', source: 'rank', style: t.style, room: t.room, pageUrl: null, urlFree: false, lockedToKeyword: null, volume: null, difficulty: null, impressions: null, position: null }); singHave.add(lc); singleN++; }
+            singletonsSet.add(lc); groupedSet.delete(lc);
+          }
+        });
+        if (coveredN) await writeJsonFile('data/blog-fusion-pending.json', pArr, `GSC approve: +${coveredN} covered`);
+        if (singleN) await writeJsonFile('data/blog-fusion-singles.json', sArr, `GSC approve: +${singleN} single(s)`);
+        await writeJsonFile('data/blog-fusion-checked.json', { singletons: [...singletonsSet], grouped: [...groupedSet] }, 'GSC approve: mark checked');
+        return res.status(200).json({ success: true, covered: coveredN, singles: singleN });
       }
 
       // ── ACTION: fusion-single-to-write ── a lone SINGLE Mae wants as its own blog. A 'rank' keyword isn't
