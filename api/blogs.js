@@ -1,4 +1,11 @@
-// blogs.js — v6.15
+// blogs.js — v6.16
+// v6.16 (2026-11-18): DISCOVER topics (Serper). New actions: discover-gaps (per-room general count + which
+//   styles are covered/already searched, from the room+style dictionaries), discover-search (searches each
+//   seed × 2 terms "wall art"/"home decor" on Serper via SERPER_KEY, keeps only questions NOT already covered
+//   by a blog / an idea / the pool, saves to data/discover-pool.json, records searched seeds in
+//   data/discover-searched.json), discover-list-pool, discover-set-keyword (Claude fills the main keyword),
+//   discover-promote (ready pool item → Blog Idea row). Added "Reading room" to the room dictionary and fixed
+//   the Nursery/Kids synonyms (phrases, not loose single words).
 // v6.15 (2026-11-17): (A) updateGitHubFile now RETRIES on a 409 SHA conflict (re-fetch the current SHA, up to
 //   3 tries) — fixes "Failed to update …: status 409" when GitHub's contents API returns a stale SHA. (B)
 //   reject-fusion-keyword ("✕ not this one") now puts the rejected keyword straight back into the Singles list
@@ -642,12 +649,13 @@ If you genuinely cannot find one of the two, leave its two fields as empty strin
     ['Living room', ['living room','lounge','sitting room','tv room','snug']],
     ['Family room', ['family room']],
     ['Bedroom', ['bedroom','master bedroom','guest room','above bed']],
-    ['Nursery/Kids', ['nursery','kids','children','child','baby','playroom','boys room','girls room','teen']],
+    ['Nursery/Kids', ['nursery','kids room','kids bedroom','children bedroom','children room','baby room','playroom','boys room','girls room','teen bedroom','toddlers room','toddlers bedroom']],
     ['Bathroom', ['bathroom','toilet','washroom','restroom']],
     ['Kitchen', ['kitchen','breakfast nook','breakfast']],
     ['Dining', ['dining room','dining']],
     ['Hallway', ['hallway','corridor','entryway','entrance','foyer']],
     ['Office', ['office','home office','study','workspace','desk']],
+    ['Reading room', ['reading room','reading nook','library']],
     ['Outdoor', ['outdoor','garden','patio','balcony']]
   ];
   const topicNorm = (s) => String(s || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -3969,6 +3977,126 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         const singletons = new Set((checked.singletons || []).map(x => String(x).toLowerCase())); singletons.delete(kw.toLowerCase());
         await writeJsonFile('data/blog-fusion-checked.json', { singletons: [...singletons], grouped: [...grouped] }, 'Fusion: single matched to blog');
         return res.status(200).json({ success: true, group });
+      }
+
+      // ════════ DISCOVER TOPICS (Serper) ════════
+      // Find room+style gaps, search Serper for the questions people ask, keep only NEW ones (duplicate check),
+      // park them in a pool. Claude fills the main keyword (Ubersuggest) → promote to Blog Ideas.
+      const DISCOVER_TERMS = ['wall art', 'home decor']; // 2 terms per seed (2 credits each)
+
+      // ── ACTION: discover-gaps ── per room: general blog count + which styles are covered / already searched.
+      if (req.body.action === 'discover-gaps') {
+        let blogs = [];
+        try { blogs = await fetchBlogsPubAndSched(); } catch (e) { blogs = []; }
+        if (!blogs.length) { try { const bi = await getGitHubFile('data/blog-index.json'); const j = JSON.parse(bi.content); blogs = (j.articles || []).map(a => ({ title: a.title })); } catch (e) {} }
+        const coveredPairs = new Set(); const roomCount = {};
+        blogs.forEach(b => { const { style, room } = topicTag(b.title || '', false); if (room) roomCount[room] = (roomCount[room] || 0) + 1; if (style && room) coveredPairs.add(style + '|' + room); });
+        const searched = await readJsonFileSafe('data/discover-searched.json', []);
+        const searchedSet = new Set((Array.isArray(searched) ? searched : []).map(x => String(x).toLowerCase()));
+        const styleList = TOPIC_STYLE_DICT.map(e => ({ name: e[0], term: e[1][0], synonyms: e[1].slice(1) }));
+        const rooms = TOPIC_ROOM_DICT.map(e => {
+          const room = e[0], roomTerm = e[1][0], roomSyn = e[1].slice(1);
+          const styles = styleList.map(s => ({
+            style: s.name, term: s.term, synonyms: s.synonyms,
+            covered: coveredPairs.has(s.name + '|' + room),
+            searched: searchedSet.has((s.term + ' ' + roomTerm).toLowerCase())
+          }));
+          return { room, roomTerm, roomSynonyms: roomSyn, generalCount: roomCount[room] || 0, generalSearched: searchedSet.has(roomTerm.toLowerCase()), styles };
+        });
+        return res.status(200).json({ success: true, rooms, terms: DISCOVER_TERMS });
+      }
+
+      // ── ACTION: discover-search ── search each seed phrase × each term on Serper, collect the questions,
+      // drop ones already covered by a blog / already an idea / already in the pool, save the rest to the pool.
+      if (req.body.action === 'discover-search') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        if (!process.env.SERPER_KEY) return res.status(500).json({ error: 'SERPER_KEY not set in Vercel.' });
+        const seeds = (Array.isArray(req.body.seeds) ? req.body.seeds : []).map(s => String(s || '').trim()).filter(Boolean);
+        if (!seeds.length) return res.status(400).json({ error: 'No seeds selected.' });
+        const TERMS = (Array.isArray(req.body.terms) && req.body.terms.length) ? req.body.terms.map(t => String(t).trim()).filter(Boolean) : DISCOVER_TERMS;
+        let blogs = []; try { blogs = await fetchBlogsPubAndSched(); } catch (e) { blogs = []; }
+        const blogTags = blogs.map(b => topicTagBoth(b.title || ''));
+        const ideaKw = new Set();
+        try { const f = await getGitHubFile('data/blog_ideas.csv'); f.content.split('\n').forEach((l, i) => { if (i === 0) return; const c = parseCSVLine(l.replace(/\r/g, '')); if (c[0]) ideaKw.add((c[0] || '').trim().toLowerCase()); }); } catch (e) {}
+        const pool = await readJsonFileSafe('data/discover-pool.json', []);
+        const poolArr = Array.isArray(pool) ? pool : [];
+        const poolQ = new Set(poolArr.map(p => String(p.question || '').toLowerCase()));
+        const seenRun = new Set();
+        let creditsUsed = 0, creditsRemaining = null, failed = 0;
+        const newCandidates = [];
+        for (const seed of seeds) {
+          for (const term of TERMS) {
+            const q = (seed + ' ' + term).trim();
+            try {
+              const r = await fetch('https://google.serper.dev/search', { method: 'POST', headers: { 'X-API-KEY': process.env.SERPER_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ q, gl: 'uk', hl: 'en' }) });
+              if (!r.ok) { failed++; continue; }
+              const data = await r.json();
+              creditsUsed += (typeof data.credits === 'number' ? data.credits : 1);
+              if (data.credits_remaining != null) creditsRemaining = data.credits_remaining;
+              const qs = [];
+              (data.peopleAlsoAsk || []).forEach(p => { if (p && p.question) qs.push(p.question); });
+              (data.relatedSearches || []).forEach(rs => { if (rs && rs.query) qs.push(rs.query); });
+              qs.forEach(question => {
+                const lc = String(question).toLowerCase().trim();
+                if (!lc || seenRun.has(lc) || poolQ.has(lc) || ideaKw.has(lc)) return;
+                const qt = topicTagBoth(question);
+                const covered = (qt.tagS.style || qt.tagS.room) && blogTags.some(bt => TOPIC_PHASES.some(m => m(qt, bt)));
+                if (covered) return;
+                seenRun.add(lc);
+                newCandidates.push({ id: `disc_${Date.now()}_${newCandidates.length}`, question, seed, term, mainKeyword: '', title: '', status: 'needs_keyword', createdAt: new Date().toISOString() });
+              });
+            } catch (e) { failed++; }
+          }
+        }
+        if (newCandidates.length) await writeJsonFile('data/discover-pool.json', [...poolArr, ...newCandidates], `Discover: +${newCandidates.length} candidate(s)`);
+        const searched = await readJsonFileSafe('data/discover-searched.json', []);
+        const sSet = new Set((Array.isArray(searched) ? searched : []).map(x => String(x).toLowerCase()));
+        seeds.forEach(s => sSet.add(s.toLowerCase()));
+        await writeJsonFile('data/discover-searched.json', [...sSet], `Discover: searched ${seeds.length} seed(s)`);
+        return res.status(200).json({ success: true, creditsUsed, creditsRemaining, failed, found: newCandidates.length, candidates: newCandidates });
+      }
+
+      // ── ACTION: discover-list-pool ── the current discovery pool (candidates needing a keyword / ready / added).
+      if (req.body.action === 'discover-list-pool') {
+        const pool = await readJsonFileSafe('data/discover-pool.json', []);
+        return res.status(200).json({ success: true, pool: Array.isArray(pool) ? pool : [] });
+      }
+
+      // ── ACTION: discover-set-keyword ── Claude fills the main keyword + title for a pool item (from Ubersuggest).
+      if (req.body.action === 'discover-set-keyword') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const id = String(req.body.id || '');
+        const mainKeyword = String(req.body.mainKeyword || '').trim();
+        const title = String(req.body.title || '').trim();
+        if (!id || !mainKeyword) return res.status(400).json({ error: 'id and mainKeyword required' });
+        const pool = await readJsonFileSafe('data/discover-pool.json', []);
+        const arr = Array.isArray(pool) ? pool : [];
+        const i = arr.findIndex(p => p.id === id);
+        if (i < 0) return res.status(404).json({ error: 'pool item not found' });
+        arr[i] = { ...arr[i], mainKeyword, title: title || arr[i].title || mainKeyword, volume: req.body.volume != null ? req.body.volume : (arr[i].volume ?? null), difficulty: req.body.difficulty != null ? req.body.difficulty : (arr[i].difficulty ?? null), status: 'ready' };
+        await writeJsonFile('data/discover-pool.json', arr, `Discover: keyword for ${id}`);
+        return res.status(200).json({ success: true, item: arr[i] });
+      }
+
+      // ── ACTION: discover-promote ── add a 'ready' pool item (keyword + title set) to blog_ideas.csv as a Blog Idea.
+      if (req.body.action === 'discover-promote') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const id = String(req.body.id || '');
+        if (!id) return res.status(400).json({ error: 'id required' });
+        const pool = await readJsonFileSafe('data/discover-pool.json', []);
+        const arr = Array.isArray(pool) ? pool : [];
+        const item = arr.find(p => p.id === id);
+        if (!item) return res.status(404).json({ error: 'pool item not found' });
+        if (!item.mainKeyword) return res.status(400).json({ error: 'This topic has no main keyword yet.' });
+        const esc = (c) => { const v = String(c == null ? '' : c); return (v.includes(',') || v.includes('"') || v.includes('\n')) ? `"${v.replace(/"/g, '""')}"` : v; };
+        const ideasFile = await getGitHubFile('data/blog_ideas.csv');
+        const lines = ideasFile.content.split('\n');
+        while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
+        lines.push([item.mainKeyword, item.title || item.mainKeyword, '', 'NO CONFLICT', '', '', '', '', '', ''].map(esc).join(','));
+        await updateGitHubFile('data/blog_ideas.csv', lines.join('\n') + '\n', ideasFile.sha, `Discover → Blog Idea: ${item.mainKeyword}`);
+        const i = arr.findIndex(p => p.id === id); arr[i] = { ...arr[i], status: 'added' };
+        await writeJsonFile('data/discover-pool.json', arr, `Discover: promoted ${id}`);
+        return res.status(200).json({ success: true });
       }
 
       // ── ACTION: fusion-single-to-write ── a lone SINGLE Mae wants as its own blog. A 'rank' keyword isn't
