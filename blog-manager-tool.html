@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.37 - 2026-11-18</p>
+        <p class="version">v6.38 - 2026-11-18</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -2215,17 +2215,20 @@
         async function markForWriting(index) {
             const idea = allIdeas.find(i => i.index === index);
             if (!idea) return;
-            idea.status = 'TO_WRITE';
-            selectedIdeas.delete(index);
-            refreshAll();
-
+            const kw = idea.keyword || idea.currentKeyword;
             try {
-                await fetch('/api/blogs', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ keyword: idea.currentKeyword, url: generateUrl(idea.currentTitle), title: idea.currentTitle, perspective: idea.perspective })
-                });
-            } catch(e) { console.error('Register keyword failed:', e); }
+                // Persist TO_WRITE + approve the keyword, so it actually shows in To Write (no more vanishing).
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'mark-idea-towrite', keyword: kw }) }).then(x => x.json());
+                if (!r.success) throw new Error(r.error || 'Failed');
+                // Register the keyword in the locker too (as before).
+                try { await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keyword: idea.currentKeyword, url: generateUrl(idea.currentTitle), title: idea.currentTitle, perspective: idea.perspective }) }); } catch (e) {}
+                // Reflect locally so it appears in To Write right away.
+                idea.status = 'TO_WRITE';
+                if (!Array.isArray(window._approved)) window._approved = [];
+                window._approved.push(String(kw).toLowerCase());
+                selectedIdeas.delete(index);
+                refreshAll();
+            } catch (e) { alert('Could not mark for writing: ' + e.message); }
         }
 
         // ============================================
