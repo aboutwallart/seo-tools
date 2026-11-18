@@ -1,4 +1,8 @@
-// blogs.js — v6.18
+// blogs.js — v6.19
+// v6.19 (2026-11-18): (1) discover-probe — test one seed, returns EVERY question Google brings with kept/dropped
+//   + the reason (which blog / idea / pipeline item matched), nothing saved, to check the filter isn't too strict.
+//   (2) mark-idea-towrite — the Blog Ideas "Mark for Writing" button now persists the row as TO_WRITE AND
+//   approves the keyword, so it actually appears in To Write instead of vanishing.
 // v6.18 (2026-11-18): (1) discover-promote now ATTACHES the same-seed angle topics to the blog (writes them as
 //   secondary in blog-fused-groups.json → "+ also covers" + used as sections when writing). (2) New delete-blog-row
 //   (removes ONE matching keyword[+title] row from blog_ideas.csv — for the To Write 🗑 delete button; a duplicate
@@ -4083,6 +4087,70 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         seeds.forEach(s => sSet.add(s.toLowerCase()));
         await writeJsonFile('data/discover-searched.json', [...sSet], `Discover: searched ${seeds.length} seed(s)`);
         return res.status(200).json({ success: true, creditsUsed, creditsRemaining, failed, found: newCandidates.length, candidates: newCandidates });
+      }
+
+      // ── ACTION: discover-probe ── test one seed: return EVERY question Google brings, with kept/dropped + why.
+      // Nothing is saved — this is only for checking whether the filter is right or too strict.
+      if (req.body.action === 'discover-probe') {
+        if (!process.env.SERPER_KEY) return res.status(500).json({ error: 'SERPER_KEY not set.' });
+        const seed = String(req.body.seed || '').trim();
+        if (!seed) return res.status(400).json({ error: 'seed required' });
+        let blogs = []; try { blogs = await fetchBlogsPubAndSched(); } catch (e) { blogs = []; }
+        const blogTags = blogs.map(b => ({ title: b.title, t: topicTagBoth(b.title || '') }));
+        const pipeTags = (await gatherPipelineTexts()).map(x => ({ text: x, t: topicTagBoth(x) }));
+        const ideaKw = new Set();
+        try { const f = await getGitHubFile('data/blog_ideas.csv'); f.content.split('\n').forEach((l, i) => { if (i === 0) return; const c = parseCSVLine(l.replace(/\r/g, '')); if (c[0]) ideaKw.add((c[0] || '').trim().toLowerCase()); }); } catch (e) {}
+        const pool = await readJsonFileSafe('data/discover-pool.json', []);
+        const poolQ = new Set((Array.isArray(pool) ? pool : []).map(p => String(p.question || '').toLowerCase()));
+        const out = [];
+        for (const term of DISCOVER_TERMS) {
+          const q = (seed + ' ' + term).trim();
+          let data = {};
+          try { const r = await fetch('https://google.serper.dev/search', { method: 'POST', headers: { 'X-API-KEY': process.env.SERPER_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ q, gl: 'uk', hl: 'en' }) }); if (r.ok) data = await r.json(); } catch (e) {}
+          const qs = [];
+          (data.peopleAlsoAsk || []).forEach(p => { if (p && p.question) qs.push(p.question); });
+          (data.relatedSearches || []).forEach(rs => { if (rs && rs.query) qs.push(rs.query); });
+          qs.forEach(question => {
+            const lc = String(question).toLowerCase().trim();
+            let kept = true, reason = 'new';
+            if (poolQ.has(lc)) { kept = false; reason = 'already in the discovery pool'; }
+            else if (ideaKw.has(lc)) { kept = false; reason = 'already one of your ideas'; }
+            else {
+              const qt = topicTagBoth(question);
+              if (qt.tagS.style || qt.tagS.room) {
+                const bHit = blogTags.find(bt => TOPIC_PHASES.some(m => m(qt, bt.t)));
+                const pHit = !bHit && pipeTags.find(pt => TOPIC_PHASES.some(m => m(qt, pt.t)));
+                if (bHit) { kept = false; reason = 'already covered by blog: "' + bHit.title + '"'; }
+                else if (pHit) { kept = false; reason = 'already in your pipeline: "' + String(pHit.text).trim() + '"'; }
+              }
+            }
+            out.push({ term, question, kept, reason });
+          });
+        }
+        return res.status(200).json({ success: true, seed, results: out });
+      }
+
+      // ── ACTION: mark-idea-towrite ── the Blog Ideas "Mark for Writing" button: persist the row as TO_WRITE
+      // AND approve the keyword, so it actually shows in To Write (before, it set TO_WRITE without approving and
+      // vanished). Updates the existing row; never duplicates.
+      if (req.body.action === 'mark-idea-towrite') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const kw = String(req.body.keyword || '').trim();
+        if (!kw) return res.status(400).json({ error: 'keyword required' });
+        const kwLc = kw.toLowerCase();
+        const esc = (c) => { const v = String(c == null ? '' : c); return (v.includes(',') || v.includes('"') || v.includes('\n')) ? `"${v.replace(/"/g, '""')}"` : v; };
+        const ideasFile = await getGitHubFile('data/blog_ideas.csv');
+        const lines = ideasFile.content.split('\n');
+        let found = false;
+        for (let i = 1; i < lines.length; i++) {
+          const t = lines[i].trim(); if (!t) continue;
+          const c = parseCSVLine(t.replace(/\r/g, ''));
+          if ((c[0] || '').trim().toLowerCase() === kwLc) { while (c.length < 10) c.push(''); c[6] = 'TO_WRITE'; lines[i] = c.map(esc).join(','); found = true; break; }
+        }
+        if (!found) return res.status(404).json({ error: 'That idea is no longer in the list — reload.' });
+        await updateGitHubFile('data/blog_ideas.csv', lines.join('\n'), ideasFile.sha, `Mark for writing: ${kw}`);
+        try { const ap = await readJsonFileSafe('data/blog-approved.json', []); const set = new Set((Array.isArray(ap) ? ap : []).map(x => String(x).toLowerCase())); set.add(kwLc); await writeJsonFile('data/blog-approved.json', [...set], `Approved: ${kw}`); } catch (e) {}
+        return res.status(200).json({ success: true });
       }
 
       // ── ACTION: discover-list-pool ── the current discovery pool (candidates needing a keyword / ready / added).
