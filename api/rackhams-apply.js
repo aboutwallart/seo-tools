@@ -1,5 +1,6 @@
-// rackhams-apply.js — v0.1 (21 Nov 2026)
+// rackhams-apply.js — v0.2 (21 Nov 2026)
 // Writes advert sale-status in Rackhams (Marketplacer). Reversible.
+// v0.2: + caps (can my key make a brand/import rule?) + diag (AWA off = vetting vs data error). Both read-only.
 //
 // Actions (GET, ?action=):
 //   probe            -> introspect the publish mutation + show target counts. NO write.
@@ -58,6 +59,24 @@ const NODE_QUERY = `
 query ($id: ID!) {
   node(id: $id) { ... on Advert { id legacyId title published online statusText brand { name } } }
 }`;
+
+const NODE_DIAG = `
+query ($id: ID!) {
+  node(id: $id) { ... on Advert {
+    id legacyId title published online displayable statusText
+    brand { name }
+    catalogRulesErrors { fieldName errorMessage objectId }
+  } }
+}`;
+const NODE_DIAG_FALLBACK = `
+query ($id: ID!) {
+  node(id: $id) { ... on Advert { id legacyId title published online displayable statusText brand { name } } }
+}`;
+
+async function typeInfo(name) {
+  const d = await mp(`query ($n: String!) { __type(name: $n) { name kind fields { name } inputFields { name } enumValues { name } } }`, { n: name });
+  return d.__type;
+}
 
 const MUT = `mutation ($id: ID!, $p: Boolean!) {
   advertPublishedUpdate(input: { id: $id, published: $p }) { __typename }
@@ -240,7 +259,62 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, action, restored: r.ok, failed: r.fail, setPublishedTo: val, failures: r.failures });
     }
 
-    return res.status(200).json({ ok: false, error: 'Unknown action. Use probe | test | off | on | undo.' });
+    // ---------- CAPS (can my key make an import/brand rule?) ----------
+    if (action === 'caps') {
+      const out = { ok: true, action, note: 'Read-only. Checks what the API/your key exposes. No write.' };
+      const grab = async (fn, key) => { try { out[key] = await fn(); } catch (e) { out[key] = 'error: ' + e.message.slice(0, 200); } };
+
+      await grab(async () => {
+        const d = await mp(`query { __schema { queryType { name } mutationType { name } } }`, {});
+        return d.__schema;
+      }, 'roots');
+
+      await grab(async () => {
+        const t = await typeInfo('Mutation');
+        const names = (t && t.fields || []).map(f => f.name);
+        return names.filter(n => /catalog|rule|import|vendor|brand|publish/i.test(n));
+      }, 'mutations_matching');
+
+      await grab(async () => {
+        const t = await typeInfo('QueryRoot');
+        const t2 = t && t.fields ? t : await typeInfo('Query');
+        const names = (t2 && t2.fields || []).map(f => f.name);
+        return names.filter(n => /catalog|rule|import|vendor|brand/i.test(n));
+      }, 'queries_matching');
+
+      await grab(async () => (await typeInfo('CatalogRulesKeyEnum')).enumValues.map(e => e.name), 'catalogRuleKeys');
+      await grab(async () => (await typeInfo('CatalogRulesOperatorEnum')).enumValues.map(e => e.name), 'catalogRuleOperators');
+      await grab(async () => (await typeInfo('CatalogRulesOutcomeTypeEnum')).enumValues.map(e => e.name), 'catalogRuleOutcomes');
+      await grab(async () => (await typeInfo('CatalogRuleCreateMutationInput')).inputFields.map(f => f.name), 'catalogRuleCreateInput');
+      await grab(async () => (await typeInfo('CatalogRuleInput')).inputFields.map(f => f.name), 'catalogRuleInput');
+
+      // Can the key actually READ existing catalog rules? (proves access without writing)
+      await grab(async () => {
+        const d = await mp(`query { catalogRules(first: 5) { totalCount nodes { id key operator errorMessage } } }`, {});
+        return d.catalogRules;
+      }, 'catalogRules_liveRead');
+
+      return res.status(200).json(out);
+    }
+
+    // ---------- DIAG (why are AWA off? vetting vs data error) ----------
+    if (action === 'diag') {
+      const sampleN = Math.max(1, Math.min(40, parseInt(q.sample, 10) || 12));
+      const nd = await collect('NOT_DISPLAYED');
+      const awaOff = nd.filter(n => isMine(n) && !isMount(n));
+      const sample = awaOff.slice(0, sampleN);
+      const rows = [];
+      for (const n of sample) {
+        let node;
+        try { node = (await mp(NODE_DIAG, { id: n.id })).node; }
+        catch (e) { try { node = (await mp(NODE_DIAG_FALLBACK, { id: n.id })).node; node._diagNote = 'catalogRulesErrors unavailable'; } catch (e2) { node = { error: e2.message.slice(0, 150) }; } }
+        rows.push({ legacyId: node.legacyId, title: node.title, published: node.published, online: node.online, statusText: node.statusText, catalogRulesErrors: node.catalogRulesErrors || null });
+      }
+      const withErrors = rows.filter(r => r.catalogRulesErrors && r.catalogRulesErrors.length).length;
+      return res.status(200).json({ ok: true, action, awaOffSale_total: awaOff.length, sampled: rows.length, sampleWithCatalogErrors: withErrors, statusTextsSeen: [...new Set(rows.map(r => r.statusText))], sample: rows, note: 'Read-only. "statusText" shows In vetting vs other; catalogRulesErrors lists missing data if any.' });
+    }
+
+    return res.status(200).json({ ok: false, error: 'Unknown action. Use probe | caps | diag | test | off | on | undo.' });
   } catch (e) {
     return res.status(200).json({ ok: false, error: e.message });
   }
