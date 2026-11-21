@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.38 - 2026-11-18</p>
+        <p class="version">v6.39 - 2026-11-21</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -3079,7 +3079,8 @@
         // STEP 6 — PUBLISH: create + schedule the finished blog on Shopify, fill every box, register it,
         // add the links, prepare the Google reindex. Full tick/cross report — nothing silent.
         // ============================================
-        async function publishBlog(index) {
+        async function publishBlog(index, opts) {
+            opts = opts || {};
             const idea = allIdeas.find(i => i.index === index);
             if (!idea) return;
             const out = document.getElementById(`publish-${index}`);
@@ -3092,9 +3093,11 @@
             // Gentle creep so it never looks frozen while Shopify + all the boxes are filled.
             const creep = setInterval(() => { if (pct < 92) { pct += 1; draw(); } }, 700);
             try {
-                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'publish-blog', title: idea.currentTitle, keyword }) });
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'publish-blog', title: idea.currentTitle, keyword, dropMissingImages: !!opts.dropMissingImages }) });
                 const data = await readJson(r);
                 clearInterval(creep);
+                // Some images aren't generated yet → don't publish with dead placeholders. Ask her first.
+                if (data && data.needsImageDecision) { if (out) out.innerHTML = ''; showMissingImagesModal(index, data); return; }
                 if (!data.success) {
                     if (data.alreadyDone) { renderPublishReport(index, { report: [{ ok: false, label: data.error, fix: 'If you deleted it on Shopify, refresh this page to publish again.' }], articleUrl: data.articleUrl }); return; }
                     throw new Error(data.error || 'Could not publish the blog');
@@ -3116,6 +3119,56 @@
                 if (out) out.innerHTML = stepBox('<span style="color:#a33;">❌ ' + escHtml(e.message) + '</span> <button onclick="publishBlog(' + index + ')" style="' + regenBtnStyle + '">↻ Try again</button>');
             }
         }
+        // ---- Missing-images pop-up: blog won't publish with empty image slots ----
+        function miCopy(btn, text) {
+            try { navigator.clipboard.writeText(text); const o = btn.textContent; btn.textContent = '✓ Copied'; setTimeout(() => btn.textContent = o, 1400); } catch (e) {}
+        }
+        window._miCopyData = window._miCopyData || {};
+        function showMissingImagesModal(index, data) {
+            closeMissingImagesModal();
+            const list = (data && data.missingImages) || [];
+            window._miCopyData[index] = list;
+            const rows = list.map((m, i) => {
+                const where = m.type === 'featured' ? 'Featured (cover) image' : ('Section: ' + (m.section || '—'));
+                const promptId = 'mi-p-' + index + '-' + i, nameId = 'mi-n-' + index + '-' + i;
+                return `<div style="border:1px solid #e3e3e3;border-radius:8px;padding:12px 14px;margin:10px 0;">
+                    <div style="font-weight:700;margin-bottom:8px;">${escHtml(where)}</div>
+                    <div style="font-size:13px;color:#555;margin-bottom:4px;">Save it in Shopify with this exact name:</div>
+                    <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:10px;">
+                        <code id="${nameId}" style="flex:1;background:#f4f4f4;padding:6px 8px;border-radius:5px;font-size:12px;word-break:break-all;">${escHtml(m.name || '')}</code>
+                        <button onclick="miCopy(this, document.getElementById('${nameId}').textContent)" style="padding:6px 10px;border:1px solid #ccc;border-radius:5px;background:#fff;cursor:pointer;font-size:12px;white-space:nowrap;">Copy</button>
+                    </div>
+                    <div style="font-size:13px;color:#555;margin-bottom:4px;">Prompt to generate it:</div>
+                    <div style="display:flex;gap:8px;align-items:flex-start;">
+                        <div id="${promptId}" style="flex:1;background:#f4f4f4;padding:8px 10px;border-radius:5px;font-size:12px;white-space:pre-wrap;">${escHtml(m.prompt || '(no prompt saved for this image)')}</div>
+                        <button onclick="miCopy(this, document.getElementById('${promptId}').textContent)" style="padding:6px 10px;border:1px solid #ccc;border-radius:5px;background:#fff;cursor:pointer;font-size:12px;white-space:nowrap;">Copy</button>
+                    </div>
+                </div>`;
+            }).join('');
+            const n = list.length;
+            const ov = document.createElement('div');
+            ov.id = 'missing-images-modal';
+            ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+            ov.innerHTML = `<div style="background:#fff;border-radius:12px;max-width:600px;width:100%;max-height:85vh;overflow:auto;padding:24px;box-shadow:0 10px 40px rgba(0,0,0,.25);">
+                <h3 style="margin:0 0 6px;font-size:19px;">⚠️ ${n} image${n === 1 ? '' : 's'} not generated yet</h3>
+                <p style="margin:0 0 4px;color:#444;font-size:14px;">This blog can't go out with empty image slots. For each one, either generate it (copy the prompt below and save it in Shopify with the exact name), or cancel it.</p>
+                ${rows}
+                <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:18px;border-top:1px solid #eee;padding-top:16px;">
+                    <button onclick="closeMissingImagesModal()" style="flex:1;min-width:180px;padding:11px 14px;border:1px solid #1a7f37;border-radius:8px;background:#1a7f37;color:#fff;font-weight:700;cursor:pointer;">I'll generate them → close</button>
+                    <button onclick="cancelMissingImages(${index})" style="flex:1;min-width:180px;padding:11px 14px;border:1px solid #c33;border-radius:8px;background:#fff;color:#c33;font-weight:700;cursor:pointer;">Cancel these & publish without them</button>
+                </div>
+                <p style="margin:12px 0 0;color:#888;font-size:12px;">After you generate &amp; save the images in Shopify, press Publish again — they'll be picked up automatically.</p>
+            </div>`;
+            document.body.appendChild(ov);
+        }
+        function closeMissingImagesModal() {
+            const el = document.getElementById('missing-images-modal'); if (el) el.remove();
+        }
+        function cancelMissingImages(index) {
+            closeMissingImagesModal();
+            publishBlog(index, { dropMissingImages: true });
+        }
+
         function renderPublishReport(index, data) {
             const out = document.getElementById(`publish-${index}`); if (!out) return;
             window._publishGid = window._publishGid || {}; if (data.articleGid) window._publishGid[index] = data.articleGid;
