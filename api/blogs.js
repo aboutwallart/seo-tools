@@ -1,4 +1,11 @@
-// blogs.js — v6.20
+// blogs.js — v6.21
+// v6.21 (2026-11-21): (1) NEVER publish with dead image placeholders — before creating the blog on Shopify,
+//   if any image (cover or body) isn't generated, STOP and return the list so the tool asks Mae: Generate
+//   (she gets each prompt + the exact save-name) or Cancel (drops the placeholder + publishes clean). Safety
+//   strip removes any leftover [[IMG|...]] before create. (2) YEARS — the blog body + SEO fields may only ever
+//   use the current year or the next one (computed live), never a past year. (3) CLICK-WORTHY TITLE — when the
+//   saved title is just the raw keyword (lowercase), the SEO pass now writes a proper H1 title and it is used
+//   as the Shopify article title + handle; titles that are already proper are kept.
 // v6.20 (2026-11-21): PUBLISH FIX — "related blogs" at publish are now chosen from LIVE Shopify, not from the
 //   saved blog-index.json (which still named deleted blogs → Shopify rejected the whole publish with
 //   "Value references non-existent resource"). One live pass gets every real article + its inbound-link count,
@@ -5391,7 +5398,10 @@ Return ONLY a JSON array, one object per section IN ORDER, each: {"show":"...","
         let featuredUrl = '';
         if (featuredBase) {
           featuredUrl = await findImage(featuredBase + codeSuf + '-featured', true);
-          if (!featuredUrl) report.push({ ok: false, label: 'Featured image not found', fix: 'Save your favourite featured photo in Shopify with a name starting "' + featuredBase + codeSuf + '-featured-option", then press again.' });
+          if (!featuredUrl) {
+            report.push({ ok: false, label: 'Featured image not found', fix: 'Save your favourite featured photo in Shopify with a name starting "' + featuredBase + codeSuf + '-featured-option", then press again.' });
+            missingImages.push({ type: 'featured', section: 'Featured (cover) image', name: featuredBase + codeSuf + '-featured-option', prompt: draft.heroPrompt || '' });
+          }
         } else {
           report.push({ ok: false, label: 'This blog has no featured name yet', fix: 'Re-write the blog (step 2) so it has a featured name, then press again.' });
         }
@@ -5456,6 +5466,8 @@ Return ONLY a JSON object mapping each id to its alt line, and nothing else.`;
             sceneOk++;
           } else {
             report.push({ ok: false, label: 'Photo not saved yet: ' + lookup, fix: 'Save that image in Shopify with the exact name "' + lookup + '", then press again.' });
+            missingImages.push({ type: 'scene', section: im.section || '', name: lookup, prompt: im.prompt || '' });
+            if (dropMissingImages) body = body.split(im.full).join(''); // she cancelled this image → drop the dead placeholder
           }
         }
         if (sceneOk) report.push({ ok: true, label: sceneOk + ' scene photo' + (sceneOk === 1 ? '' : 's') + ' placed with alt text' });
@@ -5554,6 +5566,10 @@ Return ONLY a JSON object mapping each id to its alt line, and nothing else.`;
       if (req.body.action === 'publish-blog') {
         const pbTitle = String(req.body.title || '').trim();
         const pbKwIn  = String(req.body.keyword || '').trim();
+        // When she chose "cancel those images" in the missing-images pop-up: drop the empty placeholders and
+        // publish clean. Otherwise, if any image is missing we STOP before creating and ask her (no dead markers).
+        const dropMissingImages = req.body.dropMissingImages === true;
+        const missingImages = [];
         if (!pbTitle) return res.status(400).json({ error: 'title required' });
         if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
 
@@ -5562,6 +5578,8 @@ Return ONLY a JSON object mapping each id to its alt line, and nothing else.`;
         const ORIGIN = 'https://aboutwallart.com';
         const slugify = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
         const norm = (s) => String(s || '').trim().toLowerCase();
+        const curYear = new Date().getFullYear();
+        const nextYear = curYear + 1;
 
         // 1) load the finished blog + the saved product picks
         let draftsMap = {}, draftsSha;
@@ -5593,8 +5611,11 @@ Blog title: "${pbTitle}"
 Main keyword: "${keyword}"
 Blog text (for context): """${bodyText}"""
 
+YEARS — CRITICAL: the ONLY years you may ever use in ANY field below are ${curYear} or ${nextYear}. NEVER a past year such as ${curYear - 1}. Do not force a year in if it is not needed.
+
 Return ONE valid JSON object, no code fences, exactly these keys:
 {
+"blogTitle": "A compelling, click-worthy H1 blog title for a real reader — specific and benefit- or curiosity-driven, Title Case, UK spelling, includes the topic naturally, 40 to 70 characters, NO year unless genuinely useful. NOT the bare keyword, NOT clickbait, NOT ALL CAPS.",
 "seoTitle": "SEO page title, 60 characters or fewer, includes the keyword naturally",
 "metaDescription": "Google meta description, 155 characters or fewer, keyword near the start, one or two clean sentences. NO shipping line. No quotes.",
 "excerpt": "2 to 3 sentence plain-text summary, no HTML, keyword once, warm and specific",
@@ -5621,6 +5642,14 @@ Return only the JSON.`;
         const seoTitle = deEnt(boxes.seoTitle || pbTitle).slice(0, 70);
         const metaDescription = deEnt(boxes.metaDescription || '').slice(0, 160);
         const excerpt = deEnt(boxes.excerpt || '');
+
+        // ---- Article title: if the saved title is just the raw keyword (all lowercase, or equal to the keyword),
+        //      swap it for the click-worthy one the SEO pass wrote. A title that is already proper (has capitals)
+        //      is kept untouched. pbTitle stays the key for drafts/CSV lookups; only Shopify gets the nice title. ----
+        const rawTitleLike = norm(pbTitle) === norm(keyword) || !/[A-Z]/.test(pbTitle);
+        const blogTitleGen = deEnt(boxes.blogTitle || '').trim();
+        const articleTitle = (rawTitleLike && blogTitleGen) ? blogTitleGen : pbTitle;
+        if (articleTitle !== pbTitle) { handle = slugify(articleTitle).slice(0, 110) || slugify(keyword); report.push({ ok: true, label: 'Title made click-worthy: "' + articleTitle + '"' }); }
         // How-To schema — Money Page Doctor's exact format (JSON-LD in a script tag), only for real how-tos
         let howToSchema = '';
         if (boxes.isHowTo && Array.isArray(boxes.howToSteps) && boxes.howToSteps.length) {
@@ -5754,6 +5783,15 @@ Return only the JSON.`;
           publishIso = ukIso(nowUk.getFullYear(), nowUk.getMonth(), nowUk.getDate(), 19);
         }
 
+        // ---- MISSING IMAGES GATE — never send a blog to Shopify with dead placeholders ----
+        // If any image (cover or body) isn't generated yet and she hasn't chosen to drop them, STOP here and
+        // return the list so the tool can ask her: Generate (she gets the prompt + exact save-name) or Cancel.
+        if (missingImages.length && !dropMissingImages) {
+          return res.status(200).json({ success: false, needsImageDecision: true, title: pbTitle, missingImages, report });
+        }
+        // Safety net: strip any leftover [[IMG|...]] placeholder so a dead marker can never reach Shopify.
+        body = body.replace(/\[\[IMG\|[^\]]*\]\]/g, '').replace(/\n{3,}/g, '\n\n');
+
         // ---- 8) Create the blog on Shopify (Hidden until its date, right template + author) ----
         const mf = [];
         const addMf = (ns, key, type, value) => { if (value === '' || value == null) return; mf.push({ namespace: ns, key, type, value: String(value) }); };
@@ -5775,7 +5813,7 @@ Return only the JSON.`;
 
         const articleInput = {
           blogId: NEWS_BLOG_GID,
-          title: pbTitle,
+          title: articleTitle,
           handle,
           body,
           summary: excerpt || undefined,
@@ -5831,7 +5869,7 @@ Return only the JSON.`;
           const idx = JSON.parse(f.content || '{}');
           idx.articles = Array.isArray(idx.articles) ? idx.articles : [];
           if (!idx.articles.some(a => norm(a.handle) === norm(finalHandle))) {
-            idx.articles.unshift({ gid: articleGid, handle: finalHandle, title: pbTitle, tags, blogHandle: 'news-articles-home-decor-inspiration', publishedAt: publishIso });
+            idx.articles.unshift({ gid: articleGid, handle: finalHandle, title: articleTitle, tags, blogHandle: 'news-articles-home-decor-inspiration', publishedAt: publishIso });
             idx.count = idx.articles.length; idx.updatedAt = new Date().toISOString();
             await updateGitHubFile('data/blog-index.json', JSON.stringify(idx, null, 2), f.sha, 'Register new blog: ' + pbTitle);
           }
@@ -6095,7 +6133,12 @@ Return only the JSON.`;
           ? `A real YouTube video was found. Write the WATCH section as: <p><strong>WATCH:</strong> <a href="${sources.youtubeLink}" target="_blank" rel="noopener">${(sources.youtubeTitle || 'watch the video').replace(/"/g, '')}</a></p> then on the next line put the marker [[VIDEO|${sources.youtubeLink}]] where the video embed should go.`
           : `No video was found — SKIP the WATCH section entirely (do not invent a video).`;
 
+        const curYear = new Date().getFullYear();
+        const nextYear = curYear + 1;
+
         const bodyPrompt = `You are Mae Osz, a friendly UK home-decor advisor writing a blog for aboutwallart.com (wall art + home decor). Write the FULL blog body as clean HTML.
+
+YEARS — CRITICAL: the ONLY years you may ever write anywhere (text, headings, examples, "trends 20xx", anything) are ${curYear} or ${nextYear}. NEVER write any other year — never a past year such as ${curYear - 1} or ${curYear - 2}. If a year is not needed, do not force one in.
 
 BLOG TITLE (use as the reader's main question): "${wbTitle}"
 MAIN KEYWORD: "${wbKeyword}"
