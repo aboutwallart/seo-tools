@@ -1,4 +1,9 @@
-// blogs.js — v6.19
+// blogs.js — v6.20
+// v6.20 (2026-11-21): PUBLISH FIX — "related blogs" at publish are now chosen from LIVE Shopify, not from the
+//   saved blog-index.json (which still named deleted blogs → Shopify rejected the whole publish with
+//   "Value references non-existent resource"). One live pass gets every real article + its inbound-link count,
+//   so a deleted blog can never be linked again. The daily watcher (scripts/blog-index-sync.js) keeps the
+//   saved list clean for everything else that still reads it.
 // v6.19 (2026-11-18): (1) discover-probe — test one seed, returns EVERY question Google brings with kept/dropped
 //   + the reason (which blog / idea / pipeline item matched), nothing saved, to check the filter isn't too strict.
 //   (2) mark-idea-towrite — the Blog Ideas "Mark for Writing" button now persists the row as TO_WRITE AND
@@ -5659,22 +5664,24 @@ Return only the JSON.`;
           linkedTrends = pages.map(p => { const ws = (p.title || '').toLowerCase().match(/[a-z]+/g) || []; let sc = 0; ws.forEach(w => { if (w.length > 3 && !LINK_STOP.has(w) && hay.includes(w)) sc++; }); return { gid: p.id, sc }; }).filter(t => t.sc > 0).sort((a, b) => b.sc - a.sc).slice(0, 2).map(t => t.gid);
         } catch (e) {}
         try {
-          const idxFile = await getGitHubFile('data/blog-index.json');
-          const idx = JSON.parse(idxFile.content || '{}');
-          const all = Array.isArray(idx.articles) ? idx.articles : [];
           const hay = new Set(((keyword + ' ' + pbTitle + ' ' + tags.join(' ')).toLowerCase().match(/[a-z]+/g) || []).filter(w => w.length > 3 && !LINK_STOP.has(w)));
-          // Inbound-link count per blog (how many blogs already link to it) → spread link equity: fewest first.
-          const inbound = {};
-          try {
-            let cursor = null, pg = 0;
-            while (pg < 6) { pg++;
-              const q = await shopifyGraphQL(`query($c:String){ articles(first:250, after:$c, query:"blog_id:93572858142"){ pageInfo{ hasNextPage endCursor } edges{ node{ metafield(namespace:"custom", key:"linked_blogs"){ value } } } } }`, { c: cursor });
-              const conn = q && q.articles; if (!conn) break;
-              for (const e of conn.edges) { let v = []; try { v = JSON.parse((e.node.metafield && e.node.metafield.value) || '[]'); } catch (e2) {} (Array.isArray(v) ? v : []).forEach(g => { inbound[g] = (inbound[g] || 0) + 1; }); }
-              if (!conn.pageInfo.hasNextPage) break; cursor = conn.pageInfo.endCursor;
+          // Related blogs are chosen from LIVE Shopify (NEVER a saved list that may still name deleted blogs —
+          // that is what made Shopify reject the whole publish). One pass gets every live article
+          // (id/title/handle/tags) AND the inbound-link count per blog (to spread link equity: fewest first).
+          const live = []; const inbound = {};
+          let cursor = null, pg = 0;
+          while (pg < 8) { pg++;
+            const q = await shopifyGraphQL(`query($c:String){ articles(first:250, after:$c, query:"blog_id:93572858142"){ pageInfo{ hasNextPage endCursor } edges{ node{ id title handle tags metafield(namespace:"custom", key:"linked_blogs"){ value } } } } }`, { c: cursor });
+            const conn = q && q.articles; if (!conn) break;
+            for (const e of conn.edges) {
+              const n = e.node; if (!n || !n.id) continue;
+              live.push({ gid: n.id, title: n.title || '', handle: n.handle || '', tags: n.tags || [] });
+              let v = []; try { v = JSON.parse((n.metafield && n.metafield.value) || '[]'); } catch (e2) {}
+              (Array.isArray(v) ? v : []).forEach(g => { inbound[g] = (inbound[g] || 0) + 1; });
             }
-          } catch (e) {}
-          const candidates = all.filter(a => a.gid && norm(a.handle) !== norm(handle) && norm(a.title) !== norm(pbTitle))
+            if (!conn.pageInfo.hasNextPage) break; cursor = conn.pageInfo.endCursor;
+          }
+          const candidates = live.filter(a => a.gid && norm(a.handle) !== norm(handle) && norm(a.title) !== norm(pbTitle))
             .map(a => { const ws = ((a.title || '') + ' ' + (a.tags || []).join(' ')).toLowerCase().match(/[a-z]+/g) || []; let sc = 0; const seen = new Set(); ws.forEach(w => { if (hay.has(w) && !seen.has(w)) { sc++; seen.add(w); } }); return { gid: a.gid, handle: a.handle, sc, inb: inbound[a.gid] || 0 }; })
             .filter(a => a.sc > 0);
           // topic-relevant only, then among them prefer the ones with the FEWEST inbound links (spread evenly).
