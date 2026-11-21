@@ -1,4 +1,9 @@
-// blogs.js — v6.21
+// blogs.js — v6.22
+// v6.22 (2026-11-21): ADD-ANGLE FIX — "Add angle to the blog" from the duplicate check now covers the WHOLE
+//   group. Before, it rewrote ONE paragraph with ONE phrase, so it dropped most grouped searches and often
+//   skipped the main topic. Now, for a group (2+ searches) it writes ONE new section led by the MAIN topic
+//   that naturally works in EVERY grouped search. Single-keyword adds keep the light paragraph rewrite. Year
+//   rule applied here too. (Internal linking from the ranking page → this blog is unchanged, in add-angle-apply.)
 // v6.21 (2026-11-21): (1) NEVER publish with dead image placeholders — before creating the blog on Shopify,
 //   if any image (cover or body) isn't generated, STOP and return the list so the tool asks Mae: Generate
 //   (she gets each prompt + the exact save-name) or Cancel (drops the placeholder + publishes clean). Safety
@@ -4658,13 +4663,43 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         const art = data && data.node;
         if (!art || art.body == null) return res.status(404).json({ error: 'Could not read that blog.' });
         const body = String(art.body || '');
+        const escHtmlA = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const artUrl = 'https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/' + (art.handle || '');
+
+        // GROUP (2+ searches merged into this blog) → add ONE new section that covers the MAIN topic AND
+        // naturally works in EVERY grouped search. (The old logic rewrote one paragraph with ONE phrase, so
+        // it dropped most of the group and sometimes skipped the main topic — this covers them all.)
+        if (keywords.length > 1) {
+          const ayCur = new Date().getFullYear(), ayNext = ayCur + 1;
+          const mainKw = keywords[0];
+          const others = keywords.slice(1);
+          const ctx = body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 3500);
+          const gPrompt = `You are a UK wall-art & home-decor blog editor for About Wall Art. Add ONE new short section to the blog below.
+The section's MAIN topic is "${mainKw}" — the section must clearly be about it, and the phrase "${mainKw}" must appear naturally.
+It must ALSO naturally work in EACH of these related searches at least once (keep each one recognisable; light rewording is fine; NO keyword-stuffing): ${others.map(k => '"' + k + '"').join(', ')}.
+Rules: warm first-person (I/we), genuinely useful and specific, UK spelling ("colour","decor" no accent), exactly 2 short paragraphs (2-3 sentences each). Do NOT repeat what the blog already says. NEVER use the words "elevate", "delve" or "showcase". If a year is needed, use ONLY ${ayCur} or ${ayNext}.
+Return ONLY compact JSON: {"h2":"short SEO heading about ${mainKw}","paragraphs":["paragraph one","paragraph two"]}.
+EXISTING BLOG (for context — do NOT repeat it):
+"""${ctx}"""`;
+          let gRaw = ''; try { gRaw = await callClaudeText(gPrompt, 1800); } catch (e) { return res.status(500).json({ error: 'AI failed: ' + e.message }); }
+          gRaw = gRaw.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+          const gm = gRaw.match(/\{[\s\S]*\}/); let go = {}; try { go = gm ? JSON.parse(gm[0]) : {}; } catch (e) { go = {}; }
+          const gh2 = String(go.h2 || '').trim();
+          let gParas = Array.isArray(go.paragraphs) ? go.paragraphs.map(p => String(p || '').trim()).filter(Boolean) : (go.paragraph ? [String(go.paragraph).trim()] : []);
+          if (!gParas.length) return res.status(500).json({ error: 'The AI did not return the section.' });
+          const sectionHtml = (gh2 ? '<h2>' + escHtmlA(gh2) + '</h2>' : '') + gParas.map(p => '<p>' + escHtmlA(p) + '</p>').join('');
+          const gNewBody = body + '\n' + sectionHtml;
+          const gPreview = (gh2 ? gh2 + '\n\n' : '') + gParas.join('\n\n');
+          return res.status(200).json({ success: true, mode: 'add', articleId, title: art.title, url: artUrl, originalParagraph: '', newParagraph: gPreview, newBody: gNewBody });
+        }
+
         const pRe = /<p\b[^>]*>([\s\S]*?)<\/p>/gi;
         const paras = []; let mm;
         while ((mm = pRe.exec(body)) !== null) { paras.push({ full: mm[0], text: mm[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() }); }
         const textParas = paras.filter(p => p.text.length > 40);
         const numbered = textParas.map((p, i) => (i + 1) + '. ' + p.text).slice(0, 40).join('\n');
         const kwList = keywords.join('", "');
-        const prompt = `You are a UK wall-art & home-decor blog editor for About Wall Art. The blog below should naturally include the search phrase(s): "${kwList}". Pick the ONE existing paragraph that fits best and rewrite it so the exact phrase appears once, naturally — UK spelling ("colour","decor" no accent), same meaning, similar length, NO keyword-stuffing, NEVER the words "elevate/delve/showcase". If NO paragraph fits, instead write ONE new short paragraph (2-3 sentences).
+        const prompt = `You are a UK wall-art & home-decor blog editor for About Wall Art. The blog below should naturally include the search phrase(s): "${kwList}". Pick the ONE existing paragraph that fits best and rewrite it so the exact phrase appears once, naturally — UK spelling ("colour","decor" no accent), same meaning, similar length, NO keyword-stuffing, NEVER the words "elevate/delve/showcase". If a year is needed, use ONLY ${new Date().getFullYear()} or ${new Date().getFullYear() + 1} (never a past year). If NO paragraph fits, instead write ONE new short paragraph (2-3 sentences).
 Return ONLY compact JSON: {"mode":"rewrite","index":N,"paragraph":"full rewritten paragraph as PLAIN text"} OR {"mode":"add","h2":"optional short heading","paragraph":"the new paragraph as PLAIN text"}.
 PARAGRAPHS (numbered):
 ${numbered || '(no suitable paragraphs — use mode add)'}`;
