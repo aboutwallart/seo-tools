@@ -1,0 +1,24 @@
+name: Blog list daily sync
+
+on:
+  schedule:
+    - cron: '0 5 * * *'   # every day at 05:00 UTC
+  workflow_dispatch: {}    # lets you run it manually from the Actions tab
+
+permissions:
+  contents: write          # needed so the job can save data/blog-index.json
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Rebuild blog list from Shopify
+        env:
+          SHOPIFY_STORE_DOMAIN: ${{ secrets.SHOPIFY_STORE_DOMAIN }}
+          SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/blog-index-sync.js
