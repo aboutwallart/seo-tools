@@ -1,4 +1,9 @@
-// blogs.js — v6.22
+// blogs.js — v6.23
+// v6.23 (2026-11-21): (1) INTERNAL LINK placement — the ranking page now links to the covered blog with an
+//   IN-BODY contextual link whose anchor is the keyword (or a natural variant), chosen in the most relevant
+//   paragraph, instead of a "Related reading" line tacked on the bottom (better SEO). Falls back to a short
+//   natural sentence only if no paragraph fits. Backup + dedup kept. (2) YEARS — now AVOID a year unless
+//   genuinely needed; when needed use next year (we're near the end of the current one), never an earlier year.
 // v6.22 (2026-11-21): ADD-ANGLE FIX — "Add angle to the blog" from the duplicate check now covers the WHOLE
 //   group. Before, it rewrote ONE paragraph with ONE phrase, so it dropped most grouped searches and often
 //   skipped the main topic. Now, for a group (2+ searches) it writes ONE new section led by the MAIN topic
@@ -4677,7 +4682,7 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
           const gPrompt = `You are a UK wall-art & home-decor blog editor for About Wall Art. Add ONE new short section to the blog below.
 The section's MAIN topic is "${mainKw}" — the section must clearly be about it, and the phrase "${mainKw}" must appear naturally.
 It must ALSO naturally work in EACH of these related searches at least once (keep each one recognisable; light rewording is fine; NO keyword-stuffing): ${others.map(k => '"' + k + '"').join(', ')}.
-Rules: warm first-person (I/we), genuinely useful and specific, UK spelling ("colour","decor" no accent), exactly 2 short paragraphs (2-3 sentences each). Do NOT repeat what the blog already says. NEVER use the words "elevate", "delve" or "showcase". If a year is needed, use ONLY ${ayCur} or ${ayNext}.
+Rules: warm first-person (I/we), genuinely useful and specific, UK spelling ("colour","decor" no accent), exactly 2 short paragraphs (2-3 sentences each). Do NOT repeat what the blog already says. NEVER use the words "elevate", "delve" or "showcase". AVOID a year unless genuinely necessary; if needed, use ${ayNext}, never an earlier year than ${ayCur}.
 Return ONLY compact JSON: {"h2":"short SEO heading about ${mainKw}","paragraphs":["paragraph one","paragraph two"]}.
 EXISTING BLOG (for context — do NOT repeat it):
 """${ctx}"""`;
@@ -4699,7 +4704,7 @@ EXISTING BLOG (for context — do NOT repeat it):
         const textParas = paras.filter(p => p.text.length > 40);
         const numbered = textParas.map((p, i) => (i + 1) + '. ' + p.text).slice(0, 40).join('\n');
         const kwList = keywords.join('", "');
-        const prompt = `You are a UK wall-art & home-decor blog editor for About Wall Art. The blog below should naturally include the search phrase(s): "${kwList}". Pick the ONE existing paragraph that fits best and rewrite it so the exact phrase appears once, naturally — UK spelling ("colour","decor" no accent), same meaning, similar length, NO keyword-stuffing, NEVER the words "elevate/delve/showcase". If a year is needed, use ONLY ${new Date().getFullYear()} or ${new Date().getFullYear() + 1} (never a past year). If NO paragraph fits, instead write ONE new short paragraph (2-3 sentences).
+        const prompt = `You are a UK wall-art & home-decor blog editor for About Wall Art. The blog below should naturally include the search phrase(s): "${kwList}". Pick the ONE existing paragraph that fits best and rewrite it so the exact phrase appears once, naturally — UK spelling ("colour","decor" no accent), same meaning, similar length, NO keyword-stuffing, NEVER the words "elevate/delve/showcase". AVOID a year unless genuinely necessary; if needed, use ${new Date().getFullYear() + 1} (never an earlier year). If NO paragraph fits, instead write ONE new short paragraph (2-3 sentences).
 Return ONLY compact JSON: {"mode":"rewrite","index":N,"paragraph":"full rewritten paragraph as PLAIN text"} OR {"mode":"add","h2":"optional short heading","paragraph":"the new paragraph as PLAIN text"}.
 PARAGRAPHS (numbered):
 ${numbered || '(no suitable paragraphs — use mode add)'}`;
@@ -4752,6 +4757,30 @@ ${numbered || '(no suitable paragraphs — use mode add)'}`;
         const origin = 'https://' + (req.headers['x-forwarded-host'] || req.headers.host || 'tools.aboutwallart.com');
         const linkedBlogs = [], linkedProducts = [], queued = [];
         const queueInMpd = async (kw) => { try { const r = await fetch(origin + '/api/keywords', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'claim-to-registry', keyword: kw, url: blogUrl, intent: 'INFORMATIONAL' }) }); if (r.ok) queued.push(kw); } catch (e) {} };
+        const escLink = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        // Place ONE in-body contextual link: pick the most relevant paragraph on the ranking page and link a
+        // natural phrase (the keyword, or a close variant) to the target blog. Better SEO than a "Related
+        // reading" line at the bottom. Returns the new body, or null if no good spot (caller falls back).
+        async function placeContextLink(oldBody, kw, url) {
+          const pRe = /<p\b[^>]*>([\s\S]*?)<\/p>/gi; const paras = []; let mm;
+          while ((mm = pRe.exec(oldBody)) !== null) { paras.push({ full: mm[0], text: mm[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() }); }
+          const textParas = paras.filter(p => p.text.length > 40 && !/<a\b/i.test(p.full)); // skip paragraphs that already have a link
+          if (!textParas.length) return null;
+          const numbered = textParas.map((p, i) => (i + 1) + '. ' + p.text).slice(0, 40).join('\n');
+          const prompt = `You are adding ONE internal link inside a UK home-decor blog. The target page covers the search "${kw}". Pick the ONE paragraph below most relevant to it and rewrite it so a NATURAL phrase that includes "${kw}" (or a close natural variant) becomes the link anchor — it must read naturally, never forced, and there must be exactly ONE link. Keep the paragraph's meaning, length and UK spelling ("colour","decor" no accent). Wrap ONLY the anchor words in <<a>> and <</a>> (do not write any URL). If no paragraph is genuinely relevant, return {"mode":"none"}.
+Return ONLY JSON: {"mode":"rewrite","index":N,"paragraph":"full rewritten paragraph as PLAIN text with <<a>>anchor<</a>> around the anchor words"} or {"mode":"none"}.
+PARAGRAPHS (numbered):
+${numbered}`;
+          let raw = ''; try { raw = await callClaudeText(prompt, 1200); } catch (e) { return null; }
+          raw = raw.replace(/```json\n?/g, '').replace(/```\n?/g, ''); const m = raw.match(/\{[\s\S]*\}/); let o = {}; try { o = m ? JSON.parse(m[0]) : {}; } catch (e) { return null; }
+          if (o.mode !== 'rewrite') return null;
+          const i2 = parseInt(o.index, 10); const target = (Number.isInteger(i2) && i2 >= 1 && i2 <= textParas.length) ? textParas[i2 - 1] : null;
+          if (!target) return null;
+          const pt = String(o.paragraph || ''); if (!/<<a>>[\s\S]+<<\/a>>/.test(pt)) return null;
+          const htmlPara = '<p>' + escLink(pt).replace(/&lt;&lt;a&gt;&gt;([\s\S]*?)&lt;&lt;\/a&gt;&gt;/, '<a href="' + url + '">$1</a>') + '</p>';
+          if (htmlPara.indexOf('<a href=') === -1) return null;
+          return oldBody.replace(target.full, htmlPara);
+        }
         for (const rp of rankPages) {
           const kw = String(rp && rp.keyword || '').trim(); const pageUrl = String(rp && rp.pageUrl || '').trim();
           if (!kw) continue;
@@ -4778,7 +4807,10 @@ ${numbered || '(no suitable paragraphs — use mode add)'}`;
               const oldBody = String(old.body || '');
               if (oldBody.includes(blogUrl)) { linkedBlogs.push(kw); continue; }
               try { const bk = await readJsonFileSafe('data/blog-angle-backups.json', {}); if (!bk[old.id]) bk[old.id] = { title: old.title, handle, originalBody: oldBody, keywords: [kw], at: new Date().toISOString() }; await writeJsonFile('data/blog-angle-backups.json', bk, 'Old-page link backup: ' + handle); } catch (e) {}
-              const up2 = await shopifyGraphQL(`mutation($id:ID!,$article:ArticleUpdateInput!){ articleUpdate(id:$id, article:$article){ article{ id } userErrors{ field message } } }`, { id: old.id, article: { body: oldBody + '\n<p>Related reading: <a href="' + blogUrl + '">' + (art.title || 'read more') + '</a>.</p>' } });
+              // In-body contextual link (keyword as natural anchor). Fall back to a short natural sentence only if no paragraph fits.
+              let newOldBody = await placeContextLink(oldBody, kw, blogUrl);
+              if (!newOldBody) newOldBody = oldBody + '\n<p>For more on <a href="' + blogUrl + '">' + escLink(kw) + '</a>, see our full guide.</p>';
+              const up2 = await shopifyGraphQL(`mutation($id:ID!,$article:ArticleUpdateInput!){ articleUpdate(id:$id, article:$article){ article{ id } userErrors{ field message } } }`, { id: old.id, article: { body: newOldBody } });
               const u2e = (up2 && up2.articleUpdate && up2.articleUpdate.userErrors) || [];
               if (u2e.length) { await queueInMpd(kw); continue; }
               linkedBlogs.push(kw);
@@ -5646,7 +5678,7 @@ Blog title: "${pbTitle}"
 Main keyword: "${keyword}"
 Blog text (for context): """${bodyText}"""
 
-YEARS — CRITICAL: the ONLY years you may ever use in ANY field below are ${curYear} or ${nextYear}. NEVER a past year such as ${curYear - 1}. Do not force a year in if it is not needed.
+YEARS — CRITICAL: AVOID using a year in ANY field below unless genuinely necessary (prefer no year). If one is truly needed, use ${nextYear}; only use ${curYear} if strictly factually required, and NEVER an earlier year such as ${curYear - 1}.
 
 Return ONE valid JSON object, no code fences, exactly these keys:
 {
@@ -6173,7 +6205,7 @@ Return only the JSON.`;
 
         const bodyPrompt = `You are Mae Osz, a friendly UK home-decor advisor writing a blog for aboutwallart.com (wall art + home decor). Write the FULL blog body as clean HTML.
 
-YEARS — CRITICAL: the ONLY years you may ever write anywhere (text, headings, examples, "trends 20xx", anything) are ${curYear} or ${nextYear}. NEVER write any other year — never a past year such as ${curYear - 1} or ${curYear - 2}. If a year is not needed, do not force one in.
+YEARS — CRITICAL: AVOID putting a year anywhere unless it is genuinely necessary — most of the time the blog reads better with no year at all, so leave it out. When a year is truly needed, use ${nextYear} (we are near the end of ${curYear}); only use ${curYear} if it is strictly factually required, and NEVER an earlier year such as ${curYear - 1}.
 
 BLOG TITLE (use as the reader's main question): "${wbTitle}"
 MAIN KEYWORD: "${wbKeyword}"
