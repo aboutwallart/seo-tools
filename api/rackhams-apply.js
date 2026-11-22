@@ -2,6 +2,7 @@
 // Writes advert sale-status in Rackhams (Marketplacer). Reversible.
 // v0.2: + caps (can my key make a brand/import rule?) + diag (AWA off = vetting vs data error). Both read-only.
 // v0.3: + caps2 (read-only: how to set stock 0 / delete non-AWA adverts via the API).
+// v0.4: + delete (delete non-AWA adverts via advertDelete; dry-run + ?max= batches + saved id list).
 //
 // Actions (GET, ?action=):
 //   probe            -> introspect the publish mutation + show target counts. NO write.
@@ -83,6 +84,10 @@ const MUT = `mutation ($id: ID!, $p: Boolean!) {
   advertPublishedUpdate(input: { id: $id, published: $p }) { __typename }
 }`;
 
+const DEL = `mutation ($id: ID!) {
+  advertDelete(input: { id: $id }) { __typename }
+}`;
+
 async function collect(status) {
   const out = [];
   let after = null, has = true, pages = 0;
@@ -100,6 +105,17 @@ async function collect(status) {
 async function setPublished(id, published) {
   for (let a = 0; a < 4; a++) {
     try { await mp(MUT, { id, p: published }); return; }
+    catch (e) {
+      const m = String((e && e.message) || '');
+      if (/429|rate|throttl/i.test(m) && a < 3) { await sleep(600 * (a + 1)); continue; }
+      throw e;
+    }
+  }
+}
+
+async function delAdvert(id) {
+  for (let a = 0; a < 4; a++) {
+    try { await mp(DEL, { id }); return; }
     catch (e) {
       const m = String((e && e.message) || '');
       if (/429|rate|throttl/i.test(m) && a < 3) { await sleep(600 * (a + 1)); continue; }
@@ -315,6 +331,40 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, action, awaOffSale_total: awaOff.length, sampled: rows.length, sampleWithCatalogErrors: withErrors, statusTextsSeen: [...new Set(rows.map(r => r.statusText))], sample: rows, note: 'Read-only. "statusText" shows In vetting vs other; catalogRulesErrors lists missing data if any.' });
     }
 
+    // ---------- DELETE (delete non-AWA adverts) ----------
+    if (action === 'delete') {
+      // Collect non-AWA, DISPLAYED first (on sale = priority), then NOT_DISPLAYED if needed.
+      const displayed = await collect('DISPLAYED');
+      let targets = displayed.filter(n => !isMine(n));
+      let fetchedNotDisplayed = false;
+      if (!max || max > targets.length) {
+        const nd = await collect('NOT_DISPLAYED');
+        targets = targets.concat(nd.filter(n => !isMine(n)));
+        fetchedNotDisplayed = true;
+      }
+      const totalTargets = targets.length;
+      if (max) targets = targets.slice(0, max);
+
+      // Hard safety: never touch AWA.
+      targets = targets.filter(n => !isMine(n));
+
+      if (!confirm) {
+        return res.status(200).json({
+          ok: true, action, dryRun: true,
+          totalNonAWA: fetchedNotDisplayed ? totalTargets : totalTargets + ' (DISPLAYED only; NOT_DISPLAYED not counted this call)',
+          thisCall: targets.length,
+          sample: targets.slice(0, 15).map(n => ({ legacyId: n.legacyId, title: n.title, brand: n.brand && n.brand.name, status: n.statusText })),
+          note: 'DELETE preview. Add &confirm=1 to actually delete. Use &max=N for batches.'
+        });
+      }
+
+      await ghPut(`data/rackhams-deleted/${ts}.json`, { action: 'delete', when: ts, items: targets.map(n => ({ id: n.id, legacyId: n.legacyId, title: n.title, brand: n.brand && n.brand.name })) }, `Rackhams deleted ${targets.length}`);
+      const r = await runPool(targets, (n) => delAdvert(n.id), CONCURRENCY);
+      const summary = { ok: true, action, attempted: targets.length, succeeded: r.ok, failed: r.fail, failures: r.failures, savedList: `data/rackhams-deleted/${ts}.json`, note: 'Re-run (dry) to see how many non-AWA remain; re-run with confirm for the next batch.' };
+      await ghPut('data/rackhams-last.json', { ...summary, when: ts }, 'Rackhams last run');
+      return res.status(200).json(summary);
+    }
+
     // ---------- CAPS2 (how to set stock 0 / delete adverts?) ----------
     if (action === 'caps2') {
       const out = { ok: true, action, note: 'Read-only. Checks what the API offers to zero stock or delete.' };
@@ -344,7 +394,7 @@ module.exports = async (req, res) => {
       return res.status(200).json(out);
     }
 
-    return res.status(200).json({ ok: false, error: 'Unknown action. Use probe | caps | caps2 | diag | test | off | on | undo.' });
+    return res.status(200).json({ ok: false, error: 'Unknown action. Use probe | caps | caps2 | diag | test | off | on | delete | undo.' });
   } catch (e) {
     return res.status(200).json({ ok: false, error: e.message });
   }
