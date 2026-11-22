@@ -1,4 +1,11 @@
-// blogs.js — v6.24
+// blogs.js — v6.25
+// v6.25 (2026-11-22): PUBLISH GATE EXTENDED — publish-blog now runs its OWN missing-content gate FIRST (before
+//   any SEO/AI call): if the finished body still has a dead [[IMG|...]] image OR a [[PRODUCT|topic]] product
+//   placeholder, it STOPS and returns the list so the tool asks Mae (fix it, or Cancel → drop + publish clean).
+//   This catches drafts finished before the gate existed and direct publishes (the gate used to live only in
+//   finish-blog, and publish silently stripped [[IMG]] — never [[PRODUCT]] — so product holes slipped through).
+//   The final safety strip now also removes [[PRODUCT|...]]. (Front: regenProducts "Find again" now keeps the
+//   ticks for ALL re-matched products, not only SKU extras — a re-fetch no longer wipes the chosen products.)
 // v6.24 (2026-11-22): (1) CRASH FIX — the missing-images feature was split across two actions, so finish-blog
 //   threw "missingImages is not defined" and publish-blog threw "Assignment to constant variable". The whole
 //   missing-images gate now lives in finish-blog (step 5, where images are resolved): it declares its own
@@ -5685,6 +5692,27 @@ Return ONLY a JSON object mapping each id to its alt line, and nothing else.`;
 
         const keyword = pbKwIn || prods.keyword || draft.keyword || '';
         let body = String(draft.finishedBody);
+
+        // ---- MISSING-CONTENT GATE (runs FIRST, before any costly SEO/AI calls) ----
+        // Never publish with a dead [[IMG|...]] image or [[PRODUCT|topic]] product placeholder. If any marker is
+        // still unresolved and Mae hasn't chosen to drop them, STOP and return the list so the tool asks her:
+        // fix them (generate the image / pick a product then re-finish) or Cancel (drop them, publish clean).
+        const dropMissingImages = req.body.dropMissingImages === true;
+        const pbBlogCode = String(draft.blogCode || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        const pbCodeSuf = pbBlogCode ? '-' + pbBlogCode : '';
+        {
+          const missingImages = [];
+          const imgReP = /\[\[IMG\|([^|]*)\|([^|]*)\|([^|]*)\|([\s\S]*?)\]\]/g;
+          let mp;
+          while ((mp = imgReP.exec(body)) !== null) missingImages.push({ type: 'scene', section: '', name: (mp[1] || '').trim() + pbCodeSuf, prompt: (mp[4] || '').trim() });
+          const prodReP = /\[\[PRODUCT\|([^\]]*)\]\]/g;
+          while ((mp = prodReP.exec(body)) !== null) missingImages.push({ type: 'product', section: (mp[1] || '').trim(), name: '', prompt: '' });
+          if (missingImages.length && !dropMissingImages) {
+            return res.status(200).json({ success: false, needsImageDecision: true, title: pbTitle, missingImages, report });
+          }
+          if (dropMissingImages) body = body.replace(/\[\[IMG\|[\s\S]*?\]\]/g, '').replace(/\[\[PRODUCT\|[^\]]*\]\]/g, '').replace(/\n{3,}/g, '\n\n');
+        }
+
         const bodyText = body.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 6000);
         let handle = slugify(pbTitle).slice(0, 110) || slugify(keyword);
         const featuredUrl = draft.featuredUrl || '';
@@ -5872,9 +5900,9 @@ Return only the JSON.`;
           publishIso = ukIso(nowUk.getFullYear(), nowUk.getMonth(), nowUk.getDate(), 19);
         }
 
-        // Safety net: strip any leftover [[IMG|...]] placeholder so a dead marker can never reach Shopify
-        // (the finish step already gates on missing images; this catches older drafts finished before that).
-        body = body.replace(/\[\[IMG\|[^\]]*\]\]/g, '').replace(/\n{3,}/g, '\n\n');
+        // Safety net: strip any leftover [[IMG|...]] or [[PRODUCT|...]] placeholder so a dead marker can never
+        // reach Shopify (the gate above already stops this; this is a final belt-and-braces for any edge case).
+        body = body.replace(/\[\[IMG\|[\s\S]*?\]\]/g, '').replace(/\[\[PRODUCT\|[^\]]*\]\]/g, '').replace(/\n{3,}/g, '\n\n');
 
         // ---- 8) Create the blog on Shopify (Hidden until its date, right template + author) ----
         const mf = [];
