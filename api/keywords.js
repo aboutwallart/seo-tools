@@ -1,4 +1,9 @@
-// api/keywords.js — New Product Generator backend  ·  v0.55
+// api/keywords.js — New Product Generator backend  ·  v0.56
+// v0.56 (2026-11-22): LOCK & OPTIMISE FIX (Money Page Doctor Do-First). The lock saved fine, but the background
+//   re-sync re-read the registry from the CACHED raw CDN (which didn't have the new lock yet), so the card came
+//   back as if nothing happened. The 3 registry readers (lockedKeywordSet, registryUrlLockMap,
+//   registryKeywordUrlMap) now read FRESH via the GitHub contents API (new readRegistryLinesFresh helper),
+//   with a raw-CDN fallback — so a lock made a moment ago is seen immediately and the card leaves for good.
 // v0.55 (2026-10-20): KEYWORD BANK source — new free per-product source from data/Apify Google keyword stock.csv
 //   (action bank-keywords): same topic/room/locked filter as gap/uber, ordered with proven ("already_ranks")
 //   >= 70 vol on top, then by opportunity. New action bank-discover = the on-demand Apify box (smacient expands
@@ -351,21 +356,25 @@ function parseCSVLine(line) {
   for (let i = 0; i < line.length; i++) { const ch = line[i]; if (ch === '"') inQ = !inQ; else if (ch === ',' && !inQ) { cols.push(cur.trim()); cur = ''; } else cur += ch; }
   cols.push(cur.trim()); return cols;
 }
+// Read the registry FRESH via the GitHub contents API (no CDN lag) so a lock made a moment ago is seen
+// immediately. Falls back to the raw CDN on any error. (Fix: "Lock & optimise" showed the card, then the
+// background re-sync re-read the CACHED raw file — which didn't have the new lock yet — so the card came back.)
+async function readRegistryLinesFresh() {
+  try { const reg = await ghGet(REGISTRY_PATH); if (reg.content != null) return reg.content.split('\n'); } catch { /* fall back to raw */ }
+  try { const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/${REGISTRY_PATH}?t=${Date.now()}`); if (r.ok) return (await r.text()).split('\n'); } catch { /* ignore */ }
+  return [];
+}
 // Set of keywords already LOCKED anywhere in the registry (any intent) — used to exclude from suggestions.
 async function lockedKeywordSet() {
   const set = new Set();
-  try {
-    const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/${REGISTRY_PATH}?t=${Date.now()}`);
-    if (!r.ok) return set;
-    const txt = await r.text();
-    txt.split('\n').forEach(line => {
-      if (!line.trim()) return;
-      const c = parseCSVLine(line.replace(/\r/g, ''));
-      const kw = (c[0] || '').toLowerCase();
-      const locked = (c[2] || '').toUpperCase();
-      if (kw && locked === 'LOCKED') set.add(kw);
-    });
-  } catch { /* ignore */ }
+  const lines = await readRegistryLinesFresh();
+  lines.forEach(line => {
+    if (!line.trim()) return;
+    const c = parseCSVLine(line.replace(/\r/g, ''));
+    const kw = (c[0] || '').toLowerCase();
+    const locked = (c[2] || '').toUpperCase();
+    if (kw && locked === 'LOCKED') set.add(kw);
+  });
   return set;
 }
 
@@ -391,18 +400,14 @@ function isShitUrl(u) {
 }
 async function registryUrlLockMap() {
   const map = {};
-  try {
-    const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/${REGISTRY_PATH}?t=${Date.now()}`);
-    if (!r.ok) return map;
-    const txt = await r.text();
-    txt.split('\n').forEach(line => {
-      if (!line.trim()) return;
-      const c = parseCSVLine(line.replace(/\r/g, ''));
-      const url = (c[1] || '').trim();
-      const locked = (c[2] || '').toUpperCase();
-      if (url && url !== 'N/A' && locked === 'LOCKED') { const k = normUrl(url); if (!map[k]) map[k] = c[0] || ''; }
-    });
-  } catch { /* ignore */ }
+  const lines = await readRegistryLinesFresh();
+  lines.forEach(line => {
+    if (!line.trim()) return;
+    const c = parseCSVLine(line.replace(/\r/g, ''));
+    const url = (c[1] || '').trim();
+    const locked = (c[2] || '').toUpperCase();
+    if (url && url !== 'N/A' && locked === 'LOCKED') { const k = normUrl(url); if (!map[k]) map[k] = c[0] || ''; }
+  });
   return map;
 }
 // Map of keyword(lower) -> the CLEAN URL it's LOCKED to (its own page). The inverse of registryUrlLockMap.
@@ -410,19 +415,15 @@ async function registryUrlLockMap() {
 // so the ranking page can link to it (and so the Do-first card knows the keyword is "ready").
 async function registryKeywordUrlMap() {
   const map = {};
-  try {
-    const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/${REGISTRY_PATH}?t=${Date.now()}`);
-    if (!r.ok) return map;
-    const txt = await r.text();
-    txt.split('\n').forEach(line => {
-      if (!line.trim()) return;
-      const c = parseCSVLine(line.replace(/\r/g, ''));
-      const kw = (c[0] || '').trim().toLowerCase();
-      const url = (c[1] || '').trim();
-      const locked = (c[2] || '').toUpperCase();
-      if (kw && url && url !== 'N/A' && locked === 'LOCKED' && !map[kw]) map[kw] = cleanUrl(url);
-    });
-  } catch { /* ignore */ }
+  const lines = await readRegistryLinesFresh();
+  lines.forEach(line => {
+    if (!line.trim()) return;
+    const c = parseCSVLine(line.replace(/\r/g, ''));
+    const kw = (c[0] || '').trim().toLowerCase();
+    const url = (c[1] || '').trim();
+    const locked = (c[2] || '').toUpperCase();
+    if (kw && url && url !== 'N/A' && locked === 'LOCKED' && !map[kw]) map[kw] = cleanUrl(url);
+  });
   return map;
 }
 // Write a "claim" row so the keyword+page shows in Money Page Doctor to optimise (action = TO_OPTIMIZE).
