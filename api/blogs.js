@@ -1,4 +1,11 @@
-// blogs.js — v6.23
+// blogs.js — v6.24
+// v6.24 (2026-11-22): (1) CRASH FIX — the missing-images feature was split across two actions, so finish-blog
+//   threw "missingImages is not defined" and publish-blog threw "Assignment to constant variable". The whole
+//   missing-images gate now lives in finish-blog (step 5, where images are resolved): it declares its own
+//   missingImages/dropMissingImages, returns needsImageDecision before saving, and strips dropped markers;
+//   publish-blog's duplicate gate was removed and its body is now `let` with a safety strip for old drafts.
+//   (2) ADD-ANGLE retry — the group "add angle" AI call now retries up to 3× before the "did not return the
+//   section" error (it was intermittent).
 // v6.23 (2026-11-21): (1) INTERNAL LINK placement — the ranking page now links to the covered blog with an
 //   IN-BODY contextual link whose anchor is the keyword (or a natural variant), chosen in the most relevant
 //   paragraph, instead of a "Related reading" line tacked on the bottom (better SEO). Falls back to a short
@@ -4686,12 +4693,18 @@ Rules: warm first-person (I/we), genuinely useful and specific, UK spelling ("co
 Return ONLY compact JSON: {"h2":"short SEO heading about ${mainKw}","paragraphs":["paragraph one","paragraph two"]}.
 EXISTING BLOG (for context — do NOT repeat it):
 """${ctx}"""`;
-          let gRaw = ''; try { gRaw = await callClaudeText(gPrompt, 1800); } catch (e) { return res.status(500).json({ error: 'AI failed: ' + e.message }); }
-          gRaw = gRaw.replace(/```json\n?/g, '').replace(/```\n?/g, '');
-          const gm = gRaw.match(/\{[\s\S]*\}/); let go = {}; try { go = gm ? JSON.parse(gm[0]) : {}; } catch (e) { go = {}; }
-          const gh2 = String(go.h2 || '').trim();
-          let gParas = Array.isArray(go.paragraphs) ? go.paragraphs.map(p => String(p || '').trim()).filter(Boolean) : (go.paragraph ? [String(go.paragraph).trim()] : []);
-          if (!gParas.length) return res.status(500).json({ error: 'The AI did not return the section.' });
+          // The AI occasionally returns malformed JSON — retry up to 3 times before giving up (fixes the
+          // intermittent "The AI did not return the section." error).
+          let gh2 = '', gParas = [];
+          for (let gAttempt = 0; gAttempt < 3 && !gParas.length; gAttempt++) {
+            let gRaw = '';
+            try { gRaw = await callClaudeText(gPrompt, 1800); } catch (e) { continue; }
+            gRaw = gRaw.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+            const gm = gRaw.match(/\{[\s\S]*\}/); let go = {}; try { go = gm ? JSON.parse(gm[0]) : {}; } catch (e) { go = {}; }
+            gh2 = String(go.h2 || '').trim();
+            gParas = Array.isArray(go.paragraphs) ? go.paragraphs.map(p => String(p || '').trim()).filter(Boolean) : (go.paragraph ? [String(go.paragraph).trim()] : []);
+          }
+          if (!gParas.length) return res.status(500).json({ error: 'The AI did not return the section — please try again.' });
           const sectionHtml = (gh2 ? '<h2>' + escHtmlA(gh2) + '</h2>' : '') + gParas.map(p => '<p>' + escHtmlA(p) + '</p>').join('');
           const gNewBody = body + '\n' + sectionHtml;
           const gPreview = (gh2 ? gh2 + '\n\n' : '') + gParas.join('\n\n');
@@ -5447,6 +5460,10 @@ Return ONLY a JSON array, one object per section IN ORDER, each: {"show":"...","
 
         // Always start from the ORIGINAL body (markers intact) so this step can be run again safely.
         let body = String(draft.bodyHtml);
+        // Missing-images gate: if an image (cover or body) isn't generated yet, STOP and ask Mae (Generate /
+        // Cancel) instead of finishing with a dead placeholder. dropMissingImages = she chose "cancel those".
+        const dropMissingImages = req.body.dropMissingImages === true;
+        const missingImages = [];
 
         // ---- ALT TEXT — real descriptions of what's in each image, with the keyword woven in naturally ----
         // One small AI pass writes every image's alt at once. If the AI is unavailable (e.g. out of credits),
@@ -5618,6 +5635,15 @@ Return ONLY a JSON object mapping each id to its alt line, and nothing else.`;
           if (r.ok) body = insertIntoBestH2(body, r.html, p);
         }
 
+        // ---- MISSING-IMAGES GATE — never finish (or later publish) with a dead placeholder ----
+        // If any image is still missing and she hasn't chosen to drop them, STOP here and return the list so the
+        // tool can ask her: Generate (she gets the prompt + exact save-name) or Cancel. Nothing is saved.
+        if (missingImages.length && !dropMissingImages) {
+          return res.status(200).json({ success: false, needsImageDecision: true, title: fbT, missingImages, report });
+        }
+        // She cancelled the missing ones → make sure no leftover [[IMG|...]] placeholder survives into the body.
+        if (dropMissingImages) body = body.replace(/\[\[IMG\|[^\]]*\]\]/g, '').replace(/\n{3,}/g, '\n\n');
+
         // ---- SAVE the finished body next to the draft (bodyHtml stays untouched so this can be re-run) ----
         draftsMap[fbT.toLowerCase()] = { ...draft, finishedBody: body, featuredUrl, featuredAlt, finished: true, finishedAt: new Date().toISOString() };
         try { await updateGitHubFile('data/blog-drafts.json', JSON.stringify(draftsMap, null, 2), draftsSha, `Finish blog body: ${fbT}`); }
@@ -5633,10 +5659,6 @@ Return ONLY a JSON object mapping each id to its alt line, and nothing else.`;
       if (req.body.action === 'publish-blog') {
         const pbTitle = String(req.body.title || '').trim();
         const pbKwIn  = String(req.body.keyword || '').trim();
-        // When she chose "cancel those images" in the missing-images pop-up: drop the empty placeholders and
-        // publish clean. Otherwise, if any image is missing we STOP before creating and ask her (no dead markers).
-        const dropMissingImages = req.body.dropMissingImages === true;
-        const missingImages = [];
         if (!pbTitle) return res.status(400).json({ error: 'title required' });
         if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
 
@@ -5662,7 +5684,7 @@ Return ONLY a JSON object mapping each id to its alt line, and nothing else.`;
         prods.selected = prods.selected || {};
 
         const keyword = pbKwIn || prods.keyword || draft.keyword || '';
-        const body = String(draft.finishedBody);
+        let body = String(draft.finishedBody);
         const bodyText = body.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 6000);
         let handle = slugify(pbTitle).slice(0, 110) || slugify(keyword);
         const featuredUrl = draft.featuredUrl || '';
@@ -5850,13 +5872,8 @@ Return only the JSON.`;
           publishIso = ukIso(nowUk.getFullYear(), nowUk.getMonth(), nowUk.getDate(), 19);
         }
 
-        // ---- MISSING IMAGES GATE — never send a blog to Shopify with dead placeholders ----
-        // If any image (cover or body) isn't generated yet and she hasn't chosen to drop them, STOP here and
-        // return the list so the tool can ask her: Generate (she gets the prompt + exact save-name) or Cancel.
-        if (missingImages.length && !dropMissingImages) {
-          return res.status(200).json({ success: false, needsImageDecision: true, title: pbTitle, missingImages, report });
-        }
-        // Safety net: strip any leftover [[IMG|...]] placeholder so a dead marker can never reach Shopify.
+        // Safety net: strip any leftover [[IMG|...]] placeholder so a dead marker can never reach Shopify
+        // (the finish step already gates on missing images; this catches older drafts finished before that).
         body = body.replace(/\[\[IMG\|[^\]]*\]\]/g, '').replace(/\n{3,}/g, '\n\n');
 
         // ---- 8) Create the blog on Shopify (Hidden until its date, right template + author) ----
