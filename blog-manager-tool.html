@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.40 - 2026-11-22</p>
+        <p class="version">v6.42 - 2026-11-22</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -2899,6 +2899,9 @@
                 const data = await readJson(r);
                 if (!data.success) throw new Error(data.error || 'Could not build the style bible');
                 d.styleBible = stripProductList(data.bible); persistDraft(index, d); renderImgpPanel(index);
+                // Auto-write the section image prompts too, so she doesn't have to press a second button.
+                // (The "Rewrite section prompts" button stays — this just runs it once automatically.)
+                if (!Array.isArray(d.sectionShows) || !d.sectionShows.length) { try { await loadSectionShows(index); } catch (e2) {} }
             } catch (e) { if (status) { status.style.color = '#a33'; status.textContent = '❌ ' + e.message; } }
         }
 
@@ -2913,7 +2916,7 @@
         }
         // Split a header + a list of lines into copy blocks that each stay under the paste limit and each repeat the header.
         function splitCopyBlocks(header, lines, limit) {
-            limit = limit || 9500;
+            limit = limit || 9000;
             const blocks = []; let cur = header;
             lines.forEach(line => { if ((cur + '\n' + line).length > limit && cur !== header) { blocks.push(cur); cur = header; } cur += '\n' + line; });
             if (cur !== header) blocks.push(cur);
@@ -2921,7 +2924,7 @@
         }
         // Like splitCopyBlocks but the header goes on the FIRST batch only; later batches are just the lines.
         function splitCopyBlocksHeaderFirst(header, lines, limit) {
-            limit = limit || 9500;
+            limit = limit || 9000;
             const blocks = []; let cur = header;
             lines.forEach(line => { if ((cur + '\n' + line).length > limit && cur.trim() !== '') { blocks.push(cur); cur = ''; } cur = cur ? (cur + '\n' + line) : line; });
             if (cur.trim() !== '') blocks.push(cur);
@@ -2954,14 +2957,19 @@
             }
             if (!awaSel.length) return `<div style="border-top:1px solid #eee;padding-top:12px;margin-top:12px;"><div style="font-weight:800;font-size:14px;">1 · 🖼️ Wall-art product photos</div><div style="font-size:12px;color:#999;margin-top:4px;">Pick your wall-art products in “Pick products” first — then their prompts appear here.</div></div>`;
             const person = personRulesText(kw);
-            const header = `SHOPIFY AI — WALL-ART LIFESTYLE PHOTOS. Do each numbered line as its own image, size 3:2. For each one I will paste the product's own photo.\n${SACRED_LINE}`;
+            const s2 = s || {};
+            const header = `SHOPIFY AI — WALL-ART LIFESTYLE PHOTOS. Do each numbered line as its own image, size 3:2. Each line gives the EXACT image address to use — fetch that exact photo from the address; do NOT use the product's main image and do NOT ask me to paste anything.\n${SACRED_LINE}`;
             const lines = awaSel.map((p, i) => {
                 const base = String(p.sku || p.handle || ('product' + (i + 1))).toLowerCase().replace(/[^a-z0-9\-]/g, '-').replace(/-+/g, '-');
                 const alt = `${kw ? kw + ' — ' : ''}${p.title} styled in a room`;
-                return `${String(i + 1).padStart(2, '0')}. [3:2] WALL ART: "${p.title}" (SKU ${p.sku || '—'}). ${EXTENSION_PREAMBLE} ${person} SAVE this image named "${base}-${code}-lifestyle". Set the ALT TEXT to: "${alt}" — use this as the image's alt text, do NOT use the file name as the alt.`;
+                const chosen = (s2.chosen && s2.chosen[p.gid]) || (p.images && p.images[0]) || '';
+                const srcLine = chosen
+                    ? `USE THIS EXACT PHOTO (fetch it from this address; do NOT use the product's main image): ${chosen} . This is an IMAGE EXTENSION task — preserve every element of that photo EXACTLY (wall colour, furniture, lighting, decor and the framed artwork); extend the scene naturally to fill a 3:2 frame by continuing the EXISTING walls, floor and furnishings (never add blank bars or a different room); only add people as specified. Do NOT apply the style bible here.`
+                    : EXTENSION_PREAMBLE;
+                return `${String(i + 1).padStart(2, '0')}. [3:2] WALL ART: "${p.title}" (SKU ${p.sku || '—'}). ${srcLine} ${person} SAVE this image named "${base}-${code}-lifestyle". Set the ALT TEXT to: "${alt}" — use this as the image's alt text, do NOT use the file name as the alt.`;
             });
             const blocks = splitCopyBlocks(header, lines);
-            return copyBoxHtml('1 · 🖼️ Wall-art product photos (' + awaSel.length + ')', 'Paste the product photo when Shopify asks, then save each with the exact name shown.', blocks, '#c0561d');
+            return copyBoxHtml('1 · 🖼️ Wall-art product photos (' + awaSel.length + ')', 'Shopify fetches each photo from the address in its line — no pasting. Save each with the exact name shown.', blocks, '#c0561d');
         }
         // 2 — FEATURED image, 3 different options (square), illustrate the blog topic.
         function featuredBoxUI(index) {
@@ -3063,7 +3071,8 @@
         // STEP 5 — FETCH & FINISH: pull the saved images from Shopify, drop scene photos + product blocks
         // into the blog body, and save the finished blog. Full tick/cross report — nothing silent.
         // ============================================
-        async function finishBlog(index) {
+        async function finishBlog(index, opts) {
+            opts = opts || {};
             const idea = allIdeas.find(i => i.index === index);
             if (!idea) return;
             const out = document.getElementById(`finish-${index}`);
@@ -3071,8 +3080,10 @@
             const keyword = ((stored && stored.keyword) || idea.keyword || idea.currentKeyword || idea.currentTitle || '').trim();
             if (out) { out.style.display = 'block'; out.innerHTML = stepBox('<div style="font-size:14px;color:#555;">🔄 Fetching your saved photos from Shopify and building the blog…</div>'); }
             try {
-                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'finish-blog', title: idea.currentTitle, keyword }) });
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'finish-blog', title: idea.currentTitle, keyword, dropMissingImages: !!opts.dropMissingImages }) });
                 const data = await readJson(r);
+                // Some images aren't generated yet → don't finish with dead placeholders. Ask her first.
+                if (data && data.needsImageDecision) { if (out) out.innerHTML = ''; showMissingImagesModal(index, data); return; }
                 if (!data.success) throw new Error(data.error || 'Could not finish the blog');
                 window._finishDone = window._finishDone || {}; window._finishDone[index] = true;
                 if (window._drafts[index]) { window._drafts[index].finished = true; window._drafts[index].finishedBody = data.finishedBody; }
@@ -3202,9 +3213,9 @@
                 ${rows}
                 <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:18px;border-top:1px solid #eee;padding-top:16px;">
                     <button onclick="closeMissingImagesModal()" style="flex:1;min-width:180px;padding:11px 14px;border:1px solid #1a7f37;border-radius:8px;background:#1a7f37;color:#fff;font-weight:700;cursor:pointer;">I'll generate them → close</button>
-                    <button onclick="cancelMissingImages(${index})" style="flex:1;min-width:180px;padding:11px 14px;border:1px solid #c33;border-radius:8px;background:#fff;color:#c33;font-weight:700;cursor:pointer;">Cancel these & publish without them</button>
+                    <button onclick="cancelMissingImages(${index})" style="flex:1;min-width:180px;padding:11px 14px;border:1px solid #c33;border-radius:8px;background:#fff;color:#c33;font-weight:700;cursor:pointer;">Cancel these & finish without them</button>
                 </div>
-                <p style="margin:12px 0 0;color:#888;font-size:12px;">After you generate &amp; save the images in Shopify, press Publish again — they'll be picked up automatically.</p>
+                <p style="margin:12px 0 0;color:#888;font-size:12px;">After you generate &amp; save the images in Shopify, press “Fetch &amp; finish again” — they'll be picked up automatically.</p>
             </div>`;
             document.body.appendChild(ov);
         }
@@ -3213,7 +3224,7 @@
         }
         function cancelMissingImages(index) {
             closeMissingImagesModal();
-            publishBlog(index, { dropMissingImages: true });
+            finishBlog(index, { dropMissingImages: true });
         }
 
         function renderPublishReport(index, data) {
