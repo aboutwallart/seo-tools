@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.42 - 2026-11-22</p>
+        <p class="version">v6.43 - 2026-11-22</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -3083,7 +3083,7 @@
                 const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'finish-blog', title: idea.currentTitle, keyword, dropMissingImages: !!opts.dropMissingImages }) });
                 const data = await readJson(r);
                 // Some images aren't generated yet → don't finish with dead placeholders. Ask her first.
-                if (data && data.needsImageDecision) { if (out) out.innerHTML = ''; showMissingImagesModal(index, data); return; }
+                if (data && data.needsImageDecision) { if (out) out.innerHTML = ''; showMissingImagesModal(index, data, 'finish'); return; }
                 if (!data.success) throw new Error(data.error || 'Could not finish the blog');
                 window._finishDone = window._finishDone || {}; window._finishDone[index] = true;
                 if (window._drafts[index]) { window._drafts[index].finished = true; window._drafts[index].finishedBody = data.finishedBody; }
@@ -3154,8 +3154,8 @@
                 const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'publish-blog', title: idea.currentTitle, keyword, dropMissingImages: !!opts.dropMissingImages }) });
                 const data = await readJson(r);
                 clearInterval(creep);
-                // Some images aren't generated yet → don't publish with dead placeholders. Ask her first.
-                if (data && data.needsImageDecision) { if (out) out.innerHTML = ''; showMissingImagesModal(index, data); return; }
+                // Some images/products aren't ready yet → don't publish with dead placeholders. Ask her first.
+                if (data && data.needsImageDecision) { if (out) out.innerHTML = ''; showMissingImagesModal(index, data, 'publish'); return; }
                 if (!data.success) {
                     if (data.alreadyDone) { renderPublishReport(index, { report: [{ ok: false, label: data.error, fix: 'If you deleted it on Shopify, refresh this page to publish again.' }], articleUrl: data.articleUrl }); return; }
                     throw new Error(data.error || 'Could not publish the blog');
@@ -3182,11 +3182,20 @@
             try { navigator.clipboard.writeText(text); const o = btn.textContent; btn.textContent = '✓ Copied'; setTimeout(() => btn.textContent = o, 1400); } catch (e) {}
         }
         window._miCopyData = window._miCopyData || {};
-        function showMissingImagesModal(index, data) {
+        function showMissingImagesModal(index, data, source) {
             closeMissingImagesModal();
             const list = (data && data.missingImages) || [];
             window._miCopyData[index] = list;
+            window._miSource = window._miSource || {};
+            window._miSource[index] = (source === 'publish') ? 'publish' : 'finish';
             const rows = list.map((m, i) => {
+                // A product spot that was never filled — she fixes it in step 3 (Pick products), not by generating an image.
+                if (m.type === 'product') {
+                    return `<div style="border:1px solid #e3e3e3;border-radius:8px;padding:12px 14px;margin:10px 0;">
+                        <div style="font-weight:700;margin-bottom:6px;">🛒 Product spot not filled: ${escHtml(m.section || '—')}</div>
+                        <div style="font-size:13px;color:#555;">Open step 3 (Pick products), choose a product for this spot, then run “Fetch &amp; finish again”. Or cancel it below to publish without it.</div>
+                    </div>`;
+                }
                 const where = m.type === 'featured' ? 'Featured (cover) image' : ('Section: ' + (m.section || '—'));
                 const promptId = 'mi-p-' + index + '-' + i, nameId = 'mi-n-' + index + '-' + i;
                 return `<div style="border:1px solid #e3e3e3;border-radius:8px;padding:12px 14px;margin:10px 0;">
@@ -3204,18 +3213,24 @@
                 </div>`;
             }).join('');
             const n = list.length;
+            const nImg = list.filter(m => m.type !== 'product').length;
+            const nProd = list.filter(m => m.type === 'product').length;
+            const parts = [];
+            if (nImg) parts.push(nImg + ' image' + (nImg === 1 ? '' : 's'));
+            if (nProd) parts.push(nProd + ' product' + (nProd === 1 ? '' : 's'));
+            const headline = parts.join(' and ') + ' not ready yet';
             const ov = document.createElement('div');
             ov.id = 'missing-images-modal';
             ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
             ov.innerHTML = `<div style="background:#fff;border-radius:12px;max-width:600px;width:100%;max-height:85vh;overflow:auto;padding:24px;box-shadow:0 10px 40px rgba(0,0,0,.25);">
-                <h3 style="margin:0 0 6px;font-size:19px;">⚠️ ${n} image${n === 1 ? '' : 's'} not generated yet</h3>
-                <p style="margin:0 0 4px;color:#444;font-size:14px;">This blog can't go out with empty image slots. For each one, either generate it (copy the prompt below and save it in Shopify with the exact name), or cancel it.</p>
+                <h3 style="margin:0 0 6px;font-size:19px;">⚠️ ${escHtml(headline)}</h3>
+                <p style="margin:0 0 4px;color:#444;font-size:14px;">This blog can't go out with empty slots. For each one, either fix it (generate the image / pick the product, then fetch &amp; finish again), or cancel it to publish without it.</p>
                 ${rows}
                 <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:18px;border-top:1px solid #eee;padding-top:16px;">
-                    <button onclick="closeMissingImagesModal()" style="flex:1;min-width:180px;padding:11px 14px;border:1px solid #1a7f37;border-radius:8px;background:#1a7f37;color:#fff;font-weight:700;cursor:pointer;">I'll generate them → close</button>
+                    <button onclick="closeMissingImagesModal()" style="flex:1;min-width:180px;padding:11px 14px;border:1px solid #1a7f37;border-radius:8px;background:#1a7f37;color:#fff;font-weight:700;cursor:pointer;">I'll fix these → close</button>
                     <button onclick="cancelMissingImages(${index})" style="flex:1;min-width:180px;padding:11px 14px;border:1px solid #c33;border-radius:8px;background:#fff;color:#c33;font-weight:700;cursor:pointer;">Cancel these & finish without them</button>
                 </div>
-                <p style="margin:12px 0 0;color:#888;font-size:12px;">After you generate &amp; save the images in Shopify, press “Fetch &amp; finish again” — they'll be picked up automatically.</p>
+                <p style="margin:12px 0 0;color:#888;font-size:12px;">After you fix them, press “Fetch &amp; finish again” — everything ready gets picked up automatically.</p>
             </div>`;
             document.body.appendChild(ov);
         }
@@ -3223,8 +3238,10 @@
             const el = document.getElementById('missing-images-modal'); if (el) el.remove();
         }
         function cancelMissingImages(index) {
+            const source = (window._miSource && window._miSource[index]) || 'finish';
             closeMissingImagesModal();
-            finishBlog(index, { dropMissingImages: true });
+            if (source === 'publish') publishBlog(index, { dropMissingImages: true });
+            else finishBlog(index, { dropMissingImages: true });
         }
 
         function renderPublishReport(index, data) {
@@ -3969,7 +3986,16 @@
             delete window._products[index];
             pickProducts(index).then(() => {
                 const ns = window._products[index];
-                if (ns) { ns.extra = keepExtra; keepExtra.forEach(p => { if (keepSel[p.gid]) ns.selected[p.gid] = true; if (keepChosen[p.gid]) ns.chosen[p.gid] = keepChosen[p.gid]; }); renderProductPicker(index, true); saveProductsState(index); }
+                if (ns) {
+                    ns.extra = keepExtra;
+                    // Restore her ticks + chosen images for EVERY product still in the refreshed list — not only the
+                    // SKU-added extras. (Before, only extras were restored, so a re-fetch wiped the main picks.)
+                    const seen = new Set();
+                    [...(ns.awa || []), ...(ns.collective || []), ...(ns.collectivePool || []), ...(ns.prints || []), ...keepExtra].forEach(p => {
+                        if (p && p.gid && !seen.has(p.gid)) { seen.add(p.gid); if (keepSel && keepSel[p.gid]) ns.selected[p.gid] = true; if (keepChosen && keepChosen[p.gid]) ns.chosen[p.gid] = keepChosen[p.gid]; }
+                    });
+                    renderProductPicker(index, true); saveProductsState(index);
+                }
             });
         }
 
