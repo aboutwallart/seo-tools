@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.39 - 2026-11-21</p>
+        <p class="version">v6.40 - 2026-11-22</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -1399,6 +1399,7 @@
                 await loadPublishedTitles();
                 await loadProducts();
                 await loadFusedGroups();
+                await healUnapprovedMonths();   // keep months clean: unapproved topics can never stay in a month
                 refreshAll();
 
             } catch (error) {
@@ -1574,8 +1575,11 @@
             const nSel = selectedToWrite.size;
             const bar = `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
                 <button onclick="addToWriteToMonth()" ${nSel ? '' : 'disabled'} style="background:${nSel ? '#1565c0' : '#9bbbe0'};color:#fff;border:none;border-radius:8px;padding:9px 16px;font-weight:700;cursor:${nSel ? 'pointer' : 'default'};">➕ Add selected to Plan a month${nSel ? ' (' + nSel + ')' : ''}</button>
+                <span style="width:1px;height:26px;background:#e0e0e0;"></span>
+                <select id="tw-send-month" style="padding:9px 10px;border:1px solid #ccc;border-radius:8px;font-size:13px;background:#fff;">${monthOptionsHtml()}</select>
+                <button onclick="sendSelectedToMonth()" ${nSel ? '' : 'disabled'} style="background:${nSel ? '#43a047' : '#a9d3ab'};color:#fff;border:none;border-radius:8px;padding:9px 16px;font-weight:700;cursor:${nSel ? 'pointer' : 'default'};">📅 Send selected to this month${nSel ? ' (' + nSel + ')' : ''}</button>
                 <button onclick="clearToWriteSel()" style="background:#fff;color:#555;border:1px solid #ccc;border-radius:8px;padding:9px 14px;font-weight:700;cursor:pointer;">Clear</button>
-                <span style="font-size:12px;color:#888;">Tick the ones you want, then add them — they spread into Plan a month by the usual rules.</span>
+                <span style="font-size:12px;color:#888;width:100%;">“Add to Plan a month” stages them for review. “Send to this month” drops them straight in — the strongest fill the month, the weakest over its target spill into the next month.</span>
             </div>`;
             container.innerHTML = bar + ordered.map(idea => {
                 const m = (window._kwMetrics && window._kwMetrics[(idea.currentKeyword || idea.keyword || '').toLowerCase()]) || {};
@@ -1776,6 +1780,8 @@
             const container = document.getElementById('monthprog-container');
             const filter = document.getElementById('mp-month-filter');
             if (!container) return;
+            const healed = window._healedNote ? `<div style="background:#fff8e1;border:1px solid #ffe0a3;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:13px;color:#7a5a00;">${window._healedNote}</div>` : '';
+            window._healedNote = '';
             const tagged = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && i.month && !isPublishedBlog(i));
             const months = [...new Set(tagged.map(i => i.month))].sort();
             if (filter) {
@@ -1785,7 +1791,7 @@
             }
             const note = document.getElementById('mp-note');
             if (!tagged.length) {
-                container.innerHTML = `<div class="empty-state">No months in progress yet. Plan a month in the To Write tab, then Save selection to month.</div>`;
+                container.innerHTML = healed + `<div class="empty-state">No months in progress yet. Plan a month in the To Write tab, then Save selection to month.</div>`;
                 if (note) note.textContent = '';
                 return;
             }
@@ -1808,7 +1814,7 @@
                 &nbsp;·&nbsp;<span style="color:${statusColor};font-weight:700;">${statusTxt}</span>
                 ${remaining ? `<button onclick="topUpMonth('${sel}',${remaining})" style="margin-left:10px;background:#1565c0;color:#fff;border:none;border-radius:6px;padding:7px 12px;font-weight:700;font-size:13px;cursor:pointer;">➕ Top up (add ${remaining})</button>` : ''}
             </div>`;
-            container.innerHTML = banner + list.map(idea => buildIdeaCard(idea, 'towrite')).join('');
+            container.innerHTML = healed + banner + list.map(idea => buildIdeaCard(idea, 'towrite')).join('');
             // Restore ticks, drafts and saved-brief notes for the visible cards.
             selectedToSend.forEach(idx => {
                 const cb = document.getElementById(`ts-cb-${idx}`);
@@ -1880,7 +1886,7 @@
             // themes already in this month (minus the one leaving), to keep variety when choosing the replacement
             const monthBlogs = allIdeas.filter(i => i.month === month && i.index !== index && (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING'));
             const bcount = {}; monthBlogs.forEach(i => { const b = bucketOf(i.currentTitle || i.title); bcount[b] = (bcount[b] || 0) + 1; });
-            const spare = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && !i.month && i.index !== index && !isPublishedBlog(i));
+            const spare = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && !i.month && i.index !== index && !isPublishedBlog(i) && isApprovedIdea(i));
             const pool = spare.filter(i => !isTried(i)); // fresh options only — nothing already rejected this session
             const ordered = diversityOrder(pool);
             const repl = ordered.find(i => (bcount[bucketOf(i.currentTitle || i.title)] || 0) < 3) || ordered[0] || null;
@@ -1901,13 +1907,54 @@
             } catch (e) { alert('Could not swap: ' + e.message); }
         }
 
+        // Swap a topic in a (usually full) month for a SPECIFIC one you choose — opens a pick-list of approved
+        // spare topics, best ranking potential first. The chosen one takes the slot; the old one goes back to To Write.
+        function openSwapChooser(index) {
+            const idea = allIdeas.find(i => i.index === index); if (!idea || !idea.month) return;
+            const cand = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && !i.month && !isPublishedBlog(i) && isApprovedIdea(i) && i.index !== index).slice().sort(byPotential);
+            closeSwapChooser();
+            const rows = cand.length ? cand.map(c => {
+                const m = (window._kwMetrics && window._kwMetrics[(c.currentKeyword || c.keyword || '').toLowerCase()]) || {};
+                const v = (m.volume != null) ? Number(m.volume).toLocaleString('en-GB') : '—';
+                const d = (m.difficulty != null) ? m.difficulty : (m.seo_difficulty != null ? m.seo_difficulty : '—');
+                return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 11px;border:1px solid #e8e8e8;border-radius:7px;margin-bottom:5px;background:#fafafa;">
+                    <div style="flex:1;min-width:0;"><div style="font-size:13px;">${escHtml(c.currentTitle || c.title || c.keyword || '')}</div></div>
+                    <span style="font-size:12px;color:#555;white-space:nowrap;">Vol <strong>${v}</strong> · Diff <strong>${d}</strong></span>
+                    <button onclick="doSwap(${index},${c.index})" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:5px 11px;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;">Swap in</button>
+                </div>`;
+            }).join('') : `<div style="color:#888;font-size:13px;padding:10px;">No approved spare topics to swap in — approve more in the Duplicate check.</div>`;
+            const ov = document.createElement('div');
+            ov.id = 'swap-chooser-modal';
+            ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+            ov.innerHTML = `<div style="background:#fff;border-radius:12px;max-width:620px;width:100%;max-height:85vh;overflow:auto;padding:24px;box-shadow:0 10px 40px rgba(0,0,0,.25);">
+                <h3 style="margin:0 0 4px;font-size:17px;">Swap out: ${escHtml(idea.currentTitle || idea.title || '')}</h3>
+                <p style="margin:0 0 12px;color:#555;font-size:13px;">Pick the topic to put in its place (best ranking potential first):</p>
+                ${rows}
+                <div style="text-align:right;margin-top:14px;border-top:1px solid #eee;padding-top:14px;"><button onclick="closeSwapChooser()" style="background:#fff;color:#555;border:1px solid #ccc;border-radius:8px;padding:9px 16px;font-weight:700;cursor:pointer;">Cancel</button></div>
+            </div>`;
+            document.body.appendChild(ov);
+        }
+        function closeSwapChooser() { const el = document.getElementById('swap-chooser-modal'); if (el) el.remove(); }
+        async function doSwap(removeIndex, addIndex) {
+            const out = allIdeas.find(i => i.index === removeIndex), inn = allIdeas.find(i => i.index === addIndex);
+            if (!out || !inn || !out.month) return;
+            const month = out.month;
+            const removeTitle = out.title || out.currentTitle || '', addTitle = inn.title || inn.currentTitle || '';
+            closeSwapChooser();
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'swap-month-blog', month, removeTitle, addTitle }) }).then(x => x.json());
+                if (!r.success) throw new Error(r.error || 'Could not swap.');
+                out.month = ''; inn.month = month; refreshAll();
+            } catch (e) { alert('Could not swap: ' + e.message); }
+        }
+
         // Top up a month to a full set — adds the next best unused topics (variety-aware, never published ones)
         // until the month is complete.
         async function topUpMonth(month, n) {
             if (!n || n < 1) return;
             const monthBlogs = allIdeas.filter(i => i.month === month && (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING'));
             const bcount = {}; monthBlogs.forEach(i => { const b = bucketOf(i.currentTitle || i.title); bcount[b] = (bcount[b] || 0) + 1; });
-            const pool = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && !i.month && !isPublishedBlog(i));
+            const pool = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && !i.month && !isPublishedBlog(i) && isApprovedIdea(i));
             const ordered = diversityOrder(pool);
             const pick = [];
             for (const it of ordered) { if (pick.length >= n) break; const b = bucketOf(it.currentTitle || it.title); if ((bcount[b] || 0) < 3) { pick.push(it); bcount[b] = (bcount[b] || 0) + 1; } }
@@ -2071,7 +2118,7 @@
                                 <button class="btn-undo" onclick="undoWriting(${index})">↩ Undo</button>
                                 ${monthTag}
                                 ${idea.month && !allDone ? `<button onclick="removeFromMonth(${index})" title="Remove from this month (goes back to To Write) — lowers the count. Use this to trim when the month is over." style="background:#fff;color:#b3261e;border:1.5px solid #b3261e;border-radius:6px;padding:7px 12px;font-weight:700;font-size:12.5px;cursor:pointer;">✕ Remove from month</button>` : ''}
-                                ${idea.month && !allDone ? `<button onclick="removeAndReplace(${index})" title="Swap this topic for the next best one — keeps the count the same" style="background:#fff;color:#1565c0;border:1.5px solid #1565c0;border-radius:6px;padding:7px 12px;font-weight:700;font-size:12.5px;cursor:pointer;">⇄ Replace</button>` : ''}
+                                ${idea.month && !allDone ? `<button onclick="openSwapChooser(${index})" title="Swap this topic for one you choose — keeps the count the same" style="background:#fff;color:#1565c0;border:1.5px solid #1565c0;border-radius:6px;padding:7px 12px;font-weight:700;font-size:12.5px;cursor:pointer;">⇄ Replace</button>` : ''}
                                 <button onclick="markBlogDone(${index})" title="Mark this blog as done — it leaves the write list for good and is never offered again" style="background:#2e7d32;color:#fff;border:none;border-radius:6px;padding:7px 12px;font-weight:700;font-size:12.5px;cursor:pointer;">✅ Mark as done</button>
                             </div>
                             <button id="comp-btn-${index}" data-done="${hasBrief ? '1' : '0'}" onclick="stepClick(${index},'comp')" style="${stepStyle(hasBrief,'#6a1b9a')}"><span class="step-label">1 · 🔍 Competitor check${hasBrief ? ' ✓' : ''}</span><span class="step-caret">${hasBrief ? '▸' : ''}</span></button>
@@ -4442,6 +4489,71 @@
         }
         function daysInMonth(year, month) { return new Date(year, month, 0).getDate(); } // month 1-12
 
+        // ---- Month capacity helpers (shared by send-to-month, top-up and auto-pick) ----
+        function monthTarget(monthStr) { const p = monthStr.split('-').map(Number); return Math.ceil(daysInMonth(p[0], p[1]) / 2); }
+        function monthInProgress(monthStr) { return allIdeas.filter(i => i.month === monthStr && (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && !isPublishedBlog(i)).length; }
+        function monthCapacityLeft(monthStr) {
+            const sched = (window._publishedMonthCount && window._publishedMonthCount[monthStr]) || 0;
+            return Math.max(0, monthTarget(monthStr) - sched - monthInProgress(monthStr));
+        }
+        function nextMonthStr(monthStr) { let [y, m] = monthStr.split('-').map(Number); m += 1; if (m > 12) { m = 1; y += 1; } return `${y}-${String(m).padStart(2, '0')}`; }
+        function firstPlannableMonth() {
+            const now = new Date(); let m = now.getMonth() + 2, y = now.getFullYear();
+            if (m > 12) { m -= 12; y += 1; }
+            if (y * 12 + m <= COVERED_THROUGH.year * 12 + COVERED_THROUGH.month) { m = COVERED_THROUGH.month + 1; y = COVERED_THROUGH.year; if (m > 12) { m -= 12; y += 1; } }
+            return `${y}-${String(m).padStart(2, '0')}`;
+        }
+        function monthOptionsHtml() {
+            let ms = firstPlannableMonth(); const opts = [];
+            for (let i = 0; i < 12; i++) { const [y, mm] = ms.split('-').map(Number); opts.push(`<option value="${ms}">${MONTH_NAMES[mm - 1]} ${y}</option>`); ms = nextMonthStr(ms); }
+            return opts.join('');
+        }
+        // Send ticked To Write topics straight to a month, best-first, spilling the weakest over its target into
+        // the next month(s). Manual action — fills past the target if needed, overflow cascades forward.
+        async function sendSelectedToMonth() {
+            const startMonth = (document.getElementById('tw-send-month') || {}).value || '';
+            if (!startMonth) { alert('Pick a month first.'); return; }
+            const sel = allIdeas.filter(i => selectedToWrite.has(i.index) && ['TO_WRITE', 'TO_WRITE_PENDING', 'TO_WRITE_SENT'].includes(i.status) && !i.month && !isPublishedBlog(i) && isApprovedIdea(i));
+            if (!sel.length) { alert('Tick at least one blog first.'); return; }
+            // Best ranking potential first (volume high, difficulty low), then variety — so the strongest stay in
+            // the month you chose and the weakest are the ones that spill forward.
+            const ordered = diversityOrder(sel.slice().sort(byPotential).map(i => ({ ...i, title: i.currentTitle || i.title, _ref: i })));
+            const plan = []; let month = startMonth, cap = monthCapacityLeft(month), guard = 0;
+            for (const it of ordered) {
+                while (cap <= 0 && guard < 60) { month = nextMonthStr(month); cap = monthCapacityLeft(month); guard++; }
+                plan.push({ idea: it._ref, month }); cap--;
+            }
+            const byMonth = {}; plan.forEach(p => { (byMonth[p.month] = byMonth[p.month] || []).push(p.idea); });
+            try {
+                for (const mStr of Object.keys(byMonth)) {
+                    const titles = byMonth[mStr].map(i => i.title || i.currentTitle || '').filter(Boolean);
+                    const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-month', titles, month: mStr }) }).then(x => x.json());
+                    if (!r.success) throw new Error(r.error || 'Save failed');
+                    byMonth[mStr].forEach(i => { i.month = mStr; });
+                }
+                selectedToWrite.clear();
+                refreshAll();
+                const summary = Object.keys(byMonth).sort().map(mStr => { const [y, mm] = mStr.split('-').map(Number); return `${byMonth[mStr].length} → ${MONTH_NAMES[mm - 1]} ${y}`; }).join(', ');
+                const spilled = Object.keys(byMonth).length > 1;
+                alert(`Sent: ${summary}.${spilled ? ' (The weakest over the first month\'s target spilled into the next.)' : ''}`);
+            } catch (e) { alert('Could not send: ' + e.message); }
+        }
+
+        // RULE: a month may NEVER hold a topic that isn't approved (not visible in To Write). This runs on every
+        // load and quietly moves any that slipped in back out — no button, keeps months clean on their own.
+        async function healUnapprovedMonths() {
+            const bad = allIdeas.filter(i => i.month && (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && !isPublishedBlog(i) && !isApprovedIdea(i));
+            if (!bad.length) return;
+            const titles = bad.map(i => i.title || i.currentTitle || '').filter(Boolean);
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-month', titles, month: '' }) }).then(x => x.json());
+                if (r && r.success) {
+                    bad.forEach(i => { i.month = ''; });
+                    window._healedNote = `🧹 Moved ${bad.length} not-yet-approved topic${bad.length === 1 ? '' : 's'} out of their month (back to the Duplicate check until approved).`;
+                }
+            } catch (e) {}
+        }
+
         // Blogs are already scheduled every other day through this month — planning starts AFTER it.
         const COVERED_THROUGH = { year: 2026, month: 12 };
 
@@ -4473,12 +4585,20 @@
             }
             const monthStr = `${year}-${String(month).padStart(2, '0')}`;
             window._planExcluded = new Set(); // fresh pick — clear any earlier ✕ removals
-            // Publishing is every other day now, so plan ~half the month's days, minus what's already scheduled.
+            // Publishing is every other day now, so plan ~half the month's days, minus what's already scheduled
+            // AND minus what is already in this month (e.g. topics that spilled in from a fuller month) — so
+            // Auto-pick only adds the ones still MISSING, never doubles up.
             const alreadySched = (window._publishedMonthCount && window._publishedMonthCount[monthStr]) || 0;
-            const count = Math.max(0, Math.ceil(daysInMonth(year, month) / 2) - alreadySched);
-            // Eligible = APPROVED To Write, not already tagged to a DIFFERENT month (same filter the list uses,
-            // so the "selected" count always matches the rows shown).
-            const pool = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && (!i.month || i.month === monthStr) && !isPublishedBlog(i) && isApprovedIdea(i));
+            const alreadyInMonth = allIdeas.filter(i => i.month === monthStr && (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && !isPublishedBlog(i)).length;
+            const count = Math.max(0, Math.ceil(daysInMonth(year, month) / 2) - alreadySched - alreadyInMonth);
+            if (count === 0) {
+                selectedToSend = new Set(); displayPlanMonth();
+                const note0 = document.getElementById('monthly-note');
+                if (note0) note0.textContent = `${MONTH_NAMES[month - 1]} ${year} is already full (${alreadySched + alreadyInMonth}) — nothing more to add.`;
+                return;
+            }
+            // Eligible = APPROVED To Write, not already tagged to any month (fresh topics to ADD to this month).
+            const pool = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && !i.month && !isPublishedBlog(i) && isApprovedIdea(i));
             if (!pool.length) { alert('No available To Write blogs to plan.'); return; }
             const seasonalThis = [], evergreen = [];
             pool.forEach(i => {
