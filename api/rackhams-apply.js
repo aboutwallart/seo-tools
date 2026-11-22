@@ -1,6 +1,7 @@
-// rackhams-apply.js — v0.2 (21 Nov 2026)
+// rackhams-apply.js — v0.3 (22 Nov 2026)
 // Writes advert sale-status in Rackhams (Marketplacer). Reversible.
 // v0.2: + caps (can my key make a brand/import rule?) + diag (AWA off = vetting vs data error). Both read-only.
+// v0.3: + caps2 (read-only: how to set stock 0 / delete non-AWA adverts via the API).
 //
 // Actions (GET, ?action=):
 //   probe            -> introspect the publish mutation + show target counts. NO write.
@@ -314,7 +315,36 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, action, awaOffSale_total: awaOff.length, sampled: rows.length, sampleWithCatalogErrors: withErrors, statusTextsSeen: [...new Set(rows.map(r => r.statusText))], sample: rows, note: 'Read-only. "statusText" shows In vetting vs other; catalogRulesErrors lists missing data if any.' });
     }
 
-    return res.status(200).json({ ok: false, error: 'Unknown action. Use probe | caps | diag | test | off | on | undo.' });
+    // ---------- CAPS2 (how to set stock 0 / delete adverts?) ----------
+    if (action === 'caps2') {
+      const out = { ok: true, action, note: 'Read-only. Checks what the API offers to zero stock or delete.' };
+      const grab = async (fn, key) => { try { out[key] = await fn(); } catch (e) { out[key] = 'error: ' + e.message.slice(0, 200); } };
+
+      await grab(async () => {
+        const t = await typeInfo('Mutation');
+        return (t && t.fields || []).map(f => f.name).filter(n => /variant|advert|stock|inventor|delete|count|unpublish|offline|archive/i.test(n));
+      }, 'mutations_matching');
+
+      await grab(async () => {
+        const t = await typeInfo('Advert');
+        return (t && t.fields || []).map(f => f.name);
+      }, 'advertFields');
+
+      for (const tn of ['VariantUpdateMutationInput', 'VariantInput', 'AdvertDeleteMutationInput', 'AdvertUpdateMutationInput', 'InventoryInput', 'VariantInventoryInput']) {
+        await grab(async () => { const t = await typeInfo(tn); return t ? (t.inputFields || []).map(f => f.name) : 'type not found'; }, 'in_' + tn);
+      }
+
+      // Live sample: one non-AWA advert with its variants + stock shape
+      await grab(async () => {
+        const d = await mp(`query ($first:Int!,$status:AdvertStatusEnum){ advertsWhere(first:$first,status:$status){ nodes { id legacyId title brand { name } variants { id legacyId countOnHand available } } } }`, { first: 5, status: 'DISPLAYED' });
+        const n = (d.advertsWhere.nodes || []).find(x => x.brand && x.brand.name && x.brand.name.trim().toLowerCase() !== myBrandLc);
+        return n || 'no non-AWA sample';
+      }, 'sampleAdvertWithVariants');
+
+      return res.status(200).json(out);
+    }
+
+    return res.status(200).json({ ok: false, error: 'Unknown action. Use probe | caps | caps2 | diag | test | off | on | undo.' });
   } catch (e) {
     return res.status(200).json({ ok: false, error: e.message });
   }
