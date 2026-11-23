@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.43 - 2026-11-22</p>
+        <p class="version">v6.44 - 2026-11-23</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -1442,7 +1442,16 @@
         }
         function renderDiscoverBoard(rooms) {
             const box = document.getElementById('discover-container'); if (!box) return;
-            let html = '';
+            let html = `<div style="background:#fff;border:1px solid #e0cffb;border-radius:10px;padding:12px 14px;margin-bottom:12px;">
+                <div style="font-weight:700;font-size:14px;margin-bottom:4px;">🔎 Check two keywords against your blogs</div>
+                <div style="font-size:12px;color:#777;margin-bottom:8px;">See if any live blog already overlaps both — before you write.</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                    <input id="disc-cmp-1" placeholder="keyword 1" style="flex:1;min-width:140px;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:13px;">
+                    <input id="disc-cmp-2" placeholder="keyword 2" style="flex:1;min-width:140px;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:13px;">
+                    <button onclick="runDiscoverCompare()" style="background:#6a1b9a;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;">Check</button>
+                </div>
+                <div id="disc-cmp-result" style="margin-top:8px;"></div>
+            </div>`;
             (rooms || []).forEach((rm, ri) => {
                 const statusTag = rm.generalCount >= 10 ? `<span style="font-size:12px;color:#2e7d32;">${rm.generalCount} blogs</span>`
                     : (rm.generalCount > 0 ? `<span style="background:#fff4e0;color:#8a5a00;font-size:12px;padding:2px 8px;border-radius:6px;">thin — ${rm.generalCount} blogs</span>`
@@ -1490,9 +1499,72 @@
                 const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'discover-search', seeds, terms: window._discTerms }) }).then(x => x.json());
                 if (!r.success) throw new Error(r.error || 'Search failed');
                 if (r.creditsRemaining != null) window._discCreditsLeft = r.creditsRemaining; else window._discCreditsLeft = Math.max(0, window._discCreditsLeft - (r.creditsUsed || 0));
-                alert(`Done. ${r.found} new topic(s) saved to the pool. Used ${r.creditsUsed} credits${r.failed ? ` (${r.failed} searches failed)` : ''}.`);
-                loadDiscover();
+                // The tool no longer auto-filters/saves — it shows every question with a suggestion, Mae ticks what to keep.
+                renderDiscoverReview(r.candidates || [], r);
             } catch (e) { alert('Search error: ' + e.message); if (btn) { btn.disabled = false; btn.textContent = '🔍 Search selected'; } }
+        }
+        // Review screen after a search: every question shown, clean ones pre-ticked, "might already be covered" ones
+        // unticked with the reason. Mae ticks which to keep → they go into the pool. Nothing is saved automatically.
+        function renderDiscoverReview(cands, meta) {
+            const box = document.getElementById('discover-container'); if (!box) return;
+            window._discReview = cands || [];
+            const pool = document.getElementById('discover-pool'); if (pool) pool.innerHTML = '';
+            if (!cands.length) {
+                box.innerHTML = `<div style="background:#fff;border:1px solid #e3e3e3;border-radius:10px;padding:16px;">
+                    <div style="font-size:14px;color:#555;">No new questions came back (everything was already in your pool or ideas). Used ${meta.creditsUsed || 0} credits.</div>
+                    <button onclick="loadDiscover()" style="margin-top:10px;background:#6a1b9a;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;">← Back to gaps</button>
+                </div>`;
+                return;
+            }
+            const clean = cands.filter(c => !c.maybeCovered);
+            const maybe = cands.filter(c => c.maybeCovered);
+            const rowHtml = (c, i, checked) => `<label style="display:flex;gap:9px;align-items:flex-start;border:1px solid ${c.maybeCovered ? '#f0d9a8' : '#dbe8db'};border-radius:7px;padding:8px 10px;margin-bottom:6px;background:${c.maybeCovered ? '#fffaf0' : '#fff'};cursor:pointer;">
+                <input type="checkbox" data-dri="${i}" ${checked ? 'checked' : ''} style="margin-top:3px;">
+                <span style="font-size:13px;color:#333;">${escHtml(c.question)}<span style="color:#aaa;font-size:11px;"> · from "${escHtml(c.seed)}"</span>${c.maybeCovered ? `<div style="font-size:12px;color:#8a6d1a;margin-top:2px;">⚠️ ${escHtml(c.coveredReason || 'may already be covered')}</div>` : ''}</span>
+            </label>`;
+            let html = `<div style="background:#fff;border:1px solid #e3e3e3;border-radius:10px;padding:14px 16px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+                    <div style="font-weight:700;font-size:15px;">${cands.length} question${cands.length > 1 ? 's' : ''} found — tick the ones to keep</div>
+                    <button onclick="loadDiscover()" style="background:#fff;color:#6a1b9a;border:1px solid #6a1b9a;border-radius:6px;padding:6px 12px;font-weight:700;font-size:12px;cursor:pointer;">← Back to gaps</button>
+                </div>`;
+            if (clean.length) {
+                html += `<div style="font-size:12px;color:#2e7d32;margin:6px 0 4px;">New — not found in any blog (${clean.length}):</div>`;
+                clean.forEach(c => { html += rowHtml(c, cands.indexOf(c), true); });
+            }
+            if (maybe.length) {
+                html += `<div style="font-size:12px;color:#8a6d1a;margin:12px 0 4px;">Might already be covered — pick only if you still want them (${maybe.length}):</div>`;
+                maybe.forEach(c => { html += rowHtml(c, cands.indexOf(c), false); });
+            }
+            html += `<div style="display:flex;gap:10px;margin-top:14px;border-top:1px solid #eee;padding-top:12px;">
+                <button onclick="addDiscoverSelected()" style="flex:1;background:#43a047;color:#fff;border:none;border-radius:7px;padding:10px 14px;font-weight:700;cursor:pointer;">Add ticked to the pool</button>
+                <button onclick="loadDiscover()" style="background:#fff;color:#555;border:1px solid #ccc;border-radius:7px;padding:10px 14px;font-weight:700;cursor:pointer;">Discard</button>
+            </div></div>`;
+            box.innerHTML = html;
+        }
+        async function addDiscoverSelected() {
+            const box = document.getElementById('discover-container'); if (!box) return;
+            const picks = [...box.querySelectorAll('input[type=checkbox][data-dri]:checked')].map(cb => (window._discReview || [])[+cb.getAttribute('data-dri')]).filter(Boolean);
+            if (!picks.length) { alert('Tick at least one question first.'); return; }
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'discover-add-questions', questions: picks.map(p => ({ question: p.question, seed: p.seed, term: p.term })) }) }).then(x => x.json());
+                if (!r.success) throw new Error(r.error || 'Failed');
+                alert(`${r.added} topic(s) added to the pool.`);
+                loadDiscover();
+            } catch (e) { alert('Could not add: ' + e.message); }
+        }
+        // Two-keyword probe: does any live blog already overlap BOTH keywords? (manual check, nothing saved)
+        async function runDiscoverCompare() {
+            const kw1 = ((document.getElementById('disc-cmp-1') || {}).value || '').trim();
+            const kw2 = ((document.getElementById('disc-cmp-2') || {}).value || '').trim();
+            const out = document.getElementById('disc-cmp-result');
+            if (!kw1 || !kw2) { if (out) out.innerHTML = '<span style="color:#a33;font-size:12px;">Type two keywords.</span>'; return; }
+            if (out) out.innerHTML = '<span style="color:#888;font-size:12px;">Checking…</span>';
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'discover-compare', kw1, kw2 }) }).then(x => x.json());
+                if (!r.success) throw new Error(r.error || 'Failed');
+                if (!r.matches.length) { out.innerHTML = '<span style="color:#2e7d32;font-size:13px;">✓ No blog overlaps both — looks free to write.</span>'; return; }
+                out.innerHTML = `<div style="font-size:13px;color:#8a6d1a;margin-bottom:4px;">${r.matches.length} blog(s) may overlap both:</div>` + r.matches.map(m => `<div style="font-size:13px;color:#444;padding:3px 0;">• ${escHtml(m.title)}</div>`).join('');
+            } catch (e) { if (out) out.innerHTML = '<span style="color:#a33;font-size:12px;">' + escHtml(e.message) + '</span>'; }
         }
         async function loadDiscoverPool() {
             const box = document.getElementById('discover-pool'); if (!box) return;
