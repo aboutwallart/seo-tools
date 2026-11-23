@@ -66,6 +66,11 @@
     <div id="msg"></div>
   </div>
 
+  <div class="card" id="emptyState">
+    <b>⚠️ Generate the list to start.</b>
+    <div class="muted" style="font-size:14px;margin-top:4px">The data refreshes every time you open this tool. Click <b>Generate list</b> above — everything stays disabled until you do.</div>
+  </div>
+
   <div class="card" id="tableCard" style="display:none">
     <table>
       <thead>
@@ -81,7 +86,7 @@
     </table>
   </div>
 
-  <div class="ver">v1.1</div>
+  <div class="ver">v1.2</div>
 </div>
 
 <script>
@@ -121,8 +126,9 @@ function rowHtml(r){
     ? '<div class="shoptitle"><span>'+esc(r.shopify_title)+(r.fixed?'<span class="tag-fixed">fixed</span>':'')+'</span><button class="copy" data-copy="'+esc(r.shopify_title)+'">Copy</button></div>'
       + '<div class="muted" style="font-size:12px">'+esc(r.shopify_handle)+'</div>'
     : '<span class="muted">—</span>';
-  const fixBtn = (r.status!=='matched')
-    ? '<button class="act" data-fix="'+esc(r.listing_id)+'">Fix SKU</button>' : '';
+  const fixUI = (r.status!=='matched')
+    ? '<div class="fixbox"><input type="text" data-fixinput="'+esc(r.listing_id)+'" placeholder="Correct SKU"><button class="act" data-fixsave="'+esc(r.listing_id)+'">Save</button></div>'
+    : '';
   const doneBtn = r.done
     ? '<button class="act" data-undone="'+esc(r.listing_id)+'">Undo</button>'
     : '<button class="act" data-done="'+esc(r.listing_id)+'">Done</button>';
@@ -131,7 +137,7 @@ function rowHtml(r){
     + '<td>'+esc(r.etsy_title)+' <span class="state">'+esc(r.state)+'</span></td>'
     + '<td>'+shop+'</td>'
     + '<td>'+pill(r.status)+'</td>'
-    + '<td class="cell-actions">'+doneBtn+' '+fixBtn+'</td>'
+    + '<td class="cell-actions">'+doneBtn+fixUI+'</td>'
     + '</tr>';
 }
 
@@ -184,6 +190,7 @@ document.getElementById('gen').addEventListener('click', async () => {
     if(!d.ok) throw new Error(d.error || 'Request failed');
     ROWS = d.rows || [];
     updateStats();
+    document.getElementById('emptyState').style.display='none';
     document.getElementById('tableCard').style.display='block';
     ['csv','search','showDone'].forEach(id => document.getElementById(id).disabled=false);
     render();
@@ -217,35 +224,38 @@ document.getElementById('tbody').addEventListener('click', async e => {
     else { alert(res.error||'Could not save'); t.disabled=false; render(); }
     return;
   }
-  if(t.dataset.fix!=null){
-    const id = t.dataset.fix;
-    const cell = t.closest('.cell-actions');
-    if(cell.querySelector('.fixbox')) return;
-    const box = document.createElement('div');
-    box.className='fixbox';
-    box.innerHTML = '<input type="text" placeholder="Correct SKU" /> <button class="act save">Save</button> <button class="act cancel">Cancel</button>';
-    cell.appendChild(box);
-    const inp = box.querySelector('input');
-    inp.focus();
-    box.querySelector('.cancel').addEventListener('click', ()=> box.remove());
-    const doSave = async () => {
-      const sku = inp.value.trim(); if(!sku) return;
-      const save = box.querySelector('.save'); save.disabled=true; save.textContent='…';
-      const res = await post('sku-override', { listing_id:id, sku });
-      if(res.ok){
-        const r = ROWS.find(x=>String(x.listing_id)===String(id));
-        if(r){ r.shopify_title=res.shopify_title; r.shopify_handle=res.shopify_handle; r.used_sku=res.used_sku; r.fixed=true; r.status='matched'; }
-        updateStats(); render();
-      } else {
-        save.disabled=false; save.textContent='Save';
-        alert(res.error || 'Could not save the fix');
-      }
-    };
-    box.querySelector('.save').addEventListener('click', doSave);
-    inp.addEventListener('keydown', ev => { if(ev.key==='Enter') doSave(); });
+  if(t.dataset.fixsave!=null){
+    const id = t.dataset.fixsave;
+    const inp = document.querySelector('input[data-fixinput="'+CSS.escape(id)+'"]');
+    saveFix(id, inp, t);
     return;
   }
 });
+
+// Enter in a Fix input = Save
+document.getElementById('tbody').addEventListener('keydown', e => {
+  const inp = e.target;
+  if(inp && inp.dataset && inp.dataset.fixinput!=null && e.key==='Enter'){
+    const id = inp.dataset.fixinput;
+    const btn = document.querySelector('button[data-fixsave="'+CSS.escape(id)+'"]');
+    saveFix(id, inp, btn);
+  }
+});
+
+async function saveFix(id, inp, btn){
+  const sku = (inp && inp.value || '').trim();
+  if(!sku){ if(inp) inp.focus(); return; }
+  if(btn){ btn.disabled=true; btn.textContent='…'; }
+  const res = await post('sku-override', { listing_id:id, sku });
+  if(res.ok){
+    const r = ROWS.find(x=>String(x.listing_id)===String(id));
+    if(r){ r.shopify_title=res.shopify_title; r.shopify_handle=res.shopify_handle; r.used_sku=res.used_sku; r.fixed=true; r.status='matched'; }
+    updateStats(); render();
+  } else {
+    if(btn){ btn.disabled=false; btn.textContent='Save'; }
+    alert(res.error || 'Could not save the fix');
+  }
+}
 
 document.getElementById('search').addEventListener('input', render);
 document.getElementById('showDone').addEventListener('change', render);
