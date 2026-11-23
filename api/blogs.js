@@ -1,4 +1,11 @@
-// blogs.js — v6.25
+// blogs.js — v6.26
+// v6.26 (2026-11-23): DISCOVER TOPICS — suggest, don't filter. (1) discover-search no longer DROPS questions: it
+//   returns EVERY new question (only skipping exact pool/idea dupes), each flagged maybeCovered + coveredReason.
+//   "Maybe covered" now fires ONLY when the EXACT style AND room (or synonyms) are both present in another blog —
+//   the old filter also matched a single axis (via TOPIC_PHASES singleMatch), which dropped almost everything. It
+//   no longer auto-saves to the pool. (2) NEW discover-add-questions — saves only the questions Mae ticks. (3) NEW
+//   discover-compare — type two keywords, returns the live blogs that relate to BOTH (manual overlap check).
+//   TOPIC_PHASES is untouched (still used by the dedup); the stricter both-axes rule is local to Discover.
 // v6.25 (2026-11-22): PUBLISH GATE EXTENDED — publish-blog now runs its OWN missing-content gate FIRST (before
 //   any SEO/AI call): if the finished body still has a dead [[IMG|...]] image OR a [[PRODUCT|topic]] product
 //   placeholder, it STOPS and returns the list so the tool asks Mae (fix it, or Cancel → drop + publish clean).
@@ -4082,9 +4089,8 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         if (!seeds.length) return res.status(400).json({ error: 'No seeds selected.' });
         const TERMS = (Array.isArray(req.body.terms) && req.body.terms.length) ? req.body.terms.map(t => String(t).trim()).filter(Boolean) : DISCOVER_TERMS;
         let blogs = []; try { blogs = await fetchBlogsPubAndSched(); } catch (e) { blogs = []; }
-        const blogTags = blogs.map(b => topicTagBoth(b.title || ''));
-        const pipeTags = (await gatherPipelineTexts()).map(t => topicTagBoth(t)); // in-progress topics count as covered too
-        const allTags = blogTags.concat(pipeTags);
+        const blogTags = blogs.map(b => ({ title: b.title || '', t: topicTagBoth(b.title || '') }));
+        const pipeTags = (await gatherPipelineTexts()).map(x => ({ text: x, t: topicTagBoth(x) })); // in-progress topics too
         const ideaKw = new Set();
         try { const f = await getGitHubFile('data/blog_ideas.csv'); f.content.split('\n').forEach((l, i) => { if (i === 0) return; const c = parseCSVLine(l.replace(/\r/g, '')); if (c[0]) ideaKw.add((c[0] || '').trim().toLowerCase()); }); } catch (e) {}
         const pool = await readJsonFileSafe('data/discover-pool.json', []);
@@ -4092,6 +4098,11 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         const poolQ = new Set(poolArr.map(p => String(p.question || '').toLowerCase()));
         const seenRun = new Set();
         let creditsUsed = 0, creditsRemaining = null, failed = 0;
+        // "Maybe already covered" = ONLY when the EXACT style AND the EXACT room (or their synonyms) are BOTH present
+        // in another blog/pipeline topic — never a single axis. This is a SUGGESTION, not a filter: every question is
+        // returned and Mae decides which to keep. (Do NOT reuse TOPIC_PHASES here — its single-axis matchers over-drop.)
+        const bothAxes = (t, b) => (!!(t.tagP.style && t.tagP.room && b.tagP.style === t.tagP.style && b.tagP.room === t.tagP.room))
+                                 || (!!(t.tagS.style && t.tagS.room && b.tagS.style === t.tagS.style && b.tagS.room === t.tagS.room));
         const newCandidates = [];
         for (const seed of seeds) {
           for (const term of TERMS) {
@@ -4107,22 +4118,74 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
               (data.relatedSearches || []).forEach(rs => { if (rs && rs.query) qs.push(rs.query); });
               qs.forEach(question => {
                 const lc = String(question).toLowerCase().trim();
-                if (!lc || seenRun.has(lc) || poolQ.has(lc) || ideaKw.has(lc)) return;
+                if (!lc || seenRun.has(lc) || poolQ.has(lc) || ideaKw.has(lc)) return; // skip only EXACT duplicates
                 const qt = topicTagBoth(question);
-                const covered = (qt.tagS.style || qt.tagS.room) && allTags.some(bt => TOPIC_PHASES.some(m => m(qt, bt)));
-                if (covered) return;
+                let maybeCovered = false, coveredReason = '';
+                if ((qt.tagS.style && qt.tagS.room) || (qt.tagP.style && qt.tagP.room)) {
+                  const bHit = blogTags.find(bt => bothAxes(qt, bt.t));
+                  const pHit = !bHit && pipeTags.find(pt => bothAxes(qt, pt.t));
+                  if (bHit) { maybeCovered = true; coveredReason = 'may overlap blog: "' + bHit.title + '"'; }
+                  else if (pHit) { maybeCovered = true; coveredReason = 'may overlap pipeline: "' + String(pHit.text).trim() + '"'; }
+                }
                 seenRun.add(lc);
-                newCandidates.push({ id: `disc_${Date.now()}_${newCandidates.length}`, question, seed, term, mainKeyword: '', title: '', status: 'needs_keyword', createdAt: new Date().toISOString() });
+                newCandidates.push({ id: `disc_${Date.now()}_${newCandidates.length}`, question, seed, term, maybeCovered, coveredReason, mainKeyword: '', title: '', status: 'needs_keyword', createdAt: new Date().toISOString() });
               });
             } catch (e) { failed++; }
           }
         }
-        if (newCandidates.length) await writeJsonFile('data/discover-pool.json', [...poolArr, ...newCandidates], `Discover: +${newCandidates.length} candidate(s)`);
+        // Do NOT auto-save to the pool — the tool only SUGGESTS. Mae ticks which to keep; discover-add-questions saves them.
         const searched = await readJsonFileSafe('data/discover-searched.json', []);
         const sSet = new Set((Array.isArray(searched) ? searched : []).map(x => String(x).toLowerCase()));
         seeds.forEach(s => sSet.add(s.toLowerCase()));
         await writeJsonFile('data/discover-searched.json', [...sSet], `Discover: searched ${seeds.length} seed(s)`);
-        return res.status(200).json({ success: true, creditsUsed, creditsRemaining, failed, found: newCandidates.length, candidates: newCandidates });
+        const maybeN = newCandidates.filter(c => c.maybeCovered).length;
+        return res.status(200).json({ success: true, creditsUsed, creditsRemaining, failed, found: newCandidates.length, maybeCovered: maybeN, candidates: newCandidates });
+      }
+
+      // ── ACTION: discover-add-questions ── save the questions Mae ticked (from discover-search) into the pool.
+      // The tool only suggests; nothing enters the pool until she picks it here. Skips exact duplicates.
+      if (req.body.action === 'discover-add-questions') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const items = Array.isArray(req.body.questions) ? req.body.questions : [];
+        if (!items.length) return res.status(200).json({ success: true, added: 0 });
+        const pool = await readJsonFileSafe('data/discover-pool.json', []);
+        const poolArr = Array.isArray(pool) ? pool : [];
+        const have = new Set(poolArr.map(p => String(p.question || '').toLowerCase()));
+        const toAdd = [];
+        items.forEach(it => {
+          const question = String((it && it.question) || '').trim();
+          const lc = question.toLowerCase();
+          if (!question || have.has(lc)) return;
+          have.add(lc);
+          toAdd.push({ id: `disc_${Date.now()}_${toAdd.length}`, question, seed: String((it && it.seed) || ''), term: String((it && it.term) || ''), mainKeyword: '', title: '', status: 'needs_keyword', createdAt: new Date().toISOString() });
+        });
+        if (toAdd.length) await writeJsonFile('data/discover-pool.json', [...poolArr, ...toAdd], `Discover: +${toAdd.length} picked topic(s)`);
+        return res.status(200).json({ success: true, added: toAdd.length });
+      }
+
+      // ── ACTION: discover-compare ── Mae types TWO keywords; return the LIVE blogs (published + scheduled) that
+      // relate to BOTH — so she can check by hand whether anything already overlaps the two. Nothing is saved.
+      if (req.body.action === 'discover-compare') {
+        const kw1 = String(req.body.kw1 || '').trim();
+        const kw2 = String(req.body.kw2 || '').trim();
+        if (!kw1 || !kw2) return res.status(400).json({ error: 'Type two keywords to compare.' });
+        let blogs = []; try { blogs = await fetchBlogsPubAndSched(); } catch (e) { blogs = []; }
+        const STOP = new Set(['wall','art','home','decor','prints','print','canvas','ideas','idea','guide','best','with','from','your','this','that','have','into','about','and','the','for','are','you','interior','design','style','room','living','how','what','why','when','does']);
+        const words = s => [...new Set((String(s || '').toLowerCase().match(/[a-z]+/g) || []).filter(w => w.length > 3 && !STOP.has(w)))];
+        const w1 = words(kw1), w2 = words(kw2);
+        const t1 = topicTagBoth(kw1), t2 = topicTagBoth(kw2);
+        const bothAxes = (t, b) => (!!(t.tagP.style && t.tagP.room && b.tagP.style === t.tagP.style && b.tagP.room === t.tagP.room))
+                                 || (!!(t.tagS.style && t.tagS.room && b.tagS.style === t.tagS.style && b.tagS.room === t.tagS.room));
+        const matches = [];
+        blogs.forEach(b => {
+          const title = b.title || '';
+          const hay = (title + ' ' + ((b.tags || []).join(' '))).toLowerCase();
+          const bt = topicTagBoth(title);
+          const hit1 = w1.some(w => hay.includes(w)) || bothAxes(t1, bt);
+          const hit2 = w2.some(w => hay.includes(w)) || bothAxes(t2, bt);
+          if (hit1 && hit2) matches.push({ title, handle: b.handle || '' });
+        });
+        return res.status(200).json({ success: true, kw1, kw2, matches });
       }
 
       // ── ACTION: discover-probe ── test one seed: return EVERY question Google brings, with kept/dropped + why.
