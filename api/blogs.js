@@ -1,4 +1,10 @@
-// blogs.js — v6.27
+// blogs.js — v6.29
+// v6.29 (2026-11-23): DISCOVER review controls. NEW discover-discard ("Discard forever" → data/discover-discarded.json);
+//   discover-search now also skips forever-discarded questions (alongside pool/idea dupes). Pairs with the HTML change
+//   where review questions come UNticked, cards are clearer, and each ticked set can go to Group / To decide later /
+//   Discard forever.
+// v6.28 (2026-11-23): No code change — version sync only (the "searched seeds re-tickable" fix was HTML-only;
+//   this bump just satisfied the version check. blogs.js behaviour identical to v6.27).
 // v6.27 (2026-11-23): DISCOVER TOPICS — group into one blog. NEW discover-group-to-write: Mae ticks topics, pastes
 //   the keyword she chose in Ubersuggest (+ volume/difficulty), and it (1) checks the keyword isn't LOCKED to
 //   another URL (registry, fresh), (2) creates ONE approved blog in To Write (status TO_WRITE + blog-approved.json),
@@ -4102,6 +4108,8 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         const pool = await readJsonFileSafe('data/discover-pool.json', []);
         const poolArr = Array.isArray(pool) ? pool : [];
         const poolQ = new Set(poolArr.map(p => String(p.question || '').toLowerCase()));
+        const discardedArr = await readJsonFileSafe('data/discover-discarded.json', []);
+        const discardedSet = new Set((Array.isArray(discardedArr) ? discardedArr : []).map(x => String(x).toLowerCase()));
         const seenRun = new Set();
         let creditsUsed = 0, creditsRemaining = null, failed = 0;
         // "Maybe already covered" = ONLY when the EXACT style AND the EXACT room (or their synonyms) are BOTH present
@@ -4124,7 +4132,7 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
               (data.relatedSearches || []).forEach(rs => { if (rs && rs.query) qs.push(rs.query); });
               qs.forEach(question => {
                 const lc = String(question).toLowerCase().trim();
-                if (!lc || seenRun.has(lc) || poolQ.has(lc) || ideaKw.has(lc)) return; // skip only EXACT duplicates
+                if (!lc || seenRun.has(lc) || poolQ.has(lc) || ideaKw.has(lc) || discardedSet.has(lc)) return; // skip exact dupes + forever-discarded
                 const qt = topicTagBoth(question);
                 let maybeCovered = false, coveredReason = '';
                 if ((qt.tagS.style && qt.tagS.room) || (qt.tagP.style && qt.tagP.room)) {
@@ -4167,6 +4175,23 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         });
         if (toAdd.length) await writeJsonFile('data/discover-pool.json', [...poolArr, ...toAdd], `Discover: +${toAdd.length} picked topic(s)`);
         return res.status(200).json({ success: true, added: toAdd.length });
+      }
+
+      // ── ACTION: discover-discard ── "Discard forever": remember these questions so discover-search never shows
+      // them again. Stored as a flat list of lowercased question texts in data/discover-discarded.json.
+      if (req.body.action === 'discover-discard') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const items = Array.isArray(req.body.questions) ? req.body.questions : [];
+        if (!items.length) return res.status(200).json({ success: true, discarded: 0 });
+        const cur = await readJsonFileSafe('data/discover-discarded.json', []);
+        const set = new Set((Array.isArray(cur) ? cur : []).map(x => String(x).toLowerCase()));
+        let added = 0;
+        items.forEach(it => {
+          const q = String((it && it.question) || it || '').trim().toLowerCase();
+          if (q && !set.has(q)) { set.add(q); added++; }
+        });
+        if (added) await writeJsonFile('data/discover-discarded.json', [...set], `Discover: discarded ${added} topic(s) forever`);
+        return res.status(200).json({ success: true, discarded: added });
       }
 
       // ── ACTION: discover-compare ── Mae types TWO keywords; return the LIVE blogs (published + scheduled) that
