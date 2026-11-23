@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.44 - 2026-11-23</p>
+        <p class="version">v6.45 - 2026-11-23</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -1442,6 +1442,7 @@
         }
         function renderDiscoverBoard(rooms) {
             const box = document.getElementById('discover-container'); if (!box) return;
+            window._discSeedMap = {}; // seed (lowercased) → { style, room, count, isGeneral } so the review can show headers + build the prompt
             let html = `<div style="background:#fff;border:1px solid #e0cffb;border-radius:10px;padding:12px 14px;margin-bottom:12px;">
                 <div style="font-weight:700;font-size:14px;margin-bottom:4px;">🔎 Check two keywords against your blogs</div>
                 <div style="font-size:12px;color:#777;margin-bottom:8px;">See if any live blog already overlaps both — before you write.</div>
@@ -1457,6 +1458,7 @@
                     : (rm.generalCount > 0 ? `<span style="background:#fff4e0;color:#8a5a00;font-size:12px;padding:2px 8px;border-radius:6px;">thin — ${rm.generalCount} blogs</span>`
                     : (rm.generalInPipeline ? `<span style="background:#ede7f6;color:#5e35b1;font-size:12px;padding:2px 8px;border-radius:6px;">in pipeline</span>`
                     : `<span style="background:#fde8e6;color:#8f1c16;font-size:12px;padding:2px 8px;border-radius:6px;">no general content yet</span>`));
+                window._discSeedMap[String(rm.roomTerm).toLowerCase()] = { style: '', room: rm.room, roomTerm: rm.roomTerm, count: rm.generalCount || 0, isGeneral: true };
                 const genDone = rm.generalSearched || rm.generalInPipeline;
                 const genRow = genDone
                     ? `<label style="display:flex;align-items:center;gap:8px;opacity:0.5;padding:6px 0;"><span style="font-size:14px;text-decoration:line-through;">${escHtml(rm.room)} — general</span><span style="font-size:11px;color:#999;">${rm.generalSearched ? 'searched' : 'in pipeline'}</span></label>`
@@ -1468,10 +1470,12 @@
                         styleHtml += `<label style="display:flex;align-items:center;gap:8px;opacity:0.5;"><span style="font-size:13px;text-decoration:line-through;">${escHtml(st.style)}</span><span style="font-size:11px;color:#999;">${tg}</span></label>`;
                     } else {
                         const seed = st.term + ' ' + rm.roomTerm;
+                        window._discSeedMap[seed.toLowerCase()] = { style: st.style, room: rm.room, roomTerm: rm.roomTerm, count: rm.generalCount || 0, isGeneral: false };
                         const synBoxId = `discsyn-${ri}-${si}`;
                         const synToggle = (st.synonyms && st.synonyms.length) ? ` <a onclick="discToggleSyn(0,'${synBoxId}')" style="font-size:11px;color:#1f6fb2;cursor:pointer;">+syn</a>` : '';
                         let synBox = '';
                         if (st.synonyms && st.synonyms.length) {
+                            st.synonyms.forEach(sy => { window._discSeedMap[(sy + ' ' + rm.roomTerm).toLowerCase()] = { style: st.style, room: rm.room, roomTerm: rm.roomTerm, count: rm.generalCount || 0, isGeneral: false }; });
                             synBox = `<div id="${synBoxId}" style="display:none;margin:2px 0 6px 22px;">` + st.synonyms.map(sy => `<label style="display:inline-flex;align-items:center;gap:5px;margin-right:12px;cursor:pointer;"><input type="checkbox" value="${escHtml(sy + ' ' + rm.roomTerm)}" onchange="discToggle(this)"><span style="font-size:12px;color:#555;">${escHtml(sy)}</span></label>`).join('') + `</div>`;
                         }
                         styleHtml += `<div><label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" value="${escHtml(seed)}" onchange="discToggle(this)"><span style="font-size:13px;">${escHtml(st.style)}</span></label>${synToggle}${synBox}</div>`;
@@ -1503,54 +1507,171 @@
                 renderDiscoverReview(r.candidates || [], r);
             } catch (e) { alert('Search error: ' + e.message); if (btn) { btn.disabled = false; btn.textContent = '🔍 Search selected'; } }
         }
-        // Review screen after a search: every question shown, clean ones pre-ticked, "might already be covered" ones
-        // unticked with the reason. Mae ticks which to keep → they go into the pool. Nothing is saved automatically.
+        // Review screen after a search: one CARD PER PAIR (style · room), every question shown, clean ones pre-ticked,
+        // "might already be covered" ones unticked with the reason. Mae ticks topics → group them into ONE blog
+        // (pick keyword via Ubersuggest + manual fields + lock check → To Write), or park them with "To decide later".
+        function discReviewHeader(seed) {
+            const info = (window._discSeedMap || {})[String(seed || '').toLowerCase()];
+            if (info && info.style) return escHtml(info.style) + ' · ' + escHtml(info.room);
+            if (info && info.isGeneral) return escHtml(info.room) + ' — general';
+            return escHtml(seed || '—');
+        }
         function renderDiscoverReview(cands, meta) {
             const box = document.getElementById('discover-container'); if (!box) return;
             window._discReview = cands || [];
             const pool = document.getElementById('discover-pool'); if (pool) pool.innerHTML = '';
             if (!cands.length) {
                 box.innerHTML = `<div style="background:#fff;border:1px solid #e3e3e3;border-radius:10px;padding:16px;">
-                    <div style="font-size:14px;color:#555;">No new questions came back (everything was already in your pool or ideas). Used ${meta.creditsUsed || 0} credits.</div>
+                    <div style="font-size:14px;color:#555;">No new questions came back (everything was already in your pool or ideas). Used ${(meta || {}).creditsUsed || 0} credits.</div>
                     <button onclick="loadDiscover()" style="margin-top:10px;background:#6a1b9a;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;">← Back to gaps</button>
                 </div>`;
                 return;
             }
-            const clean = cands.filter(c => !c.maybeCovered);
-            const maybe = cands.filter(c => c.maybeCovered);
-            const rowHtml = (c, i, checked) => `<label style="display:flex;gap:9px;align-items:flex-start;border:1px solid ${c.maybeCovered ? '#f0d9a8' : '#dbe8db'};border-radius:7px;padding:8px 10px;margin-bottom:6px;background:${c.maybeCovered ? '#fffaf0' : '#fff'};cursor:pointer;">
+            const rowHtml = (c, checked) => { const i = cands.indexOf(c); return `<label style="display:flex;gap:9px;align-items:flex-start;border:1px solid ${c.maybeCovered ? '#f0d9a8' : '#dbe8db'};border-radius:7px;padding:8px 10px;margin-bottom:6px;background:${c.maybeCovered ? '#fffaf0' : '#fff'};cursor:pointer;">
                 <input type="checkbox" data-dri="${i}" ${checked ? 'checked' : ''} style="margin-top:3px;">
-                <span style="font-size:13px;color:#333;">${escHtml(c.question)}<span style="color:#aaa;font-size:11px;"> · from "${escHtml(c.seed)}"</span>${c.maybeCovered ? `<div style="font-size:12px;color:#8a6d1a;margin-top:2px;">⚠️ ${escHtml(c.coveredReason || 'may already be covered')}</div>` : ''}</span>
-            </label>`;
+                <span style="font-size:13px;color:#333;">${escHtml(c.question)}${c.maybeCovered ? `<div style="font-size:12px;color:#8a6d1a;margin-top:2px;">⚠️ ${escHtml(c.coveredReason || 'may already be covered')}</div>` : ''}</span>
+            </label>`; };
+            // group by seed (one card per pair)
+            const bySeed = {}; const order = [];
+            cands.forEach(c => { const k = c.seed || '—'; if (!bySeed[k]) { bySeed[k] = []; order.push(k); } bySeed[k].push(c); });
             let html = `<div style="background:#fff;border:1px solid #e3e3e3;border-radius:10px;padding:14px 16px;">
                 <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
                     <div style="font-weight:700;font-size:15px;">${cands.length} question${cands.length > 1 ? 's' : ''} found — tick the ones to keep</div>
                     <button onclick="loadDiscover()" style="background:#fff;color:#6a1b9a;border:1px solid #6a1b9a;border-radius:6px;padding:6px 12px;font-weight:700;font-size:12px;cursor:pointer;">← Back to gaps</button>
                 </div>`;
-            if (clean.length) {
-                html += `<div style="font-size:12px;color:#2e7d32;margin:6px 0 4px;">New — not found in any blog (${clean.length}):</div>`;
-                clean.forEach(c => { html += rowHtml(c, cands.indexOf(c), true); });
-            }
-            if (maybe.length) {
-                html += `<div style="font-size:12px;color:#8a6d1a;margin:12px 0 4px;">Might already be covered — pick only if you still want them (${maybe.length}):</div>`;
-                maybe.forEach(c => { html += rowHtml(c, cands.indexOf(c), false); });
-            }
-            html += `<div style="display:flex;gap:10px;margin-top:14px;border-top:1px solid #eee;padding-top:12px;">
-                <button onclick="addDiscoverSelected()" style="flex:1;background:#43a047;color:#fff;border:none;border-radius:7px;padding:10px 14px;font-weight:700;cursor:pointer;">Add ticked to the pool</button>
-                <button onclick="loadDiscover()" style="background:#fff;color:#555;border:1px solid #ccc;border-radius:7px;padding:10px 14px;font-weight:700;cursor:pointer;">Discard</button>
+            order.forEach(seed => {
+                const group = bySeed[seed];
+                html += `<div style="border:1px solid #eee;border-radius:9px;padding:10px 12px;margin-bottom:10px;">
+                    <div style="font-weight:700;font-size:13px;color:#5e35b1;margin-bottom:8px;">${discReviewHeader(seed)} <span style="color:#aaa;font-weight:400;">· ${group.length}</span></div>`;
+                group.forEach(c => { html += rowHtml(c, !c.maybeCovered); });
+                html += `</div>`;
+            });
+            html += `<div style="position:sticky;bottom:0;background:#fff;border-top:1px solid #eee;padding:12px 0 2px;display:flex;gap:10px;flex-wrap:wrap;">
+                <button onclick="groupTickedIntoBlog()" style="flex:1;min-width:200px;background:#43a047;color:#fff;border:none;border-radius:7px;padding:11px 14px;font-weight:700;cursor:pointer;">Group ticked into one blog →</button>
+                <button onclick="addDiscoverSelected()" style="background:#fff;color:#5e35b1;border:1px solid #5e35b1;border-radius:7px;padding:11px 14px;font-weight:700;cursor:pointer;">To decide later</button>
+                <button onclick="loadDiscover()" style="background:#fff;color:#555;border:1px solid #ccc;border-radius:7px;padding:11px 14px;font-weight:700;cursor:pointer;">Discard</button>
             </div></div>`;
             box.innerHTML = html;
         }
+        function discTickedItems() {
+            const box = document.getElementById('discover-container'); if (!box) return [];
+            return [...box.querySelectorAll('input[type=checkbox][data-dri]:checked')].map(cb => (window._discReview || [])[+cb.getAttribute('data-dri')]).filter(Boolean);
+        }
+        function discGroupBack() { if ((window._discReview || []).length) renderDiscoverReview(window._discReview, {}); else loadDiscover(); }
+        // "To decide later" → park the ticked questions in the pool (no keyword decided yet). The REST stay on the
+        // review so she can keep grouping — only when nothing is left do we go back to the gaps board.
         async function addDiscoverSelected() {
-            const box = document.getElementById('discover-container'); if (!box) return;
-            const picks = [...box.querySelectorAll('input[type=checkbox][data-dri]:checked')].map(cb => (window._discReview || [])[+cb.getAttribute('data-dri')]).filter(Boolean);
+            const picks = discTickedItems();
             if (!picks.length) { alert('Tick at least one question first.'); return; }
             try {
                 const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'discover-add-questions', questions: picks.map(p => ({ question: p.question, seed: p.seed, term: p.term })) }) }).then(x => x.json());
                 if (!r.success) throw new Error(r.error || 'Failed');
-                alert(`${r.added} topic(s) added to the pool.`);
-                loadDiscover();
-            } catch (e) { alert('Could not add: ' + e.message); }
+                const used = new Set(picks.map(p => String(p.question).toLowerCase()));
+                window._discReview = (window._discReview || []).filter(c => !used.has(String(c.question).toLowerCase()));
+                if ((window._discReview || []).length) { renderDiscoverReview(window._discReview, {}); loadDiscoverPool(); }
+                else { alert(`${r.added} topic(s) saved to "To decide later".`); loadDiscover(); }
+            } catch (e) { alert('Could not save: ' + e.message); }
+        }
+        // ---- GROUP INTO ONE BLOG ----
+        function groupTickedIntoBlog() {
+            const items = discTickedItems();
+            if (!items.length) { alert('Tick at least one topic first.'); return; }
+            window._discGroup = items;
+            renderDiscoverGroupEditor(items);
+        }
+        function renderDiscoverGroupEditor(items) {
+            const box = document.getElementById('discover-container'); if (!box) return;
+            const pool = document.getElementById('discover-pool'); if (pool) pool.innerHTML = '';
+            const list = items.map(it => `<li style="font-size:13px;color:#444;margin-bottom:2px;">${escHtml(it.question)}</li>`).join('');
+            box.innerHTML = `<div style="background:#fff;border:1px solid #e3e3e3;border-radius:10px;padding:16px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                    <div style="font-weight:700;font-size:15px;">Group ${items.length} topic${items.length > 1 ? 's' : ''} into one blog</div>
+                    <button onclick="discGroupBack()" style="background:#fff;color:#6a1b9a;border:1px solid #6a1b9a;border-radius:6px;padding:6px 12px;font-weight:700;font-size:12px;cursor:pointer;">← Back</button>
+                </div>
+                <ul style="margin:0 0 12px 18px;padding:0;">${list}</ul>
+                <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+                    <label style="font-size:13px;color:#555;">Min searches:</label>
+                    <input id="disc-floor" type="number" value="100" style="width:90px;padding:7px 9px;border:1px solid #ccc;border-radius:6px;font-size:13px;">
+                    <button onclick="genDiscoverPrompt()" style="background:#6a1b9a;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;">Generate Ubersuggest prompt</button>
+                </div>
+                <textarea id="disc-prompt" readonly placeholder="Press 'Generate Ubersuggest prompt', then copy it into Ubersuggest AI." style="width:100%;min-height:130px;padding:10px;border:1px solid #ccc;border-radius:7px;font-size:12px;font-family:monospace;box-sizing:border-box;"></textarea>
+                <button onclick="copyDiscPrompt(this)" style="margin:6px 0 14px;background:#fff;color:#6a1b9a;border:1px solid #6a1b9a;border-radius:6px;padding:6px 12px;font-weight:700;font-size:12px;cursor:pointer;">Copy prompt</button>
+                <div style="border-top:1px solid #eee;padding-top:12px;">
+                    <div style="font-weight:700;font-size:13px;margin-bottom:8px;">Paste back what Ubersuggest gave you:</div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+                        <input id="disc-kw" placeholder="chosen keyword" style="flex:2;min-width:180px;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:13px;">
+                        <input id="disc-vol" type="number" placeholder="searches" style="flex:1;min-width:90px;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:13px;">
+                        <input id="disc-diff" type="number" placeholder="difficulty" style="flex:1;min-width:90px;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:13px;">
+                    </div>
+                    <div id="disc-approve-msg" style="font-size:12px;margin-bottom:8px;"></div>
+                    <button onclick="approveDiscoverGroup()" style="width:100%;background:#43a047;color:#fff;border:none;border-radius:7px;padding:11px;font-weight:700;cursor:pointer;">Approve → To Write</button>
+                </div>
+            </div>`;
+        }
+        // Build the Ubersuggest prompt dynamically from the ticked topics' style(s)/room(s) + blog counts.
+        function buildUbersuggestPrompt(items, floor) {
+            const seeds = [...new Set(items.map(it => (it.seed || '').toLowerCase()))];
+            const infos = seeds.map(s => (window._discSeedMap || {})[s]).filter(Boolean);
+            const styles = [...new Set(infos.filter(i => i.style).map(i => i.style))];
+            const rooms = [...new Set(infos.map(i => i.room).filter(Boolean))];
+            const roomLabel = rooms.length ? rooms.join(' / ') : 'the room';
+            const maxCount = infos.reduce((m, i) => Math.max(m, i.count || 0), 0);
+            const floorN = floor || 100;
+            const topicsList = items.map(it => '- ' + it.question).join('\n');
+            let themeLine, ruleKeep;
+            if (styles.length) {
+                const styleLabel = styles.join(' / ');
+                themeLine = `I'm planning ONE blog post for this STYLE gap: ${styleLabel} style for the ${roomLabel}.`;
+                ruleKeep = `2. KEEP THE STYLE: prioritise keywords that still contain or clearly relate to "${styleLabel}". I already have many "${roomLabel}" blogs, so do NOT recommend generic room-level keywords — that would cannibalise my own content.`;
+            } else {
+                themeLine = `I'm planning ONE blog post for the ${roomLabel} (general — no specific style).`;
+                ruleKeep = (maxCount >= 10)
+                    ? `2. I already have ${maxCount} "${roomLabel}" blogs, so DON'T give me the obvious generic keyword — find a sub-topic / specific angle I likely don't cover yet.`
+                    : `2. I only have ${maxCount} "${roomLabel}" blog(s), so broad informational room-level keywords are fine here.`;
+            }
+            return `I run About Wall Art, a UK brand selling wall art / art sets (sets of 3). ${themeLine}
+
+Topic angles I'd cover in it:
+${topicsList}
+
+Explore the topic broadly in Ubersuggest (UK) — don't just look up those exact phrases, they're long-tail with little volume.
+
+RULES:
+1. Only keywords with at least ${floorN} monthly UK searches. Ignore anything below.
+${ruleKeep}
+3. Prioritise INFORMATIONAL intent (ideas, how-to, what-is, guides) — for a blog, not a product page. Only include commercial/transactional keywords if no informational one clears the threshold, and label each keyword's intent.
+
+Give me:
+1. Recommended keyword + monthly volume + SEO difficulty + intent.
+2. Up to 5 alternatives above the threshold (keyword · volume · difficulty · intent), style-keeping and informational first.`;
+        }
+        function genDiscoverPrompt() {
+            const floor = +((document.getElementById('disc-floor') || {}).value) || 100;
+            const ta = document.getElementById('disc-prompt');
+            if (ta) ta.value = buildUbersuggestPrompt(window._discGroup || [], floor);
+        }
+        function copyDiscPrompt(btn) {
+            const ta = document.getElementById('disc-prompt'); if (!ta || !ta.value) { alert('Generate the prompt first.'); return; }
+            navigator.clipboard.writeText(ta.value).then(() => { const o = btn.textContent; btn.textContent = 'Copied ✓'; setTimeout(() => btn.textContent = o, 1500); }).catch(() => { ta.select(); try { document.execCommand('copy'); } catch (e) {} });
+        }
+        async function approveDiscoverGroup() {
+            const kw = ((document.getElementById('disc-kw') || {}).value || '').trim();
+            const vol = ((document.getElementById('disc-vol') || {}).value || '').trim();
+            const diff = ((document.getElementById('disc-diff') || {}).value || '').trim();
+            const msg = document.getElementById('disc-approve-msg');
+            if (!kw) { if (msg) { msg.style.color = '#a33'; msg.textContent = 'Type the chosen keyword first.'; } return; }
+            if (msg) { msg.style.color = '#888'; msg.textContent = 'Checking lock + adding…'; }
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'discover-group-to-write', keyword: kw, volume: vol, difficulty: diff, questions: (window._discGroup || []).map(it => ({ question: it.question, seed: it.seed, term: it.term })), title: '' }) }).then(x => x.json());
+                if (r && r.locked) { if (msg) { msg.style.color = '#a33'; msg.textContent = '🔒 "' + kw + '" is locked to another URL (' + r.lockedUrl + '). Pick a different keyword.'; } return; }
+                if (!r || !r.success) throw new Error((r && r.error) || 'Failed');
+                // Drop the grouped topics from the review so she can make ANOTHER group from what's left.
+                const used = new Set((window._discGroup || []).map(it => String(it.question).toLowerCase()));
+                window._discReview = (window._discReview || []).filter(c => !used.has(String(c.question).toLowerCase()));
+                if (msg) { msg.style.color = '#2e7d32'; msg.textContent = '✓ Added to To Write' + (r.covers ? ' (covers ' + (r.covers + 1) + ' topics)' : '') + '. Make another group or park the rest.'; }
+                try { await loadData(); if (typeof refreshAll === 'function') refreshAll(); } catch (e) {}
+                setTimeout(() => { if ((window._discReview || []).length) { renderDiscoverReview(window._discReview, {}); loadDiscoverPool(); } else loadDiscover(); }, 1100);
+            } catch (e) { if (msg) { msg.style.color = '#a33'; msg.textContent = 'Could not add: ' + e.message; } }
         }
         // Two-keyword probe: does any live blog already overlap BOTH keywords? (manual check, nothing saved)
         async function runDiscoverCompare() {
@@ -1571,14 +1692,25 @@
             try {
                 const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'discover-list-pool' }) }).then(x => x.json());
                 const pool = (r && r.pool) || [];
-                const active = pool.filter(p => p.status !== 'added');
+                const active = pool.filter(p => p.status !== 'added' && p.status !== 'ready');
+                window._discPool = active;
                 if (!active.length) { box.innerHTML = ''; return; }
-                const needs = active.filter(p => p.status === 'needs_keyword');
-                const ready = active.filter(p => p.status === 'ready');
-                box.innerHTML = `<div style="font-weight:700;font-size:14px;margin-bottom:8px;">Found topics (${active.length})</div>`
-                    + (ready.length ? `<div style="font-size:12px;color:#2e7d32;margin-bottom:4px;">Ready (keyword set) — add to To Write:</div>` + ready.map(p => `<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;border:1px solid #cfe3cf;border-radius:6px;padding:7px 10px;margin-bottom:5px;background:#fff;"><div style="font-size:13px;"><strong>${escHtml(p.mainKeyword)}</strong> — ${escHtml(p.title || '')}</div><button onclick="promoteDiscover('${p.id}')" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:6px 11px;font-weight:700;font-size:12px;cursor:pointer;">Add to To Write</button></div>`).join('') : '')
-                    + (needs.length ? `<div style="font-size:12px;color:#8a6d1a;margin:8px 0 4px;">Waiting for a main keyword (Claude adds these from Ubersuggest):</div>` + needs.slice(0, 40).map(p => `<div style="font-size:13px;color:#555;padding:4px 10px;border:1px solid #eee;border-radius:6px;margin-bottom:4px;background:#fafafa;">${escHtml(p.question)} <span style="color:#aaa;font-size:11px;">· from "${escHtml(p.seed)}"</span></div>`).join('') + (needs.length > 40 ? `<div style="font-size:12px;color:#888;">…and ${needs.length - 40} more</div>` : '') : '');
+                const rows = active.map((p, i) => `<label style="display:flex;gap:8px;align-items:flex-start;border:1px solid #eee;border-radius:6px;padding:7px 10px;margin-bottom:5px;background:#fafafa;cursor:pointer;">
+                    <input type="checkbox" data-dpi="${i}" style="margin-top:3px;">
+                    <span style="font-size:13px;color:#444;">${escHtml(p.question)}<span style="color:#aaa;font-size:11px;"> · ${discReviewHeader(p.seed)}</span></span>
+                </label>`).join('');
+                box.innerHTML = `<div style="font-weight:700;font-size:14px;margin:4px 0 6px;">To decide later (${active.length})</div>
+                    <div style="font-size:12px;color:#888;margin-bottom:8px;">Tick some and group them into one blog when you're ready.</div>
+                    ${rows}
+                    <button onclick="groupTickedPool()" style="margin-top:8px;background:#43a047;color:#fff;border:none;border-radius:7px;padding:10px 14px;font-weight:700;cursor:pointer;">Group ticked into one blog →</button>`;
             } catch (e) {}
+        }
+        function groupTickedPool() {
+            const box = document.getElementById('discover-pool'); if (!box) return;
+            const items = [...box.querySelectorAll('input[type=checkbox][data-dpi]:checked')].map(cb => (window._discPool || [])[+cb.getAttribute('data-dpi')]).filter(Boolean);
+            if (!items.length) { alert('Tick at least one topic first.'); return; }
+            window._discGroup = items;
+            renderDiscoverGroupEditor(items);
         }
         async function promoteDiscover(id) {
             try {
