@@ -1,4 +1,9 @@
-// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images + Compliance + Edit Descriptions + SKU map)  ·  v0.63
+// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images + Compliance + Edit Descriptions + SKU map)  ·  v0.64
+// v0.64 (2026-11-23): SKU map — adds manual fixes + done tracking for the Judge.me matcher. sku-map-csv now returns
+//   listing_id + done flag, applies per-listing SKU overrides (data/etsy-review-overrides.json: listing_id -> correct SKU)
+//   and marks rows already done (data/etsy-review-done.json). NEW actions: sku-override (POST listing_id+sku: verify the
+//   SKU exists in Shopify, save the override) and sku-review-done (POST listing_id+done: toggle a row done). Shopify
+//   SKU->{title,handle} lookup factored into shopifySkuTitleMap(). All state in GitHub (no localStorage).
 // v0.63 (2026-11-23): NEW action sku-map-csv — for the Judge.me manual review matching. Builds a Shopify SKU->{title,handle}
 //   map (sku_for_print_files metafield, same key as allShopifySkus), scans every Etsy listing (active+inactive+draft) for
 //   its base SKU + title, and returns one row per listing: Etsy SKU, Etsy title, Shopify title, Shopify handle, state,
@@ -201,6 +206,8 @@ const RI_COMPLY_UNDO_PATH  = 'data/etsy-compliance-undo.json';
 const ED_QUEUE_PATH  = 'data/etsy-ed-queue.json';   // the worklist of listing_ids for the current run
 const ED_DONE_PATH   = 'data/etsy-ed-done.json';    // the ones already applied (to resume without redoing)
 const ED_BACKUP_PATH = 'data/etsy-ed-backup.json';  // original descriptions, backed up before each edit
+const RM_OVERRIDE_PATH = 'data/etsy-review-overrides.json'; // Judge.me matcher: { "<listing_id>": "<correct SKU>" } manual fixes
+const RM_DONE_PATH = 'data/etsy-review-done.json';          // Judge.me matcher: { ids: ["<listing_id>", ...] } rows marked done
 function ghHeaders() { return { 'Authorization': 'token ' + process.env.GITHUB_TOKEN, 'Accept': 'application/vnd.github+json', 'User-Agent': 'awa-etsy' }; }
 async function ghGet(path) {
   const r = await fetch('https://api.github.com/repos/' + REPO + '/contents/' + path + '?ref=main&t=' + Date.now(), { headers: ghHeaders() });
@@ -757,6 +764,17 @@ async function allShopifySkus() {
 async function findGidBySku(sku) {
   if (!_skuToGid) await allShopifySkus();
   return _skuToGid.get(String(sku).trim().toLowerCase()) || null;
+}
+// Shopify SKU (sku_for_print_files, lowercased) -> { title, handle }. Used by the Judge.me matcher.
+async function shopifySkuTitleMap() {
+  const map = new Map(); let after = null;
+  for (let p = 0; p < 40; p++) {
+    const d = await shopGQL('query($after:String){ products(first:250, after:$after){ pageInfo{ hasNextPage endCursor } nodes{ title handle skuMf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } }', { after });
+    (d.products.nodes || []).forEach(n => { const v = n.skuMf && n.skuMf.value; if (v) { const k = String(v).trim().toLowerCase(); if (!map.has(k)) map.set(k, { title: n.title || '', handle: n.handle || '' }); } });
+    if (!d.products.pageInfo.hasNextPage) break;
+    after = d.products.pageInfo.endCursor;
+  }
+  return map;
 }
 async function runApify(seeds) {
   const APIFY = process.env.APIFY_TOKEN;
@@ -1438,15 +1456,13 @@ module.exports = async (req, res) => {
     // ===== SKU MAP CSV — for Judge.me manual review matching (read-only; no writes) =====
     // One row per Etsy listing: Etsy SKU, Etsy title, Shopify title, Shopify handle, state, status.
     if (q.action === 'sku-map-csv') {
-      // 1) Shopify SKU (sku_for_print_files, lowercased) -> { title, handle }
-      const shopMap = new Map(); let after = null;
-      for (let p = 0; p < 40; p++) {
-        const d = await shopGQL('query($after:String){ products(first:250, after:$after){ pageInfo{ hasNextPage endCursor } nodes{ title handle skuMf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } }', { after });
-        (d.products.nodes || []).forEach(n => { const v = n.skuMf && n.skuMf.value; if (v) { const k = String(v).trim().toLowerCase(); if (!shopMap.has(k)) shopMap.set(k, { title: n.title || '', handle: n.handle || '' }); } });
-        if (!d.products.pageInfo.hasNextPage) break;
-        after = d.products.pageInfo.endCursor;
-      }
-      // 2) Every Etsy listing (active + inactive + draft) -> base SKU + title (dedupe by listing_id)
+      // 1) Shopify SKU -> { title, handle }
+      const shopMap = await shopifySkuTitleMap();
+      // 2) Manual fixes (listing_id -> correct SKU) + rows already done
+      let overrides = {}, doneIds = new Set();
+      try { const f = await ghGet(RM_OVERRIDE_PATH); if (f.content) overrides = JSON.parse(f.content) || {}; } catch (e) {}
+      try { const f = await ghGet(RM_DONE_PATH); if (f.content) { const j = JSON.parse(f.content); (Array.isArray(j) ? j : (j.ids || [])).forEach(id => doneIds.add(String(id))); } } catch (e) {}
+      // 3) Every Etsy listing (active + inactive + draft + expired + sold_out) -> base SKU + title (dedupe by listing_id)
       const seen = new Set(); const rows = [];
       for (const state of ['active', 'inactive', 'draft', 'expired', 'sold_out']) {
         let offset = 0, total = Infinity;
@@ -1460,15 +1476,21 @@ module.exports = async (req, res) => {
           results.forEach(l => {
             const lid = String(l.listing_id);
             if (seen.has(lid)) return; seen.add(lid);
-            const sku = baseSkuEtsy(([].concat(l.skus || [], ((l.inventory && l.inventory.products) || []).map(p => p.sku))).filter(Boolean)[0] || '');
-            const hit = sku ? shopMap.get(sku.toLowerCase()) : null;
+            const etsySku = baseSkuEtsy(([].concat(l.skus || [], ((l.inventory && l.inventory.products) || []).map(p => p.sku))).filter(Boolean)[0] || '');
+            const fixSku = overrides[lid] ? baseSkuEtsy(overrides[lid]) : '';   // manual fix for this listing
+            const useSku = fixSku || etsySku;
+            const hit = useSku ? shopMap.get(useSku.toLowerCase()) : null;
             rows.push({
-              etsy_sku: sku,
+              listing_id: lid,
+              etsy_sku: etsySku,
+              used_sku: useSku,
+              fixed: !!fixSku,
               etsy_title: l.title || '',
               shopify_title: hit ? hit.title : '',
               shopify_handle: hit ? hit.handle : '',
               state: state,
-              status: hit ? 'matched' : (sku ? 'NO MATCH' : 'NO SKU')
+              done: doneIds.has(lid),
+              status: hit ? 'matched' : (useSku ? 'NO MATCH' : 'NO SKU')
             });
           });
           offset += 100;
@@ -1477,7 +1499,44 @@ module.exports = async (req, res) => {
       rows.sort((a, b) => (a.etsy_title || '').localeCompare(b.etsy_title || ''));
       const matched = rows.filter(r => r.status === 'matched').length;
       const noSku = rows.filter(r => r.status === 'NO SKU').length;
-      finish(200, { ok: true, rows, total: rows.length, matched, noMatch: rows.length - matched - noSku, noSku, shopifyProducts: shopMap.size });
+      const doneCount = rows.filter(r => r.done).length;
+      finish(200, { ok: true, rows, total: rows.length, matched, noMatch: rows.length - matched - noSku, noSku, doneCount, shopifyProducts: shopMap.size });
+      return;
+    }
+
+    // Save a manual SKU fix for one listing. Verifies the SKU exists in Shopify first (immediate feedback).
+    if (q.action === 'sku-override' && req.method === 'POST') {
+      const b = req.body || {};
+      const lid = String(b.listing_id || '').trim();
+      const sku = baseSkuEtsy(String(b.sku || ''));
+      if (!lid || !sku) { finish(400, { ok: false, error: 'Missing listing_id or sku' }); return; }
+      const shopMap = await shopifySkuTitleMap();
+      const hit = shopMap.get(sku.toLowerCase());
+      if (!hit) { finish(200, { ok: false, notFound: true, error: 'SKU "' + sku + '" was not found on any Shopify product.' }); return; }
+      try {
+        const f = await ghGet(RM_OVERRIDE_PATH);
+        const data = f.content ? (JSON.parse(f.content) || {}) : {};
+        data[lid] = sku;
+        await ghPut(RM_OVERRIDE_PATH, JSON.stringify(data, null, 2), f.sha, 'review matcher: fix ' + lid + ' -> ' + sku);
+      } catch (e) { finish(500, { ok: false, error: 'Could not save the fix: ' + String(e && e.message || e) }); return; }
+      finish(200, { ok: true, listing_id: lid, used_sku: sku, shopify_title: hit.title, shopify_handle: hit.handle });
+      return;
+    }
+
+    // Toggle a row done / not-done (persisted in GitHub).
+    if (q.action === 'sku-review-done' && req.method === 'POST') {
+      const b = req.body || {};
+      const lid = String(b.listing_id || '').trim();
+      if (!lid) { finish(400, { ok: false, error: 'Missing listing_id' }); return; }
+      const done = !!b.done;
+      try {
+        const f = await ghGet(RM_DONE_PATH);
+        const j = f.content ? JSON.parse(f.content) : { ids: [] };
+        const set = new Set((Array.isArray(j) ? j : (j.ids || [])).map(String));
+        if (done) set.add(lid); else set.delete(lid);
+        await ghPut(RM_DONE_PATH, JSON.stringify({ ids: Array.from(set) }, null, 2), f.sha, 'review matcher: done ' + (done ? '+' : '-') + lid);
+        finish(200, { ok: true, listing_id: lid, done, doneCount: set.size });
+      } catch (e) { finish(500, { ok: false, error: 'Could not save: ' + String(e && e.message || e) }); return; }
       return;
     }
 
