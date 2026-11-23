@@ -8,11 +8,11 @@
   :root{
     --bg:#f6f7f9; --card:#ffffff; --ink:#1d2430; --muted:#6b7280; --line:#e6e8ec;
     --accent:#2f6f4f; --accent-ink:#ffffff; --warn:#b45309; --warnbg:#fef3c7;
-    --ok:#166534; --okbg:#dcfce7; --nobg:#fee2e2; --no:#991b1b;
+    --ok:#166534; --okbg:#dcfce7; --nobg:#fee2e2; --no:#991b1b; --blue:#1d4ed8;
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
-  .wrap{max-width:1100px;margin:0 auto;padding:24px 16px 80px}
+  .wrap{max-width:1180px;margin:0 auto;padding:24px 16px 80px}
   h1{font-size:22px;margin:0 0 4px}
   .sub{color:var(--muted);margin:0 0 20px;font-size:14px}
   .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
@@ -22,35 +22,45 @@
   button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
   button.primary:hover{opacity:.92}
   button:disabled{opacity:.5;cursor:default}
-  input[type=text]{font:inherit;padding:9px 12px;border:1px solid var(--line);border-radius:9px;width:320px;max-width:100%}
+  input[type=text]{font:inherit;padding:9px 12px;border:1px solid var(--line);border-radius:9px}
+  #search{width:360px;max-width:100%}
+  label.chk{display:inline-flex;align-items:center;gap:6px;font-size:14px;color:var(--muted);cursor:pointer}
   .stats{display:flex;gap:18px;flex-wrap:wrap;margin-top:12px;font-size:14px}
   .stat b{font-size:18px}
   .muted{color:var(--muted)}
   table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px}
   th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
-  th{position:sticky;top:0;background:#fafbfc;font-weight:600;font-size:13px;color:var(--muted)}
+  th{position:sticky;top:0;background:#fafbfc;font-weight:600;font-size:13px;color:var(--muted);cursor:pointer;user-select:none;white-space:nowrap}
+  th:hover{color:var(--ink)}
+  th .arrow{font-size:11px;color:var(--accent)}
   td.sku{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap}
-  .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap}
   .pill.ok{background:var(--okbg);color:var(--ok)}
   .pill.no{background:var(--nobg);color:var(--no)}
   .pill.nosku{background:var(--warnbg);color:var(--warn)}
-  .copy{padding:3px 8px;font-size:12px;border-radius:7px;margin-left:8px}
+  .tag-fixed{font-size:11px;color:var(--blue);margin-left:6px}
+  .copy,.act{padding:3px 9px;font-size:12px;border-radius:7px}
   .shoptitle{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
   .err{color:#991b1b;background:var(--nobg);border:1px solid #fca5a5;padding:12px 14px;border-radius:9px;margin-top:12px}
   .ver{color:#aab2bd;font-size:12px;margin-top:28px;text-align:center}
   .state{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
+  .fixbox{display:flex;gap:6px;margin-top:6px;align-items:center}
+  .fixbox input{width:160px;padding:5px 8px;font-size:13px}
+  tr.doneRow{opacity:.5}
+  .cell-actions{white-space:nowrap}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>Etsy → Shopify SKU Matcher</h1>
-  <p class="sub">Builds the list you need to match Etsy reviews to Shopify products in Judge.me. Search an Etsy title, copy the Shopify title, paste it into Judge.me. No AI tokens used.</p>
+  <p class="sub">Match Etsy reviews to Shopify products in Judge.me. Search an Etsy title, copy the Shopify title, paste it into Judge.me, then mark it <b>Done</b>. Fix a wrong SKU once and it stays fixed. No AI tokens used.</p>
 
   <div class="card">
     <div class="row">
       <button class="primary" id="gen">Generate list</button>
-      <button id="csv" disabled>Download CSV</button>
       <input type="text" id="search" placeholder="Search Etsy title or SKU…" disabled>
+      <label class="chk"><input type="checkbox" id="showDone" disabled> Show done</label>
+      <button id="csv" disabled>Download CSV</button>
     </div>
     <div class="stats" id="stats"></div>
     <div id="msg"></div>
@@ -59,22 +69,24 @@
   <div class="card" id="tableCard" style="display:none">
     <table>
       <thead>
-        <tr>
-          <th style="width:120px">Etsy SKU</th>
-          <th>Etsy title</th>
-          <th>Shopify title (copy &amp; paste)</th>
-          <th style="width:90px">Status</th>
+        <tr id="headRow">
+          <th data-k="etsy_sku" style="width:130px">Etsy SKU</th>
+          <th data-k="etsy_title">Etsy title</th>
+          <th data-k="shopify_title">Shopify title (copy &amp; paste)</th>
+          <th data-k="status" style="width:95px">Status</th>
+          <th style="width:150px">Action</th>
         </tr>
       </thead>
       <tbody id="tbody"></tbody>
     </table>
   </div>
 
-  <div class="ver">v1.0</div>
+  <div class="ver">v1.1</div>
 </div>
 
 <script>
 let ROWS = [];
+let sortKey = 'etsy_title', sortDir = 1;   // 1 asc, -1 desc
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
@@ -84,78 +96,165 @@ function pill(status){
   return '<span class="pill no">no match</span>';
 }
 
-function render(filter){
-  const q = (filter||'').trim().toLowerCase();
-  const list = q ? ROWS.filter(r =>
-    (r.etsy_title||'').toLowerCase().includes(q) || (r.etsy_sku||'').toLowerCase().includes(q)
-  ) : ROWS;
-  const tb = document.getElementById('tbody');
-  tb.innerHTML = list.map(r => {
-    const shop = r.shopify_title
-      ? '<div class="shoptitle"><span>'+esc(r.shopify_title)+'</span><button class="copy" data-t="'+esc(r.shopify_title)+'">Copy</button></div>'
+function statusRank(s){ return s==='matched' ? 0 : (s==='NO MATCH' ? 1 : 2); }
+
+function visibleRows(){
+  const showDone = document.getElementById('showDone').checked;
+  const q = (document.getElementById('search').value||'').trim().toLowerCase();
+  let list = ROWS.filter(r => showDone ? true : !r.done);
+  if(q) list = list.filter(r =>
+    (r.etsy_title||'').toLowerCase().includes(q) ||
+    (r.etsy_sku||'').toLowerCase().includes(q) ||
+    (r.shopify_title||'').toLowerCase().includes(q)
+  );
+  list.sort((a,b) => {
+    let av, bv;
+    if(sortKey==='status'){ av=statusRank(a.status); bv=statusRank(b.status); }
+    else { av=(a[sortKey]||'').toLowerCase(); bv=(b[sortKey]||'').toLowerCase(); }
+    if(av<bv) return -1*sortDir; if(av>bv) return 1*sortDir; return 0;
+  });
+  return list;
+}
+
+function rowHtml(r){
+  const shop = r.shopify_title
+    ? '<div class="shoptitle"><span>'+esc(r.shopify_title)+(r.fixed?'<span class="tag-fixed">fixed</span>':'')+'</span><button class="copy" data-copy="'+esc(r.shopify_title)+'">Copy</button></div>'
       + '<div class="muted" style="font-size:12px">'+esc(r.shopify_handle)+'</div>'
-      : '<span class="muted">—</span>';
-    return '<tr>'
-      + '<td class="sku">'+esc(r.etsy_sku||'—')+'</td>'
-      + '<td>'+esc(r.etsy_title)+' <span class="state">'+esc(r.state)+'</span></td>'
-      + '<td>'+shop+'</td>'
-      + '<td>'+pill(r.status)+'</td>'
-      + '</tr>';
-  }).join('');
-  tb.querySelectorAll('button.copy').forEach(b => {
-    b.addEventListener('click', () => {
-      navigator.clipboard.writeText(b.dataset.t).then(()=>{ b.textContent='Copied'; setTimeout(()=>b.textContent='Copy',1200); });
-    });
+    : '<span class="muted">—</span>';
+  const fixBtn = (r.status!=='matched')
+    ? '<button class="act" data-fix="'+esc(r.listing_id)+'">Fix SKU</button>' : '';
+  const doneBtn = r.done
+    ? '<button class="act" data-undone="'+esc(r.listing_id)+'">Undo</button>'
+    : '<button class="act" data-done="'+esc(r.listing_id)+'">Done</button>';
+  return '<tr class="'+(r.done?'doneRow':'')+'" data-id="'+esc(r.listing_id)+'">'
+    + '<td class="sku">'+esc(r.etsy_sku||'—')+'</td>'
+    + '<td>'+esc(r.etsy_title)+' <span class="state">'+esc(r.state)+'</span></td>'
+    + '<td>'+shop+'</td>'
+    + '<td>'+pill(r.status)+'</td>'
+    + '<td class="cell-actions">'+doneBtn+' '+fixBtn+'</td>'
+    + '</tr>';
+}
+
+function render(){
+  const list = visibleRows();
+  document.getElementById('tbody').innerHTML = list.map(rowHtml).join('');
+  // header arrows
+  document.querySelectorAll('#headRow th[data-k]').forEach(th => {
+    const base = th.textContent.replace(/[▲▼]\s*$/,'').trim();
+    th.innerHTML = esc(base) + (th.dataset.k===sortKey ? ' <span class="arrow">'+(sortDir>0?'▲':'▼')+'</span>' : '');
   });
 }
 
+async function post(action, body){
+  const r = await fetch('/api/etsy.js?action='+action, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+  });
+  return r.json();
+}
+
+function updateStats(){
+  const total = ROWS.length;
+  const matched = ROWS.filter(r=>r.status==='matched').length;
+  const noMatch = ROWS.filter(r=>r.status==='NO MATCH').length;
+  const noSku = ROWS.filter(r=>r.status==='NO SKU').length;
+  const done = ROWS.filter(r=>r.done).length;
+  document.getElementById('stats').innerHTML =
+     '<div class="stat"><b>'+total+'</b> <span class="muted">listings</span></div>'
+    +'<div class="stat"><b>'+matched+'</b> <span class="muted">matched</span></div>'
+    +'<div class="stat"><b>'+noMatch+'</b> <span class="muted">no match</span></div>'
+    +'<div class="stat"><b>'+noSku+'</b> <span class="muted">no SKU</span></div>'
+    +'<div class="stat"><b>'+done+'</b> <span class="muted">done</span></div>';
+}
+
 function toCSV(rows){
-  const head = ['Etsy SKU','Etsy title','Shopify title','Shopify handle','State','Status'];
+  const head = ['Etsy SKU','Etsy title','Shopify title','Shopify handle','State','Status','Done'];
   const q = s => '"'+String(s==null?'':s).replace(/"/g,'""')+'"';
   const lines = [head.map(q).join(',')];
-  rows.forEach(r => lines.push([r.etsy_sku,r.etsy_title,r.shopify_title,r.shopify_handle,r.state,r.status].map(q).join(',')));
+  rows.forEach(r => lines.push([r.etsy_sku,r.etsy_title,r.shopify_title,r.shopify_handle,r.state,r.status,r.done?'yes':'no'].map(q).join(',')));
   return lines.join('\r\n');
 }
 
 document.getElementById('gen').addEventListener('click', async () => {
-  const btn = document.getElementById('gen');
-  const msg = document.getElementById('msg');
-  const stats = document.getElementById('stats');
-  msg.innerHTML=''; stats.innerHTML='';
-  btn.disabled = true; btn.textContent = 'Generating… (this can take up to a minute)';
+  const btn = document.getElementById('gen'), msg = document.getElementById('msg');
+  msg.innerHTML=''; document.getElementById('stats').innerHTML='';
+  btn.disabled = true; btn.textContent = 'Generating… (up to a minute)';
   try{
     const r = await fetch('/api/etsy.js?action=sku-map-csv');
     const d = await r.json();
-    if(!d.ok){ throw new Error(d.error || 'Request failed'); }
+    if(!d.ok) throw new Error(d.error || 'Request failed');
     ROWS = d.rows || [];
-    stats.innerHTML =
-      '<div class="stat"><b>'+d.total+'</b> <span class="muted">Etsy listings</span></div>'
-      +'<div class="stat"><b>'+d.matched+'</b> <span class="muted">matched</span></div>'
-      +'<div class="stat"><b>'+d.noMatch+'</b> <span class="muted">no match</span></div>'
-      +'<div class="stat"><b>'+d.noSku+'</b> <span class="muted">no SKU</span></div>'
-      +'<div class="stat muted">'+d.shopifyProducts+' Shopify products scanned</div>';
+    updateStats();
     document.getElementById('tableCard').style.display='block';
-    document.getElementById('csv').disabled=false;
-    document.getElementById('search').disabled=false;
-    render('');
+    ['csv','search','showDone'].forEach(id => document.getElementById(id).disabled=false);
+    render();
   }catch(e){
     msg.innerHTML = '<div class="err">'+esc(e.message||e)
       +'<br><span class="muted">If it says the Etsy session expired, open the Etsy tool once to reconnect, then try again.</span></div>';
-  }finally{
-    btn.disabled=false; btn.textContent='Generate list';
+  }finally{ btn.disabled=false; btn.textContent='Generate list'; }
+});
+
+// Header click = sort
+document.getElementById('headRow').addEventListener('click', e => {
+  const th = e.target.closest('th[data-k]'); if(!th) return;
+  const k = th.dataset.k;
+  if(k===sortKey) sortDir = -sortDir; else { sortKey = k; sortDir = 1; }
+  render();
+});
+
+// Row actions (copy / done / undo / fix) — delegated
+document.getElementById('tbody').addEventListener('click', async e => {
+  const t = e.target;
+  if(t.dataset.copy!=null){
+    navigator.clipboard.writeText(t.dataset.copy).then(()=>{ t.textContent='Copied'; setTimeout(()=>t.textContent='Copy',1200); });
+    return;
+  }
+  if(t.dataset.done!=null || t.dataset.undone!=null){
+    const id = t.dataset.done!=null ? t.dataset.done : t.dataset.undone;
+    const makeDone = t.dataset.done!=null;
+    t.disabled = true; t.textContent = '…';
+    const res = await post('sku-review-done', { listing_id:id, done:makeDone });
+    if(res.ok){ const r = ROWS.find(x=>String(x.listing_id)===String(id)); if(r) r.done = makeDone; updateStats(); render(); }
+    else { alert(res.error||'Could not save'); t.disabled=false; render(); }
+    return;
+  }
+  if(t.dataset.fix!=null){
+    const id = t.dataset.fix;
+    const cell = t.closest('.cell-actions');
+    if(cell.querySelector('.fixbox')) return;
+    const box = document.createElement('div');
+    box.className='fixbox';
+    box.innerHTML = '<input type="text" placeholder="Correct SKU" /> <button class="act save">Save</button> <button class="act cancel">Cancel</button>';
+    cell.appendChild(box);
+    const inp = box.querySelector('input');
+    inp.focus();
+    box.querySelector('.cancel').addEventListener('click', ()=> box.remove());
+    const doSave = async () => {
+      const sku = inp.value.trim(); if(!sku) return;
+      const save = box.querySelector('.save'); save.disabled=true; save.textContent='…';
+      const res = await post('sku-override', { listing_id:id, sku });
+      if(res.ok){
+        const r = ROWS.find(x=>String(x.listing_id)===String(id));
+        if(r){ r.shopify_title=res.shopify_title; r.shopify_handle=res.shopify_handle; r.used_sku=res.used_sku; r.fixed=true; r.status='matched'; }
+        updateStats(); render();
+      } else {
+        save.disabled=false; save.textContent='Save';
+        alert(res.error || 'Could not save the fix');
+      }
+    };
+    box.querySelector('.save').addEventListener('click', doSave);
+    inp.addEventListener('keydown', ev => { if(ev.key==='Enter') doSave(); });
+    return;
   }
 });
 
+document.getElementById('search').addEventListener('input', render);
+document.getElementById('showDone').addEventListener('change', render);
 document.getElementById('csv').addEventListener('click', () => {
   const blob = new Blob([toCSV(ROWS)], {type:'text/csv;charset=utf-8'});
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'etsy-shopify-sku-map.csv';
-  a.click();
+  a.href = URL.createObjectURL(blob); a.download = 'etsy-shopify-sku-map.csv'; a.click();
   URL.revokeObjectURL(a.href);
 });
-
-document.getElementById('search').addEventListener('input', e => render(e.target.value));
 </script>
 </body>
 </html>
