@@ -1,4 +1,10 @@
-// blogs.js — v6.26
+// blogs.js — v6.27
+// v6.27 (2026-11-23): DISCOVER TOPICS — group into one blog. NEW discover-group-to-write: Mae ticks topics, pastes
+//   the keyword she chose in Ubersuggest (+ volume/difficulty), and it (1) checks the keyword isn't LOCKED to
+//   another URL (registry, fresh), (2) creates ONE approved blog in To Write (status TO_WRITE + blog-approved.json),
+//   (3) saves the metrics to keyword-metrics.json, (4) stores the other grouped topics as "also covers"
+//   (blog-fused-groups.json), (5) clears them from the pool. The Ubersuggest prompt is generated in the tool
+//   (broad, style-keeping, informational-first, editable volume floor). No second filter — it's ready to write.
 // v6.26 (2026-11-23): DISCOVER TOPICS — suggest, don't filter. (1) discover-search no longer DROPS questions: it
 //   returns EVERY new question (only skipping exact pool/idea dupes), each flagged maybeCovered + coveredReason.
 //   "Maybe covered" now fires ONLY when the EXACT style AND room (or synonyms) are both present in another blog —
@@ -4186,6 +4192,77 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
           if (hit1 && hit2) matches.push({ title, handle: b.handle || '' });
         });
         return res.status(200).json({ success: true, kw1, kw2, matches });
+      }
+
+      // ── ACTION: discover-group-to-write ── Mae picked the keyword (from Ubersuggest) for a group of discovered
+      // topics. Check it isn't LOCKED to another URL; if free, create ONE approved blog in To Write that covers the
+      // whole group (the other topics become "also covers"), save its volume/difficulty, and clear them from the pool.
+      if (req.body.action === 'discover-group-to-write') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const keyword = String(req.body.keyword || '').trim();
+        const title = String(req.body.title || '').trim() || keyword;
+        const questions = Array.isArray(req.body.questions) ? req.body.questions.map(q => String((q && q.question) || q || '').trim()).filter(Boolean) : [];
+        const volume = (req.body.volume != null && String(req.body.volume).trim() !== '') ? Number(req.body.volume) : null;
+        const difficulty = (req.body.difficulty != null && String(req.body.difficulty).trim() !== '') ? Number(req.body.difficulty) : null;
+        if (!keyword) return res.status(400).json({ error: 'A chosen keyword is required.' });
+        const kwLc = keyword.toLowerCase();
+
+        // 1) LOCKED check — read the registry FRESH (contents API, no CDN lag). A LOCKED row with a real URL means
+        //    the keyword is taken by another page → block, so Mae picks a different one.
+        try {
+          const reg = await getGitHubFile('data/keyword-locker-registry.csv');
+          const rl = (reg.content || '').split('\n');
+          for (let i = 1; i < rl.length; i++) {
+            const line = rl[i]; if (!line || !line.trim()) continue;
+            const c = parseCSVLine(line.replace(/\r/g, ''));
+            const rkw = (c[0] || '').trim().toLowerCase();
+            const rurl = (c[1] || '').trim();
+            const rlk = (c[2] || '').trim().toUpperCase();
+            if (rkw === kwLc && rlk === 'LOCKED' && rurl && rurl !== 'N/A') {
+              return res.status(200).json({ success: false, locked: true, lockedUrl: rurl, error: 'That keyword is locked to another URL (' + rurl + '). Pick a different keyword.' });
+            }
+          }
+        } catch (e) { /* if the registry can't be read, don't silently approve a maybe-locked keyword */ return res.status(200).json({ success: false, error: 'Could not read the keyword registry to check locks — try again.' }); }
+
+        // 2) Add (or update) the blog idea row as TO_WRITE.
+        const esc = (c) => { const v = String(c == null ? '' : c); return (v.includes(',') || v.includes('"') || v.includes('\n')) ? `"${v.replace(/"/g, '""')}"` : v; };
+        const ideasFile = await getGitHubFile('data/blog_ideas.csv');
+        const lines = ideasFile.content.split('\n');
+        while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
+        let updated = false;
+        for (let li = 1; li < lines.length; li++) {
+          const t = lines[li].trim(); if (!t) continue;
+          const c = parseCSVLine(t.replace(/\r/g, ''));
+          if ((c[0] || '').trim().toLowerCase() === kwLc) { while (c.length < 10) c.push(''); c[1] = c[1] || title; c[6] = 'TO_WRITE'; lines[li] = c.map(esc).join(','); updated = true; break; }
+        }
+        if (!updated) lines.push([keyword, title, '', 'NO CONFLICT', '', '', 'TO_WRITE', '', '', ''].map(esc).join(','));
+        await updateGitHubFile('data/blog_ideas.csv', lines.join('\n') + '\n', ideasFile.sha, `Discover group → To Write: ${keyword}`);
+
+        // 3) Mark approved (so it shows in To Write, no second filter).
+        try { const ap = await readJsonFileSafe('data/blog-approved.json', []); const set = new Set((Array.isArray(ap) ? ap : []).map(x => String(x).toLowerCase())); set.add(kwLc); await writeJsonFile('data/blog-approved.json', [...set], `Approved: ${keyword}`); } catch (e) {}
+
+        // 4) Save the keyword metrics Mae typed in (so the backlog can rank it and we never re-fetch).
+        if (volume != null || difficulty != null) {
+          try { const km = await readJsonFileSafe('data/keyword-metrics.json', {}); const map = (km && typeof km === 'object') ? km : {}; map[kwLc] = { ...(map[kwLc] || {}), volume: (volume != null ? volume : (map[kwLc] || {}).volume), difficulty: (difficulty != null ? difficulty : (map[kwLc] || {}).difficulty), source: 'ubersuggest-manual', at: new Date().toISOString() }; await writeJsonFile('data/keyword-metrics.json', map, `Metrics: ${keyword}`); } catch (e) {}
+        }
+
+        // 5) The OTHER grouped topics become this blog's "also covers" (used as sections when it's written).
+        const secondary = questions.filter(q => q.toLowerCase() !== kwLc).map(q => ({ keyword: q, title: '', source: 'discover' }));
+        if (secondary.length) {
+          try { const fused = await readJsonFileSafe('data/blog-fused-groups.json', {}); const fmap = (fused && typeof fused === 'object') ? fused : {}; fmap[kwLc] = { winnerKeyword: keyword, winnerTitle: title, secondary, reason: 'Discover — grouped topics', appliedAt: new Date().toISOString() }; await writeJsonFile('data/blog-fused-groups.json', fmap, `Discover group for ${keyword}`); } catch (e) {}
+        }
+
+        // 6) Clear the used questions from the pool (if they were parked there).
+        try {
+          const pool = await readJsonFileSafe('data/discover-pool.json', []);
+          const arr = Array.isArray(pool) ? pool : [];
+          const qset = new Set(questions.map(q => q.toLowerCase()));
+          let touched = false;
+          arr.forEach(p => { if (qset.has(String(p.question || '').toLowerCase()) && p.status !== 'added') { p.status = 'added'; touched = true; } });
+          if (touched) await writeJsonFile('data/discover-pool.json', arr, `Discover: grouped ${secondary.length + 1} topic(s) into ${keyword}`);
+        } catch (e) {}
+
+        return res.status(200).json({ success: true, keyword, covers: secondary.length });
       }
 
       // ── ACTION: discover-probe ── test one seed: return EVERY question Google brings, with kept/dropped + why.
