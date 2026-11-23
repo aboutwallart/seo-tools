@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.45 - 2026-11-23</p>
+        <p class="version">v6.46 - 2026-11-23</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -1459,14 +1459,15 @@
                     : (rm.generalInPipeline ? `<span style="background:#ede7f6;color:#5e35b1;font-size:12px;padding:2px 8px;border-radius:6px;">in pipeline</span>`
                     : `<span style="background:#fde8e6;color:#8f1c16;font-size:12px;padding:2px 8px;border-radius:6px;">no general content yet</span>`));
                 window._discSeedMap[String(rm.roomTerm).toLowerCase()] = { style: '', room: rm.room, roomTerm: rm.roomTerm, count: rm.generalCount || 0, isGeneral: true };
-                const genDone = rm.generalSearched || rm.generalInPipeline;
-                const genRow = genDone
-                    ? `<label style="display:flex;align-items:center;gap:8px;opacity:0.5;padding:6px 0;"><span style="font-size:14px;text-decoration:line-through;">${escHtml(rm.room)} — general</span><span style="font-size:11px;color:#999;">${rm.generalSearched ? 'searched' : 'in pipeline'}</span></label>`
-                    : `<label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer;border-bottom:1px solid #eee;"><input type="checkbox" value="${escHtml(rm.roomTerm)}" onchange="discToggle(this)"><span style="font-size:14px;font-weight:600;">${escHtml(rm.room)} — general</span><span style="font-size:11px;color:#999;">(no style)</span></label>`;
+                // "in pipeline" is hard-locked (being written); "searched" is only dimmed — keep the checkbox so Mae can re-search it.
+                const genRow = rm.generalInPipeline
+                    ? `<label style="display:flex;align-items:center;gap:8px;opacity:0.5;padding:6px 0;"><span style="font-size:14px;text-decoration:line-through;">${escHtml(rm.room)} — general</span><span style="font-size:11px;color:#999;">in pipeline</span></label>`
+                    : `<label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer;border-bottom:1px solid #eee;${rm.generalSearched ? 'opacity:0.55;' : ''}"><input type="checkbox" value="${escHtml(rm.roomTerm)}" onchange="discToggle(this)"><span style="font-size:14px;font-weight:600;">${escHtml(rm.room)} — general</span><span style="font-size:11px;color:#999;">${rm.generalSearched ? 'searched — re-tick to search again' : '(no style)'}</span></label>`;
                 let styleHtml = '';
                 (rm.styles || []).forEach((st, si) => {
-                    if (st.covered || st.inPipeline || st.searched) {
-                        const tg = st.covered ? 'covered' : (st.inPipeline ? 'in pipeline' : 'searched');
+                    if (st.covered || st.inPipeline) {
+                        // hard-locked: already a blog, or being written — not selectable.
+                        const tg = st.covered ? 'covered' : 'in pipeline';
                         styleHtml += `<label style="display:flex;align-items:center;gap:8px;opacity:0.5;"><span style="font-size:13px;text-decoration:line-through;">${escHtml(st.style)}</span><span style="font-size:11px;color:#999;">${tg}</span></label>`;
                     } else {
                         const seed = st.term + ' ' + rm.roomTerm;
@@ -1478,7 +1479,10 @@
                             st.synonyms.forEach(sy => { window._discSeedMap[(sy + ' ' + rm.roomTerm).toLowerCase()] = { style: st.style, room: rm.room, roomTerm: rm.roomTerm, count: rm.generalCount || 0, isGeneral: false }; });
                             synBox = `<div id="${synBoxId}" style="display:none;margin:2px 0 6px 22px;">` + st.synonyms.map(sy => `<label style="display:inline-flex;align-items:center;gap:5px;margin-right:12px;cursor:pointer;"><input type="checkbox" value="${escHtml(sy + ' ' + rm.roomTerm)}" onchange="discToggle(this)"><span style="font-size:12px;color:#555;">${escHtml(sy)}</span></label>`).join('') + `</div>`;
                         }
-                        styleHtml += `<div><label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" value="${escHtml(seed)}" onchange="discToggle(this)"><span style="font-size:13px;">${escHtml(st.style)}</span></label>${synToggle}${synBox}</div>`;
+                        // "searched" is only dimmed and gets a note — the checkbox stays so Mae can re-tick + search again.
+                        const sDim = st.searched ? 'opacity:0.55;' : '';
+                        const sTag = st.searched ? ` <span style="font-size:11px;color:#999;">searched</span>` : '';
+                        styleHtml += `<div style="${sDim}"><label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" value="${escHtml(seed)}" onchange="discToggle(this)"><span style="font-size:13px;">${escHtml(st.style)}</span></label>${sTag}${synToggle}${synBox}</div>`;
                     }
                 });
                 html += `<div style="background:#fff;border:1px solid #e3e3e3;border-radius:10px;padding:12px 14px;margin-bottom:10px;">
