@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Etsy → Shopify SKU Matcher</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --ink:#1d2430; --muted:#6b7280; --line:#e6e8ec;
+    --accent:#2f6f4f; --accent-ink:#ffffff; --warn:#b45309; --warnbg:#fef3c7;
+    --ok:#166534; --okbg:#dcfce7; --nobg:#fee2e2; --no:#991b1b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:24px 16px 80px}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:var(--muted);margin:0 0 20px;font-size:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  button{font:inherit;cursor:pointer;border:1px solid var(--line);background:#fff;color:var(--ink);padding:9px 14px;border-radius:9px}
+  button:hover{background:#f3f4f6}
+  button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  button.primary:hover{opacity:.92}
+  button:disabled{opacity:.5;cursor:default}
+  input[type=text]{font:inherit;padding:9px 12px;border:1px solid var(--line);border-radius:9px;width:320px;max-width:100%}
+  .stats{display:flex;gap:18px;flex-wrap:wrap;margin-top:12px;font-size:14px}
+  .stat b{font-size:18px}
+  .muted{color:var(--muted)}
+  table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{position:sticky;top:0;background:#fafbfc;font-weight:600;font-size:13px;color:var(--muted)}
+  td.sku{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600}
+  .pill.ok{background:var(--okbg);color:var(--ok)}
+  .pill.no{background:var(--nobg);color:var(--no)}
+  .pill.nosku{background:var(--warnbg);color:var(--warn)}
+  .copy{padding:3px 8px;font-size:12px;border-radius:7px;margin-left:8px}
+  .shoptitle{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+  .err{color:#991b1b;background:var(--nobg);border:1px solid #fca5a5;padding:12px 14px;border-radius:9px;margin-top:12px}
+  .ver{color:#aab2bd;font-size:12px;margin-top:28px;text-align:center}
+  .state{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Etsy → Shopify SKU Matcher</h1>
+  <p class="sub">Builds the list you need to match Etsy reviews to Shopify products in Judge.me. Search an Etsy title, copy the Shopify title, paste it into Judge.me. No AI tokens used.</p>
+
+  <div class="card">
+    <div class="row">
+      <button class="primary" id="gen">Generate list</button>
+      <button id="csv" disabled>Download CSV</button>
+      <input type="text" id="search" placeholder="Search Etsy title or SKU…" disabled>
+    </div>
+    <div class="stats" id="stats"></div>
+    <div id="msg"></div>
+  </div>
+
+  <div class="card" id="tableCard" style="display:none">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:120px">Etsy SKU</th>
+          <th>Etsy title</th>
+          <th>Shopify title (copy &amp; paste)</th>
+          <th style="width:90px">Status</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <div class="ver">v1.0</div>
+</div>
+
+<script>
+let ROWS = [];
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function pill(status){
+  if(status==='matched') return '<span class="pill ok">matched</span>';
+  if(status==='NO SKU') return '<span class="pill nosku">no SKU</span>';
+  return '<span class="pill no">no match</span>';
+}
+
+function render(filter){
+  const q = (filter||'').trim().toLowerCase();
+  const list = q ? ROWS.filter(r =>
+    (r.etsy_title||'').toLowerCase().includes(q) || (r.etsy_sku||'').toLowerCase().includes(q)
+  ) : ROWS;
+  const tb = document.getElementById('tbody');
+  tb.innerHTML = list.map(r => {
+    const shop = r.shopify_title
+      ? '<div class="shoptitle"><span>'+esc(r.shopify_title)+'</span><button class="copy" data-t="'+esc(r.shopify_title)+'">Copy</button></div>'
+      + '<div class="muted" style="font-size:12px">'+esc(r.shopify_handle)+'</div>'
+      : '<span class="muted">—</span>';
+    return '<tr>'
+      + '<td class="sku">'+esc(r.etsy_sku||'—')+'</td>'
+      + '<td>'+esc(r.etsy_title)+' <span class="state">'+esc(r.state)+'</span></td>'
+      + '<td>'+shop+'</td>'
+      + '<td>'+pill(r.status)+'</td>'
+      + '</tr>';
+  }).join('');
+  tb.querySelectorAll('button.copy').forEach(b => {
+    b.addEventListener('click', () => {
+      navigator.clipboard.writeText(b.dataset.t).then(()=>{ b.textContent='Copied'; setTimeout(()=>b.textContent='Copy',1200); });
+    });
+  });
+}
+
+function toCSV(rows){
+  const head = ['Etsy SKU','Etsy title','Shopify title','Shopify handle','State','Status'];
+  const q = s => '"'+String(s==null?'':s).replace(/"/g,'""')+'"';
+  const lines = [head.map(q).join(',')];
+  rows.forEach(r => lines.push([r.etsy_sku,r.etsy_title,r.shopify_title,r.shopify_handle,r.state,r.status].map(q).join(',')));
+  return lines.join('\r\n');
+}
+
+document.getElementById('gen').addEventListener('click', async () => {
+  const btn = document.getElementById('gen');
+  const msg = document.getElementById('msg');
+  const stats = document.getElementById('stats');
+  msg.innerHTML=''; stats.innerHTML='';
+  btn.disabled = true; btn.textContent = 'Generating… (this can take up to a minute)';
+  try{
+    const r = await fetch('/api/etsy.js?action=sku-map-csv');
+    const d = await r.json();
+    if(!d.ok){ throw new Error(d.error || 'Request failed'); }
+    ROWS = d.rows || [];
+    stats.innerHTML =
+      '<div class="stat"><b>'+d.total+'</b> <span class="muted">Etsy listings</span></div>'
+      +'<div class="stat"><b>'+d.matched+'</b> <span class="muted">matched</span></div>'
+      +'<div class="stat"><b>'+d.noMatch+'</b> <span class="muted">no match</span></div>'
+      +'<div class="stat"><b>'+d.noSku+'</b> <span class="muted">no SKU</span></div>'
+      +'<div class="stat muted">'+d.shopifyProducts+' Shopify products scanned</div>';
+    document.getElementById('tableCard').style.display='block';
+    document.getElementById('csv').disabled=false;
+    document.getElementById('search').disabled=false;
+    render('');
+  }catch(e){
+    msg.innerHTML = '<div class="err">'+esc(e.message||e)
+      +'<br><span class="muted">If it says the Etsy session expired, open the Etsy tool once to reconnect, then try again.</span></div>';
+  }finally{
+    btn.disabled=false; btn.textContent='Generate list';
+  }
+});
+
+document.getElementById('csv').addEventListener('click', () => {
+  const blob = new Blob([toCSV(ROWS)], {type:'text/csv;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'etsy-shopify-sku-map.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+document.getElementById('search').addEventListener('input', e => render(e.target.value));
+</script>
+</body>
+</html>
