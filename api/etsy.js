@@ -1,4 +1,8 @@
-// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images + Compliance + Edit Descriptions)  ·  v0.62
+// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images + Compliance + Edit Descriptions + SKU map)  ·  v0.63
+// v0.63 (2026-11-23): NEW action sku-map-csv — for the Judge.me manual review matching. Builds a Shopify SKU->{title,handle}
+//   map (sku_for_print_files metafield, same key as allShopifySkus), scans every Etsy listing (active+inactive+draft) for
+//   its base SKU + title, and returns one row per listing: Etsy SKU, Etsy title, Shopify title, Shopify handle, state,
+//   status (matched / NO MATCH / NO SKU). Read-only, no Etsy/Shopify writes. Powers etsy-review-matcher.html.
 // v0.62 (2026-11-07): SKU-with-spaces fix — Shopify GraphQL metafield search cannot find values that contain spaces
 //   (no quoting syntax works). Fix: allShopifySkus() now also builds a SKU→GID map; loadProduct, loadThumb and
 //   loadShopifyMedia fall back to fetching by product ID when the metafield search returns 0 results. Affects ~10
@@ -1431,6 +1435,52 @@ module.exports = async (req, res) => {
       } catch (e) { finish(500, { ok: false, error: String(e && e.message || e) }); }
       return;
     }
+    // ===== SKU MAP CSV — for Judge.me manual review matching (read-only; no writes) =====
+    // One row per Etsy listing: Etsy SKU, Etsy title, Shopify title, Shopify handle, state, status.
+    if (q.action === 'sku-map-csv') {
+      // 1) Shopify SKU (sku_for_print_files, lowercased) -> { title, handle }
+      const shopMap = new Map(); let after = null;
+      for (let p = 0; p < 40; p++) {
+        const d = await shopGQL('query($after:String){ products(first:250, after:$after){ pageInfo{ hasNextPage endCursor } nodes{ title handle skuMf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } }', { after });
+        (d.products.nodes || []).forEach(n => { const v = n.skuMf && n.skuMf.value; if (v) { const k = String(v).trim().toLowerCase(); if (!shopMap.has(k)) shopMap.set(k, { title: n.title || '', handle: n.handle || '' }); } });
+        if (!d.products.pageInfo.hasNextPage) break;
+        after = d.products.pageInfo.endCursor;
+      }
+      // 2) Every Etsy listing (active + inactive + draft) -> base SKU + title (dedupe by listing_id)
+      const seen = new Set(); const rows = [];
+      for (const state of ['active', 'inactive', 'draft', 'expired', 'sold_out']) {
+        let offset = 0, total = Infinity;
+        for (let page = 0; page < 400 && offset < total; page++) {
+          const lr = await call('/shops/' + SHOP_ID + '/listings?state=' + state + '&limit=100&offset=' + offset + '&includes=Inventory');
+          if (lr.status >= 300) break;   // some states may be unsupported for this shop — skip, don't fail
+          const j = lr.json || {};
+          total = (typeof j.count === 'number') ? j.count : 0;
+          const results = j.results || [];
+          if (!results.length) break;
+          results.forEach(l => {
+            const lid = String(l.listing_id);
+            if (seen.has(lid)) return; seen.add(lid);
+            const sku = baseSkuEtsy(([].concat(l.skus || [], ((l.inventory && l.inventory.products) || []).map(p => p.sku))).filter(Boolean)[0] || '');
+            const hit = sku ? shopMap.get(sku.toLowerCase()) : null;
+            rows.push({
+              etsy_sku: sku,
+              etsy_title: l.title || '',
+              shopify_title: hit ? hit.title : '',
+              shopify_handle: hit ? hit.handle : '',
+              state: state,
+              status: hit ? 'matched' : (sku ? 'NO MATCH' : 'NO SKU')
+            });
+          });
+          offset += 100;
+        }
+      }
+      rows.sort((a, b) => (a.etsy_title || '').localeCompare(b.etsy_title || ''));
+      const matched = rows.filter(r => r.status === 'matched').length;
+      const noSku = rows.filter(r => r.status === 'NO SKU').length;
+      finish(200, { ok: true, rows, total: rows.length, matched, noMatch: rows.length - matched - noSku, noSku, shopifyProducts: shopMap.size });
+      return;
+    }
+
     if (q.action === 'ri-listings') {
       const sectionId = String(q.section || '');
       const rows = []; let offset = 0;
