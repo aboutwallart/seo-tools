@@ -1,4 +1,8 @@
-// blogs.js — v6.31
+// blogs.js — v6.32
+// v6.32 (2026-11-24): GSC gaps — locked keywords now distinguish WHERE they're locked: EXACT match to a BLOG (same
+//   intent) → hidden; locked to a PRODUCT / other page, or any SIMILAR match → only flagged (reusable for a blog, Mae
+//   decides). Each overlap flag now carries the blog's URL so the front end's "Add to that blog" can append a paragraph
+//   to the existing post (reuses add-angle-preview/apply). Pairs with html v6.50.
 // v6.31 (2026-11-24): GSC gaps — smarter overlap. gsc-blog-gaps now flags against published + scheduled + PIPELINE
 //   (To Write + grouped + singles), and adds a TOPIC flag (2+ distinctive shared words), not only room/style. Locked
 //   keywords: EXACT (locked to a page/blog) → filtered out; SIMILAR → flagged (Mae decides). NEW gsc-ai-check: reasoned
@@ -4182,10 +4186,12 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         let intentCache = {};
         try { const ic = await readJsonFileSafe('data/gsc-keyword-intent-cache.json', {}); intentCache = ic && typeof ic === 'object' ? ic : {}; } catch (e) {}
         // Registry: EXACT-locked keywords (locked to a page/blog, or a blog source) → filtered out; SIMILAR ones → only flagged.
-        const lockedList = []; const exactTaken = new Set();
+        // Separate BLOG-locked (same search intent → cannibalises) from OTHER-page-locked (product / money page /
+        // collection = different intent → a blog can reuse the term and link to it). Only EXACT BLOG matches are hidden.
+        const lockedList = []; const hideSet = new Set();
         try {
           const rc = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/keyword-locker-registry.csv?t=${Date.now()}`);
-          if (rc.ok) { const txt = await rc.text(); txt.split('\n').forEach((line, i) => { if (i === 0 || !line.trim()) return; const c = parseCSVLine(line.replace(/\r/g, '')); const kw = (c[0] || '').trim().toLowerCase(); const url = (c[1] || '').trim(); const isLocked = (c[2] || '').trim().toUpperCase() === 'LOCKED'; const src = (c[9] || '').trim(); if (!kw) return; if ((isLocked && url) || src === 'Published Blog' || src === 'To_Write_Blog') { exactTaken.add(kw); lockedList.push({ kw, url: url || '' }); } }); }
+          if (rc.ok) { const txt = await rc.text(); txt.split('\n').forEach((line, i) => { if (i === 0 || !line.trim()) return; const c = parseCSVLine(line.replace(/\r/g, '')); const kw = (c[0] || '').trim().toLowerCase(); const url = (c[1] || '').trim(); const isLocked = (c[2] || '').trim().toUpperCase() === 'LOCKED'; const src = (c[9] || '').trim(); if (!kw) return; const isBlog = (src === 'Published Blog' || src === 'To_Write_Blog'); if ((isLocked && url) || isBlog) { lockedList.push({ kw, url: url || '', source: src, isBlog }); if (isBlog) hideSet.add(kw); } }); }
         } catch (e) {}
         let dismissed = [];
         try { const df = await getGitHubFile('data/gsc-blog-dismissed.json'); dismissed = (JSON.parse(df.content) || []).map(x => String(x).toLowerCase()); } catch (e) { dismissed = []; }
@@ -4197,19 +4203,26 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         let pipeTexts = []; try { pipeTexts = await gatherPipelineTexts(); } catch (e) { pipeTexts = []; }
         const STOP = new Set(['wall','art','home','decor','prints','print','canvas','ideas','idea','guide','best','with','from','your','this','that','have','into','about','and','the','for','are','you','interior','design','style','room','living','how','what','why','when','does','uk']);
         const wordsOf = s => [...new Set((String(s || '').toLowerCase().match(/[a-z]+/g) || []).filter(w => w.length > 3 && !STOP.has(w)))];
-        const corpus = existingBlogs.map(b => { const label = b.title || ''; const t = topicTag(label, false); return { label, style: t.style, room: t.room, words: wordsOf(label), pipeline: false }; })
-          .concat((Array.isArray(pipeTexts) ? pipeTexts : []).map(x => { const label = String(x || '').trim(); const t = topicTag(label, false); return { label, style: t.style, room: t.room, words: wordsOf(label), pipeline: true }; }));
+        const corpus = existingBlogs.map(b => { const label = b.title || ''; const t = topicTag(label, false); return { label, style: t.style, room: t.room, words: wordsOf(label), pipeline: false, url: b.url || '' }; })
+          .concat((Array.isArray(pipeTexts) ? pipeTexts : []).map(x => { const label = String(x || '').trim(); const t = topicTag(label, false); return { label, style: t.style, room: t.room, words: wordsOf(label), pipeline: true, url: '' }; }));
         // Mechanical flag, strongest first: both axes (cannibalise) → 2+ distinctive shared words (similar topic) → single room/style (new angle).
         const overlapFor = (kw) => {
           const t = topicTag(kw, false); const qS = t.style, qR = t.room; const qw = wordsOf(kw);
-          if (qS && qR) { const b = corpus.find(c => c.style === qS && c.room === qR); if (b) return { style: qS, room: qR, type: 'both', title: b.label, pipeline: b.pipeline }; }
+          if (qS && qR) { const b = corpus.find(c => c.style === qS && c.room === qR); if (b) return { style: qS, room: qR, type: 'both', title: b.label, pipeline: b.pipeline, url: b.url }; }
           let best = null, bestN = 0; for (const c of corpus) { const n = c.words.filter(w => qw.includes(w)).length; if (n > bestN) { bestN = n; best = c; } }
-          if (best && bestN >= 2) return { style: qS, room: qR, type: 'topic', title: best.label, pipeline: best.pipeline, shared: bestN };
-          if (qR) { const b = corpus.find(c => c.room === qR); if (b) return { style: qS, room: qR, type: 'room', title: b.label, pipeline: b.pipeline }; }
-          if (qS) { const b = corpus.find(c => c.style === qS); if (b) return { style: qS, room: qR, type: 'style', title: b.label, pipeline: b.pipeline }; }
+          if (best && bestN >= 2) return { style: qS, room: qR, type: 'topic', title: best.label, pipeline: best.pipeline, url: best.url, shared: bestN };
+          if (qR) { const b = corpus.find(c => c.room === qR); if (b) return { style: qS, room: qR, type: 'room', title: b.label, pipeline: b.pipeline, url: b.url }; }
+          if (qS) { const b = corpus.find(c => c.style === qS); if (b) return { style: qS, room: qR, type: 'style', title: b.label, pipeline: b.pipeline, url: b.url }; }
           return { style: qS, room: qR, type: null, title: '' };
         };
-        const similarLocked = (lc) => { for (const L of lockedList) { if (L.kw === lc) continue; if (Math.min(lc.length, L.kw.length) >= 5 && (lc.includes(L.kw) || L.kw.includes(lc))) return { keyword: L.kw, url: L.url }; } return null; };
+        // Flag the locked keyword that matches (prefer exact), carrying WHERE it's locked (blog vs other page) so the UI
+        // can tell cannibalisation apart from a reusable term. Exact BLOG matches never reach here (they're hidden).
+        const lockedFlagFor = (lc) => {
+          let exact = null, sim = null;
+          for (const L of lockedList) { if (L.kw === lc) { exact = L; break; } if (!sim && Math.min(lc.length, L.kw.length) >= 5 && (lc.includes(L.kw) || L.kw.includes(lc))) sim = L; }
+          const L = exact || sim; if (!L) return null;
+          return { keyword: L.kw, url: L.url, source: L.source, isBlog: !!L.isBlog, exact: !!exact };
+        };
         const seen = new Set();
         const options = rows
           .filter(r => {
@@ -4218,7 +4231,7 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
             if (r.impressions < minImpr) return false;
             if (BRAND_RE.test(kw)) return false;
             if (dismSet.has(lc)) return false;
-            if (exactTaken.has(lc)) return false; // EXACT locked / already a blog → filtered out (similar ones are only flagged)
+            if (hideSet.has(lc)) return false; // EXACT keyword locked to a BLOG (same intent) → hidden; other-page / similar ones are only flagged
             const cached = String(intentCache[kw] || intentCache[lc] || '').toLowerCase();
             if (cached === 'product') return false;
             const info = cached === 'blog' || (INFO_RE.test(kw) && !PRODUCT_RE.test(kw));
@@ -4227,7 +4240,7 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
           })
           .sort((a, b) => b.impressions - a.impressions)
           .slice(0, 300)
-          .map(r => { const ov = overlapFor(r.keyword); const lk = similarLocked(r.keyword.toLowerCase()); return { keyword: r.keyword, impressions: r.impressions, clicks: r.clicks, position: r.position, style: ov.style || '', room: ov.room || '', overlap: ov.type ? { type: ov.type, title: ov.title, pipeline: !!ov.pipeline } : null, locked: lk }; });
+          .map(r => { const ov = overlapFor(r.keyword); const lk = lockedFlagFor(r.keyword.toLowerCase()); return { keyword: r.keyword, impressions: r.impressions, clicks: r.clicks, position: r.position, style: ov.style || '', room: ov.room || '', overlap: ov.type ? { type: ov.type, title: ov.title, pipeline: !!ov.pipeline, url: ov.url || '' } : null, locked: lk }; });
         return res.status(200).json({ success: true, options, total: options.length, floor: minImpr });
       }
 
