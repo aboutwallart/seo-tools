@@ -1,4 +1,10 @@
-// blogs.js — v6.32
+// blogs.js — v6.33
+// v6.33 (2026-11-24): PERMANENT BLOG IMAGE CODE (bug fix — orphaned images). Each blog's image code now lives in
+//   data/blog-codes.json keyed by its keyword and is SET ONCE, NEVER CHANGED. New helper stableBlogCode() + action
+//   get-blog-code. write-blog-body returns it; finish-blog + publish-blog read it from there (seeding from the draft's
+//   existing code so in-flight blogs keep theirs). The front end fetches the code from the server instead of minting a
+//   random one — so a re-write, reload, reorder or "mark as done" can no longer give a blog a new code and orphan the
+//   images it already has in Shopify (named "<slug>-<code>").
 // v6.32 (2026-11-24): GSC gaps — locked keywords now distinguish WHERE they're locked: EXACT match to a BLOG (same
 //   intent) → hidden; locked to a PRODUCT / other page, or any SIMILAR match → only flagged (reusable for a blog, Mae
 //   decides). Each overlap flag now carries the blog's URL so the front end's "Add to that blog" can append a paragraph
@@ -1072,6 +1078,24 @@ Return ONLY a JSON object, no commentary, exactly:
     let sha = null;
     try { const existing = await getGitHubFile(filePath); sha = existing.sha; } catch (e) { sha = null; }
     await updateGitHubFile(filePath, JSON.stringify(obj, null, 2) + '\n', sha, message);
+  }
+  // A blog's image-code is PERMANENT: stored in data/blog-codes.json keyed by its (normalised) keyword, so every step
+  // (write → image prompts → finish → publish) and every re-write, reload or reordering reads the SAME code. The images
+  // a blog already has (named "<slug>-<code>") can therefore never be orphaned by a changed code. Set once, never changed.
+  // `fallback` seeds the code for an in-flight blog that already had one (from its draft) so nothing current breaks.
+  async function stableBlogCode(keyword, fallback) {
+    const clean = (s) => String(s || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    const kw = String(keyword || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const fb = clean(fallback);
+    if (!kw) return fb;
+    let map = {};
+    try { map = await readJsonFileSafe('data/blog-codes.json', {}); if (!map || typeof map !== 'object' || Array.isArray(map)) map = {}; } catch (e) { map = {}; }
+    const existing = clean(map[kw]);
+    if (existing) return existing;                 // already set → NEVER change it
+    const code = fb || (Date.now().toString(36).slice(-4) + Math.random().toString(36).slice(2, 4)).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 6);
+    map[kw] = code;
+    try { await writeJsonFile('data/blog-codes.json', map, 'Blog code (permanent): ' + kw + ' = ' + code); } catch (e) {}
+    return code;
   }
 
   // Column P — 3 "People Also Ask" Q&A pairs, plain text
@@ -5733,7 +5757,7 @@ Return ONLY a JSON array, one object per section IN ORDER, each: {"show":"...","
         if (!draft || !draft.bodyHtml) return res.status(200).json({ success: false, error: 'No written blog found for "' + fbT + '". Write the blog first (step 2).' });
         // Unique per-blog tag so a reused image name never grabs an OLD blog's image. Empty for older blogs
         // (their images were saved with plain names), so those keep working exactly as before.
-        const blogCode = String(draft.blogCode || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        const blogCode = await stableBlogCode(fbKwIn || draft.keyword || '', draft.blogCode);
         const codeSuf = blogCode ? '-' + blogCode : '';
         let prodMap = {};
         try { const f = await getGitHubFile('data/blog-products.json'); prodMap = JSON.parse(f.content || '{}'); } catch (e) { prodMap = {}; }
@@ -6046,7 +6070,7 @@ Return ONLY a JSON object mapping each id to its alt line, and nothing else.`;
         // still unresolved and Mae hasn't chosen to drop them, STOP and return the list so the tool asks her:
         // fix them (generate the image / pick a product then re-finish) or Cancel (drop them, publish clean).
         const dropMissingImages = req.body.dropMissingImages === true;
-        const pbBlogCode = String(draft.blogCode || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        const pbBlogCode = await stableBlogCode(keyword, draft.blogCode);
         const pbCodeSuf = pbBlogCode ? '-' + pbBlogCode : '';
         {
           const missingImages = [];
@@ -6672,14 +6696,23 @@ HERO IMAGE — at the VERY END, after the closing paragraph, output ONE line exa
           return id ? `<div style="position:relative;width:100%;padding-bottom:56.25%;margin:16px 0;"><iframe src="https://www.youtube.com/embed/${id}" style="position:absolute;top:0;left:0;width:100%;height:100%;border:0;" allowfullscreen loading="lazy"></iframe></div>` : '';
         });
 
+        const blogCode = await stableBlogCode(wbKeyword, null); // permanent code for this blog's images
         return res.status(200).json({
           success: true,
           bodyHtml,
           featuredBase,
           heroPrompt,
+          blogCode,
           authority: { title: sources.authorityTitle, url: sources.authorityUrl },
           youtube: { title: sources.youtubeTitle, link: sources.youtubeLink }
         });
+      }
+
+      // ── ACTION: get-blog-code ── the permanent per-blog image code (data/blog-codes.json). Used by the image-prompts
+      // step so a blog's images are ALWAYS named with the same code the finish/publish steps look them up by.
+      if (req.body.action === 'get-blog-code') {
+        const code = await stableBlogCode(String(req.body.keyword || ''), String(req.body.fallback || ''));
+        return res.status(200).json({ success: true, code });
       }
 
       const { keyword, url, title, perspective, galleryCode, collectionUrl, writeToSheet } = req.body;
