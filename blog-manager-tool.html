@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.48 - 2026-11-24</p>
+        <p class="version">v6.49 - 2026-11-24</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -502,6 +502,7 @@
         let GSC_BLOG_LOADED = false;
         let GSC_GAPS = [];
         let GSC_FLOOR = 20;
+        let GSC_SORT = { col: 'impressions', dir: 'desc' };
         function escBlog(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
         // Broad live 12-month GSC pull → informational gaps with no blog, flagged for room/style overlap, sorted by searches.
         async function loadGscBlogTopics(force) {
@@ -526,10 +527,32 @@
                 if (o.style || o.room) return '<span style="font-size:11px;color:#2e7d32;">✓ no blog on ' + escBlog([o.style, o.room].filter(Boolean).join(' · ')) + ' yet</span>';
                 return '';
             }
-            const t = o.overlap.type;
-            if (t === 'both') return '<span style="font-size:11px;color:#8f1c16;background:#fde8e6;padding:2px 7px;border-radius:5px;">⚠ same room &amp; style — may cannibalise: "' + escBlog(o.overlap.title) + '"</span>';
-            if (t === 'room') return '<span style="font-size:11px;color:#8a5a00;background:#fff4e0;padding:2px 7px;border-radius:5px;">same room as "' + escBlog(o.overlap.title) + '" — new angle?</span>';
-            return '<span style="font-size:11px;color:#8a5a00;background:#fff4e0;padding:2px 7px;border-radius:5px;">same style as "' + escBlog(o.overlap.title) + '" — new angle?</span>';
+            const t = o.overlap.type; const title = escBlog(o.overlap.title); const pipe = o.overlap.pipeline ? ' <i>(in pipeline)</i>' : '';
+            if (t === 'both') return '<span style="font-size:11px;color:#8f1c16;background:#fde8e6;padding:2px 7px;border-radius:5px;">⚠ same room &amp; style — may cannibalise: "' + title + '"' + pipe + '</span>';
+            if (t === 'topic') return '<span style="font-size:11px;color:#8a5a00;background:#fff4e0;padding:2px 7px;border-radius:5px;">similar topic — you already have "' + title + '"' + pipe + ' — new angle?</span>';
+            if (t === 'room') return '<span style="font-size:11px;color:#8a5a00;background:#fff4e0;padding:2px 7px;border-radius:5px;">same room as "' + title + '"' + pipe + ' — new angle?</span>';
+            return '<span style="font-size:11px;color:#8a5a00;background:#fff4e0;padding:2px 7px;border-radius:5px;">same style as "' + title + '"' + pipe + ' — new angle?</span>';
+        }
+        function gscLockFlag(o) {
+            if (!o.locked) return '';
+            return '<span style="font-size:11px;color:#5e35b1;background:#ede7f6;padding:2px 7px;border-radius:5px;">🔒 similar locked keyword: "' + escBlog(o.locked.keyword) + '" — your call</span>';
+        }
+        function gscAiHtml(v) {
+            if (!v) return '';
+            const b = v.blog ? ' "' + escBlog(v.blog) + '"' : '';
+            const reason = v.reason ? ' — ' + escBlog(v.reason) : '';
+            if (v.verdict === 'cannibalise') return '<span style="font-size:11px;color:#8f1c16;background:#fde8e6;padding:2px 7px;border-radius:5px;">🤖 may cannibalise' + b + reason + '</span>';
+            if (v.verdict === 'angle') return '<span style="font-size:11px;color:#8a5a00;background:#fff4e0;padding:2px 7px;border-radius:5px;">🤖 related to' + b + ' but different angle' + reason + '</span>';
+            return '<span style="font-size:11px;color:#2e7d32;background:#e8f5e9;padding:2px 7px;border-radius:5px;">🤖 looks new' + reason + '</span>';
+        }
+        function setGscSort(col) {
+            if (GSC_SORT.col === col) GSC_SORT.dir = GSC_SORT.dir === 'asc' ? 'desc' : 'asc';
+            else GSC_SORT = { col: col, dir: col === 'keyword' ? 'asc' : 'desc' };
+            sortGscGaps(); renderGscBlogList();
+        }
+        function sortGscGaps() {
+            const col = GSC_SORT.col, s = GSC_SORT.dir === 'asc' ? 1 : -1;
+            GSC_GAPS.sort((a, b) => col === 'keyword' ? s * String(a.keyword || '').localeCompare(String(b.keyword || '')) : s * ((a[col] || 0) - (b[col] || 0)));
         }
         function renderGscBlogList(note) {
             const box = document.getElementById('gsc-blog-list'); if (!box) return;
@@ -538,26 +561,64 @@
             const floorRow = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">'
                 + '<label style="font-size:12.5px;color:#5a7a70;">Min searches (impressions):</label>'
                 + '<input id="gsc-floor" type="number" value="' + GSC_FLOOR + '" style="width:90px;padding:7px 9px;border:1px solid #ccc;border-radius:6px;font-size:13px;">'
-                + '<button onclick="applyGscFloor(this)" style="background:#6a1b9a;color:#fff;border:none;border-radius:6px;padding:7px 12px;font-weight:700;cursor:pointer;">Apply</button>'
+                + '<button onclick="applyGscFloor()" style="background:#6a1b9a;color:#fff;border:none;border-radius:6px;padding:7px 12px;font-weight:700;cursor:pointer;">Apply</button>'
                 + '</div>';
             if (!opts.length) { box.innerHTML = floorRow + '<span style="color:#888;font-size:13px;">' + (note || 'No gaps at this threshold — lower the minimum searches.') + '</span>'; return; }
+            const car = (c) => GSC_SORT.col === c ? (GSC_SORT.dir === 'asc' ? ' ▲' : ' ▼') : '';
+            const hCell = (c, label) => '<div onclick="setGscSort(\'' + c + '\')" style="font-weight:700;color:#444;cursor:pointer;user-select:none;">' + label + car(c) + '</div>';
             box.innerHTML = floorRow
                 + '<div style="margin-bottom:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
                 + '<button onclick="gscGroupIntoBlog()" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">Group ticked into one blog →</button>'
                 + '<button onclick="gscToDecideLater()" style="background:#fff;color:#5e35b1;border:1px solid #5e35b1;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;">To decide later</button>'
                 + '<button onclick="gscDiscardForever()" style="background:#fff;color:#c33;border:1px solid #c33;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;">Discard forever</button>'
-                + '<span style="color:#5a7a70;font-size:12px;">Sorted by searches. Tick what you want, then choose.</span>'
+                + '<span style="color:#5a7a70;font-size:12px;">Click a column to sort. Tick what you want, then choose.</span>'
                 + '</div>'
                 + '<div style="display:grid;grid-template-columns:auto 1fr auto auto auto;gap:9px 14px;align-items:center;font-size:13px;">'
-                + '<div></div><div style="font-weight:700;color:#666;">Keyword</div><div style="font-weight:700;color:#666;">Impr.</div><div style="font-weight:700;color:#666;">Clicks</div><div style="font-weight:700;color:#666;">Pos.</div>'
+                + '<div></div>' + hCell('keyword', 'Keyword') + hCell('impressions', 'Impr.') + hCell('clicks', 'Clicks') + hCell('position', 'Pos.')
                 + opts.map((o, i) =>
                     '<div><input type="checkbox" data-ggi="' + i + '"></div>'
-                    + '<div><div style="font-weight:600;">' + escBlog(o.keyword) + '</div>' + (gscFlag(o) ? '<div style="margin-top:2px;">' + gscFlag(o) + '</div>' : '') + '</div>'
+                    + '<div><div style="font-weight:600;">' + escBlog(o.keyword) + '</div>'
+                      + (gscFlag(o) ? '<div style="margin-top:2px;">' + gscFlag(o) + '</div>' : '')
+                      + (gscLockFlag(o) ? '<div style="margin-top:2px;">' + gscLockFlag(o) + '</div>' : '')
+                      + '<div id="gsc-ai-' + i + '" style="margin-top:2px;">' + (o.aiVerdict ? gscAiHtml(o.aiVerdict) : '') + '</div>'
+                      + '<button onclick="askGscAI(' + i + ')" style="margin-top:3px;background:#fff;color:#6a1b9a;border:1px solid #d9cff0;border-radius:5px;padding:2px 8px;font-size:11px;font-weight:700;cursor:pointer;">🤖 Ask AI</button>'
+                    + '</div>'
                     + '<div>' + (o.impressions != null ? o.impressions : '—') + '</div>'
                     + '<div>' + (o.clicks != null ? o.clicks : '—') + '</div>'
                     + '<div>' + (o.position != null ? o.position : '—') + '</div>'
                   ).join('')
                 + '</div>';
+            maybeAutoAI();
+        }
+        // Auto-run the reasoned AI check ONLY on rows the mechanical check didn't flag (and with no verdict yet).
+        // Done in chunks so a big list never truncates the AI's JSON; results fill in as each chunk returns. Cached.
+        let GSC_AI_RUNNING = false;
+        async function maybeAutoAI() {
+            if (GSC_AI_RUNNING) return;
+            const idx = []; GSC_GAPS.forEach((o, i) => { if (!o.overlap && !o.aiVerdict) idx.push(i); });
+            if (!idx.length) return;
+            GSC_AI_RUNNING = true;
+            try {
+                for (let start = 0; start < idx.length; start += 40) {
+                    const chunk = idx.slice(start, start + 40);
+                    const queries = chunk.map(i => GSC_GAPS[i].keyword);
+                    try {
+                        const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'gsc-ai-check', queries }) }).then(x => x.json());
+                        const res = (r && r.results) || {};
+                        chunk.forEach(i => { const v = res[GSC_GAPS[i].keyword]; if (v) { GSC_GAPS[i].aiVerdict = v; const d = document.getElementById('gsc-ai-' + i); if (d) d.innerHTML = gscAiHtml(v); } });
+                    } catch (e) { /* this chunk failed — mechanical flags still stand; keep going */ }
+                }
+            } finally { GSC_AI_RUNNING = false; }
+        }
+        // Per-row manual check — forces a fresh AI opinion even if the mechanical already flagged something.
+        async function askGscAI(i) {
+            const o = GSC_GAPS[i]; if (!o) return;
+            const d = document.getElementById('gsc-ai-' + i); if (d) d.innerHTML = '<span style="font-size:11px;color:#888;">🤖 thinking…</span>';
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'gsc-ai-check', queries: [o.keyword], fresh: true }) }).then(x => x.json());
+                const v = (r && r.results && r.results[o.keyword]) || null;
+                o.aiVerdict = v; if (d) d.innerHTML = v ? gscAiHtml(v) : '<span style="font-size:11px;color:#a33;">AI could not answer.</span>';
+            } catch (e) { if (d) d.innerHTML = '<span style="font-size:11px;color:#a33;">AI error.</span>'; }
         }
         function applyGscFloor() {
             const v = parseInt((document.getElementById('gsc-floor') || {}).value, 10);
