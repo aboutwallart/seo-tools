@@ -1,4 +1,9 @@
-// blogs.js — v6.30
+// blogs.js — v6.31
+// v6.31 (2026-11-24): GSC gaps — smarter overlap. gsc-blog-gaps now flags against published + scheduled + PIPELINE
+//   (To Write + grouped + singles), and adds a TOPIC flag (2+ distinctive shared words), not only room/style. Locked
+//   keywords: EXACT (locked to a page/blog) → filtered out; SIMILAR → flagged (Mae decides). NEW gsc-ai-check: reasoned
+//   intent-overlap via Haiku (cannibalise | angle | new + reason), cached in data/gsc-topic-overlap-cache.json; the
+//   front end auto-runs it only on queries with no mechanical hit, plus a per-row "Ask AI" button (fresh=true).
 // v6.30 (2026-11-24): DISCOVER + GSC upgrades. (1) Custom rooms/styles Mae adds by hand (data/discover-custom-rooms.json
 //   + discover-custom-styles.json) are merged into the live taxonomy (TOPIC_*_DICT) → show in the cards AND are seen by
 //   the duplicate check; built-in names protected. NEW actions discover-add-room/add-style/remove-room/remove-style;
@@ -4176,25 +4181,35 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         const PRODUCT_RE = /\b(buy|price|prices|cheap|sale|discount|for sale|near me|shop|store|order|delivery|coupon|voucher|print|prints|poster|posters|canvas|framed|frame|cushion|rug|mug|sticker)\b/i;
         let intentCache = {};
         try { const ic = await readJsonFileSafe('data/gsc-keyword-intent-cache.json', {}); intentCache = ic && typeof ic === 'object' ? ic : {}; } catch (e) {}
-        let blogKws = [];
+        // Registry: EXACT-locked keywords (locked to a page/blog, or a blog source) → filtered out; SIMILAR ones → only flagged.
+        const lockedList = []; const exactTaken = new Set();
         try {
           const rc = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/keyword-locker-registry.csv?t=${Date.now()}`);
-          if (rc.ok) { const txt = await rc.text(); txt.split('\n').forEach((line, i) => { if (i === 0 || !line.trim()) return; const c = parseCSVLine(line.replace(/\r/g, '')); const src = (c[9] || ''); if ((src === 'Published Blog' || src === 'To_Write_Blog') && c[0]) blogKws.push(c[0].toLowerCase()); }); }
+          if (rc.ok) { const txt = await rc.text(); txt.split('\n').forEach((line, i) => { if (i === 0 || !line.trim()) return; const c = parseCSVLine(line.replace(/\r/g, '')); const kw = (c[0] || '').trim().toLowerCase(); const url = (c[1] || '').trim(); const isLocked = (c[2] || '').trim().toUpperCase() === 'LOCKED'; const src = (c[9] || '').trim(); if (!kw) return; if ((isLocked && url) || src === 'Published Blog' || src === 'To_Write_Blog') { exactTaken.add(kw); lockedList.push({ kw, url: url || '' }); } }); }
         } catch (e) {}
         let dismissed = [];
         try { const df = await getGitHubFile('data/gsc-blog-dismissed.json'); dismissed = (JSON.parse(df.content) || []).map(x => String(x).toLowerCase()); } catch (e) { dismissed = []; }
         const dismSet = new Set(dismissed);
+        // Corpus for the mechanical overlap flag: published + scheduled blogs + pipeline (To Write + grouped + singles).
         let existingBlogs = [];
         try { existingBlogs = await fetchBlogsPubAndSched(); } catch (e) { existingBlogs = []; }
         if (!existingBlogs.length) { try { const bi = await getGitHubFile('data/blog-index.json'); const j = JSON.parse(bi.content); existingBlogs = (j.articles || []).map(a => ({ title: a.title })); } catch (e) {} }
-        const blogTags = existingBlogs.map(b => { const t = topicTag(b.title || '', false); return { title: b.title || '', style: t.style, room: t.room }; });
+        let pipeTexts = []; try { pipeTexts = await gatherPipelineTexts(); } catch (e) { pipeTexts = []; }
+        const STOP = new Set(['wall','art','home','decor','prints','print','canvas','ideas','idea','guide','best','with','from','your','this','that','have','into','about','and','the','for','are','you','interior','design','style','room','living','how','what','why','when','does','uk']);
+        const wordsOf = s => [...new Set((String(s || '').toLowerCase().match(/[a-z]+/g) || []).filter(w => w.length > 3 && !STOP.has(w)))];
+        const corpus = existingBlogs.map(b => { const label = b.title || ''; const t = topicTag(label, false); return { label, style: t.style, room: t.room, words: wordsOf(label), pipeline: false }; })
+          .concat((Array.isArray(pipeTexts) ? pipeTexts : []).map(x => { const label = String(x || '').trim(); const t = topicTag(label, false); return { label, style: t.style, room: t.room, words: wordsOf(label), pipeline: true }; }));
+        // Mechanical flag, strongest first: both axes (cannibalise) → 2+ distinctive shared words (similar topic) → single room/style (new angle).
         const overlapFor = (kw) => {
-          const t = topicTag(kw, false); const qS = t.style, qR = t.room;
-          if (qS && qR) { const b = blogTags.find(bt => bt.style === qS && bt.room === qR); if (b) return { style: qS, room: qR, type: 'both', title: b.title }; }
-          if (qR) { const b = blogTags.find(bt => bt.room === qR); if (b) return { style: qS, room: qR, type: 'room', title: b.title }; }
-          if (qS) { const b = blogTags.find(bt => bt.style === qS); if (b) return { style: qS, room: qR, type: 'style', title: b.title }; }
+          const t = topicTag(kw, false); const qS = t.style, qR = t.room; const qw = wordsOf(kw);
+          if (qS && qR) { const b = corpus.find(c => c.style === qS && c.room === qR); if (b) return { style: qS, room: qR, type: 'both', title: b.label, pipeline: b.pipeline }; }
+          let best = null, bestN = 0; for (const c of corpus) { const n = c.words.filter(w => qw.includes(w)).length; if (n > bestN) { bestN = n; best = c; } }
+          if (best && bestN >= 2) return { style: qS, room: qR, type: 'topic', title: best.label, pipeline: best.pipeline, shared: bestN };
+          if (qR) { const b = corpus.find(c => c.room === qR); if (b) return { style: qS, room: qR, type: 'room', title: b.label, pipeline: b.pipeline }; }
+          if (qS) { const b = corpus.find(c => c.style === qS); if (b) return { style: qS, room: qR, type: 'style', title: b.label, pipeline: b.pipeline }; }
           return { style: qS, room: qR, type: null, title: '' };
         };
+        const similarLocked = (lc) => { for (const L of lockedList) { if (L.kw === lc) continue; if (Math.min(lc.length, L.kw.length) >= 5 && (lc.includes(L.kw) || L.kw.includes(lc))) return { keyword: L.kw, url: L.url }; } return null; };
         const seen = new Set();
         const options = rows
           .filter(r => {
@@ -4203,7 +4218,7 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
             if (r.impressions < minImpr) return false;
             if (BRAND_RE.test(kw)) return false;
             if (dismSet.has(lc)) return false;
-            if (blogKws.some(bk => bk === lc || lc.includes(bk))) return false; // a blog already targets it
+            if (exactTaken.has(lc)) return false; // EXACT locked / already a blog → filtered out (similar ones are only flagged)
             const cached = String(intentCache[kw] || intentCache[lc] || '').toLowerCase();
             if (cached === 'product') return false;
             const info = cached === 'blog' || (INFO_RE.test(kw) && !PRODUCT_RE.test(kw));
@@ -4212,8 +4227,39 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
           })
           .sort((a, b) => b.impressions - a.impressions)
           .slice(0, 300)
-          .map(r => { const ov = overlapFor(r.keyword); return { keyword: r.keyword, impressions: r.impressions, clicks: r.clicks, position: r.position, style: ov.style || '', room: ov.room || '', overlap: ov.type ? { type: ov.type, title: ov.title } : null }; });
+          .map(r => { const ov = overlapFor(r.keyword); const lk = similarLocked(r.keyword.toLowerCase()); return { keyword: r.keyword, impressions: r.impressions, clicks: r.clicks, position: r.position, style: ov.style || '', room: ov.room || '', overlap: ov.type ? { type: ov.type, title: ov.title, pipeline: !!ov.pipeline } : null, locked: lk }; });
         return res.status(200).json({ success: true, options, total: options.length, floor: minImpr });
+      }
+
+      // ── ACTION: gsc-ai-check ── reasoned overlap: given queries, ask the AI whether each one already overlaps one
+      // of Mae's blogs (written + scheduled + To Write + grouped) in SEARCH INTENT — catching synonyms/paraphrases the
+      // mechanical word check misses. Verdict: cannibalise | angle | new, with a one-line reason. Cached per query;
+      // the per-row "Ask AI" button sends fresh:true to bypass the cache (for a doubt or after writing something new).
+      if (req.body.action === 'gsc-ai-check') {
+        const queries = Array.isArray(req.body.queries) ? req.body.queries.map(q => String(q || '').trim()).filter(Boolean) : [];
+        const fresh = req.body.fresh === true;
+        if (!queries.length) return res.status(200).json({ success: true, results: {} });
+        const CACHE = 'data/gsc-topic-overlap-cache.json';
+        let cache = {}; try { const c = await readJsonFileSafe(CACHE, {}); cache = (c && typeof c === 'object') ? c : {}; } catch (e) {}
+        const results = {}; const todo = [];
+        queries.forEach(q => { const k = q.toLowerCase(); if (!fresh && cache[k]) results[q] = cache[k]; else todo.push(q); });
+        if (todo.length) {
+          let eb = []; try { eb = await fetchBlogsPubAndSched(); } catch (e) {}
+          if (!eb.length) { try { const bi = await getGitHubFile('data/blog-index.json'); const j = JSON.parse(bi.content); eb = (j.articles || []).map(a => ({ title: a.title })); } catch (e) {} }
+          let pipe = []; try { pipe = await gatherPipelineTexts(); } catch (e) {}
+          const corpus = [...new Set(eb.map(b => b.title || '').concat(Array.isArray(pipe) ? pipe : []).map(s => String(s || '').trim()).filter(Boolean))];
+          const prompt = `You are an SEO editor for About Wall Art (a UK wall-art & home-decor blog). Here is the FULL list of blog topics I already have — written, scheduled, or planned (To Write / grouped):\n\n${corpus.map(t => '- ' + t).join('\n')}\n\nFor EACH candidate Google search query below, decide whether writing a NEW blog for it would overlap one of my existing topics IN SEARCH INTENT. Reason about meaning and intent, not just shared words — catch synonyms and paraphrases.\n\nCandidate queries:\n${todo.map(q => '- ' + q).join('\n')}\n\nFor each query return an object with:\n- "query": the query verbatim.\n- "verdict": "cannibalise" (same search intent as an existing topic — a new blog would compete), "angle" (related to an existing topic but a genuinely different, non-competing angle worth writing), or "new" (no real overlap).\n- "blog": the existing topic it overlaps, verbatim from my list, or "" if new.\n- "reason": ONE short sentence, max ~15 words.\nReturn ONLY a JSON array, one object per query. No prose, no markdown.`;
+          let arr = [];
+          try { const raw = await callClaudeText(prompt, 3500); const m = raw.match(/\[[\s\S]*\]/); arr = m ? JSON.parse(m[0]) : []; } catch (e) { arr = []; }
+          const byQ = {}; (Array.isArray(arr) ? arr : []).forEach((o, i) => { if (o && o.query) byQ[String(o.query).toLowerCase()] = o; });
+          todo.forEach((q, i) => {
+            const o = byQ[q.toLowerCase()] || (Array.isArray(arr) ? arr[i] : null) || {};
+            const v = { verdict: ['cannibalise', 'angle', 'new'].includes(String(o.verdict || '').toLowerCase()) ? String(o.verdict).toLowerCase() : 'new', blog: String(o.blog || ''), reason: String(o.reason || '') };
+            results[q] = v; cache[q.toLowerCase()] = v;
+          });
+          try { await writeJsonFile(CACHE, cache, `GSC AI overlap: +${todo.length} checked`); } catch (e) {}
+        }
+        return res.status(200).json({ success: true, results });
       }
 
       // ── ACTION: discover-search ── search each seed phrase × each term on Serper, collect the questions,
