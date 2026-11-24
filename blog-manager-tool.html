@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.51 - 2026-11-24</p>
+        <p class="version">v6.52 - 2026-11-24</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -583,7 +583,7 @@
             if (!shown.length) { box.innerHTML += '<div style="color:#888;font-size:13px;padding:8px 0;">Nothing flagged as "may cannibalise" yet (AI verdicts may still be loading).</div>'; return; }
             const rowsHtml = shown.map((p, n) => {
                 const o = p.o, i = p.i;
-                const divider = n > 0 ? '<div style="grid-column:1/-1;border-top:1px solid #ececec;"></div>' : '';
+                const divider = n > 0 ? '<div style="grid-column:1/-1;border-top:3px solid #000;margin:6px 0;"></div>' : '';
                 const addBtn = (o.overlap && !o.overlap.pipeline && o.overlap.url)
                     ? '<button onclick="gscAddToBlog(' + i + ')" style="margin-left:8px;background:#fff;color:#1565c0;border:1px solid #bcd7f0;border-radius:5px;padding:2px 8px;font-size:11px;font-weight:700;cursor:pointer;">➕ Add to that blog</button>'
                     : '';
@@ -711,7 +711,7 @@
                 const seed = 'gsc::' + o.keyword.toLowerCase();
                 const hasRoomBlog = o.overlap && (o.overlap.type === 'room' || o.overlap.type === 'both');
                 window._discSeedMap[seed] = { style: o.style || '', room: o.room || '', roomTerm: (o.room || '').toLowerCase(), count: hasRoomBlog ? 10 : 0, isGeneral: !o.style };
-                return { question: o.keyword, seed, term: '' };
+                return { question: o.keyword, seed, term: '', locked: o.locked || null };
             });
             window._gscGroup = group;
             renderGscGroupEditor(group);
@@ -752,7 +752,8 @@
             if (!kw) { if (msg) { msg.style.color = '#a33'; msg.textContent = 'Type the chosen keyword first.'; } return; }
             if (msg) { msg.style.color = '#888'; msg.textContent = 'Checking lock + adding…'; }
             try {
-                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'discover-group-to-write', keyword: kw, volume: vol, difficulty: diff, questions: (window._gscGroup || []).map(it => ({ question: it.question, seed: it.seed, term: it.term })), title: '' }) }).then(x => x.json());
+                const lockedTargets = (window._gscGroup || []).filter(it => it.locked && !it.locked.isBlog && it.locked.url).map(it => ({ keyword: it.question, url: it.locked.url }));
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'discover-group-to-write', keyword: kw, volume: vol, difficulty: diff, questions: (window._gscGroup || []).map(it => ({ question: it.question, seed: it.seed, term: it.term })), lockedTargets, title: '' }) }).then(x => x.json());
                 if (r && r.locked) { if (msg) { msg.style.color = '#a33'; msg.textContent = '🔒 "' + kw + '" is locked to another URL (' + r.lockedUrl + '). Pick a different keyword.'; } return; }
                 if (!r || !r.success) throw new Error((r && r.error) || 'Failed');
                 const used = new Set((window._gscGroup || []).map(it => it.question.toLowerCase()));
@@ -2262,7 +2263,9 @@ Give me:
             if (!container) return;
             const healed = window._healedNote ? `<div style="background:#fff8e1;border:1px solid #ffe0a3;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:13px;color:#7a5a00;">${window._healedNote}</div>` : '';
             window._healedNote = '';
-            const tagged = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && i.month && !isPublishedBlog(i));
+            // Show EVERY blog planned into a month (written, finished or even published) and remove it ONLY when Mae
+            // marks it done herself. Publishing/refreshing no longer drops it — she keeps full control of the list.
+            const tagged = allIdeas.filter(i => i.month && !isBlogExplicitlyDone(i));
             const months = [...new Set(tagged.map(i => i.month))].sort();
             if (filter) {
                 const cur = filter.value;
@@ -2316,6 +2319,7 @@ Give me:
                 const d = await r.json();
                 if (!d.success) throw new Error(d.error || 'Could not mark it done');
                 idea.status = 'PUBLISHED'; idea.month = '';
+                window._doneTitles = window._doneTitles || new Set(); window._doneTitles.add(String(title).trim().toLowerCase());
                 if (window._publishedTitles) window._publishedTitles.add(String(title).trim().toLowerCase());
                 refreshAll();
             } catch (e) { alert('Could not mark it done: ' + e.message); }
@@ -2491,6 +2495,17 @@ Give me:
                 window._publishedMonthCount = {};
                 arts.forEach(a => { const m = String(a.publishedAt || '').slice(0, 7); if (/^\d{4}-\d{2}$/.test(m)) window._publishedMonthCount[m] = (window._publishedMonthCount[m] || 0) + 1; });
             } catch (e) { window._publishedTitles = window._publishedTitles || new Set(); window._publishedMonthCount = window._publishedMonthCount || {}; }
+            // Explicit "Mark as done" list — the ONLY thing that removes a blog from the Month-in-progress tab.
+            try {
+                const dres = await fetch('https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/blog-done.json?_=' + Date.now());
+                const darr = await dres.json();
+                window._doneTitles = new Set((Array.isArray(darr) ? darr : []).map(s => String(s || '').trim().toLowerCase()).filter(Boolean));
+            } catch (e) { window._doneTitles = window._doneTitles || new Set(); }
+        }
+        function isBlogExplicitlyDone(i) {
+            if (!i) return false;
+            const t = String(i.title || i.currentTitle || '').trim().toLowerCase();
+            return !!(window._doneTitles && window._doneTitles.has(t));
         }
         // True if this blog is already live/scheduled (published) — should never be offered to write.
         function isPublishedBlog(i) {
@@ -2956,6 +2971,7 @@ Give me:
             const imgs = parseImageMarkers(data.bodyHtml);
             const prods = (data.bodyHtml.match(/\[\[PRODUCT\|[^\]]*\]\]/g) || []).length;
             const body = `
+                ${data.h1Title ? `<div style="background:#f3e9ff;border:1px solid #d9cff0;border-radius:8px;padding:10px 12px;margin-bottom:10px;"><div style="font-size:11px;color:#6a1b9a;font-weight:700;text-transform:uppercase;letter-spacing:.03em;">📝 Blog title (H1) — what readers see</div><div style="font-size:16px;font-weight:700;color:#1a1a1a;margin-top:3px;">${escHtml(data.h1Title)}</div></div>` : ''}
                 <div style="font-size:13px;color:#555;margin-bottom:10px;">
                     ${imgs.length} image spot${imgs.length===1?'':'s'} · ${prods} product spot${prods===1?'':'s'}
                     ${data.authority && data.authority.url ? ' · authority link found' : ' · no authority link'}
@@ -3654,7 +3670,7 @@ Give me:
                 // The blog is now scheduled on the store → move it out of "in progress" and into the scheduled count,
                 // WITHOUT wiping the report you're reading. Re-syncs the real counts from the blog list.
                 if (window._publishedTitles) window._publishedTitles.add(String(idea.currentTitle || '').trim().toLowerCase());
-                idea.status = 'PUBLISHED'; idea.month = '';
+                idea.status = 'PUBLISHED'; // keep idea.month so it stays in "Month in progress" until Mae marks it done
                 await loadPublishedTitles();
                 updateTabCounts(); updatePlanLock();
                 if (data.monthCleared && data.month) { setTimeout(() => alert('🎉 Every blog for ' + data.month + ' is now published — that month is cleared from “Month in progress”.'), 400); }
