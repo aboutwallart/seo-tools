@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.50 - 2026-11-24</p>
+        <p class="version">v6.51 - 2026-11-24</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -3174,11 +3174,17 @@ Give me:
         const EXTENSION_PREAMBLE = 'This is an IMAGE EXTENSION task — NOT a room redesign. I will paste the product photo. Preserve every element of the pasted photo EXACTLY (wall colour, furniture, lighting, decor and the framed artwork). Your only jobs: (1) extend the scene naturally to fill a 3:2 frame by continuing the EXISTING walls, floor and furnishings — never add blank bars or empty space, and do NOT invent a different room; (2) add people as specified. Do NOT restyle or replace any part of the room. Do NOT apply the style bible here — it does not apply to these wall-art photos.';
 
         // Make (once) a short unique tag for this blog so a reused image name never grabs an old blog's image.
-        function ensureBlogCode(index, d) {
+        async function ensureBlogCode(index, d) {
             if (d.blogCode && /[a-z0-9]/.test(d.blogCode)) return d.blogCode;
-            d.blogCode = (Date.now().toString(36).slice(-4) + Math.random().toString(36).slice(2, 4)).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 6);
-            persistDraft(index, d);
-            return d.blogCode;
+            // The code is PERMANENT and owned by the server (data/blog-codes.json). Fetch it — NEVER invent one here,
+            // or a blog's already-uploaded images (named "<slug>-<code>") would be orphaned by a new random code.
+            try {
+                const idea = allIdeas.find(i => i.index === index);
+                const kw = (typeof kwFor === 'function' ? kwFor(index) : '') || (idea && (idea.currentKeyword || idea.keyword || idea.currentTitle)) || '';
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'get-blog-code', keyword: kw, fallback: d.blogCode || '' }) }).then(x => x.json());
+                if (r && r.code) { d.blogCode = r.code; persistDraft(index, d); }
+            } catch (e) {}
+            return d.blogCode || '';
         }
         // Save the draft (with its style bible / code / section shows) so it survives + the finish step can read it.
         function persistDraft(index, d) {
@@ -3189,13 +3195,13 @@ Give me:
             try { fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-draft', title: idea ? idea.currentTitle : '', draft: d }) }); } catch (e) {}
         }
 
-        function getImagePrompts(index) {
+        async function getImagePrompts(index) {
             const idea = allIdeas.find(i => i.index === index);
             const d = window._drafts[index] || (window._draftsByTitle && window._draftsByTitle[(idea && idea.currentTitle || '').toLowerCase()]);
             const out = document.getElementById(`imgp-${index}`);
             if (!d) { if (out) out.innerHTML = '<span style="color:#a33;">Write the blog first, then get the image prompts.</span>'; return; }
             window._drafts[index] = d;
-            ensureBlogCode(index, d);
+            await ensureBlogCode(index, d);
             // Bring back a saved style photo from this browser, if there is one for this blog.
             window._imgp = window._imgp || {}; window._imgp[index] = window._imgp[index] || {};
             if (!window._imgp[index].photo) {
