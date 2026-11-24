@@ -1,4 +1,10 @@
-// blogs.js — v6.29
+// blogs.js — v6.30
+// v6.30 (2026-11-24): DISCOVER + GSC upgrades. (1) Custom rooms/styles Mae adds by hand (data/discover-custom-rooms.json
+//   + discover-custom-styles.json) are merged into the live taxonomy (TOPIC_*_DICT) → show in the cards AND are seen by
+//   the duplicate check; built-in names protected. NEW actions discover-add-room/add-style/remove-room/remove-style;
+//   discover-gaps now flags isCustom per room/style. (2) NEW gsc-blog-gaps: a BROAD live 12-month GSC query pull (not the
+//   small cron "opportunities" list), kept to informational / no-blog ones above an editable impressions floor, each
+//   flagged if a live blog shares its room and/or style; sorted by searches, top 300 — powers the improved tab-2 panel.
 // v6.29 (2026-11-23): DISCOVER review controls. NEW discover-discard ("Discard forever" → data/discover-discarded.json);
 //   discover-search now also skips forever-discarded questions (alongside pool/idea dupes). Pairs with the HTML change
 //   where review questions come UNticked, cards are clearer, and each ticked set can go to Group / To decide later /
@@ -728,6 +734,27 @@ If you genuinely cannot find one of the two, leave its two fields as empty strin
     ['Reading room', ['reading room','reading nook','library']],
     ['Outdoor', ['outdoor','garden','patio','balcony']]
   ];
+  // ── Custom rooms/styles Mae adds by hand from the Discover tab (persisted on GitHub). They are merged into
+  // the live taxonomy above, so BOTH the Discover cards AND the duplicate check (topicTagBoth) recognise them
+  // — there is only one live list to keep in sync. Built-in names are captured first so the tool can tell a
+  // custom entry apart (for the remove "×"). Loaded only for discover/fusion/gsc actions; files may not exist.
+  const BUILTIN_STYLE_NAMES = new Set(TOPIC_STYLE_DICT.map(e => String(e[0]).toLowerCase()));
+  const BUILTIN_ROOM_NAMES = new Set(TOPIC_ROOM_DICT.map(e => String(e[0]).toLowerCase()));
+  if (/discover|fusion|gsc/i.test(String((req.body && req.body.action) || (req.query && req.query.action) || ''))) {
+    try {
+      const _customToPair = (e) => {
+        const name = String((e && e.name) || '').trim();
+        if (!name) return null;
+        const term = name.toLowerCase();
+        const syns = Array.isArray(e && e.synonyms) ? e.synonyms.map(s => String(s).toLowerCase().trim()).filter(Boolean) : [];
+        return [name, [term, ...syns]];
+      };
+      const _cs = await readJsonFileSafe('data/discover-custom-styles.json', []);
+      const _cr = await readJsonFileSafe('data/discover-custom-rooms.json', []);
+      (Array.isArray(_cs) ? _cs : []).map(_customToPair).filter(Boolean).forEach(p => { if (!TOPIC_STYLE_DICT.some(e => String(e[0]).toLowerCase() === p[0].toLowerCase())) TOPIC_STYLE_DICT.push(p); });
+      (Array.isArray(_cr) ? _cr : []).map(_customToPair).filter(Boolean).forEach(p => { if (!TOPIC_ROOM_DICT.some(e => String(e[0]).toLowerCase() === p[0].toLowerCase())) TOPIC_ROOM_DICT.push(p); });
+    } catch (e) { /* custom taxonomy optional */ }
+  }
   const topicNorm = (s) => String(s || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
   const topicDepl = (w) => (w.length > 3 && w.endsWith('s')) ? w.slice(0, -1) : w; // singular/plural tolerant
   // A synonym "hits" if it appears as a whole word / consecutive phrase (plural tolerant), OR two adjacent
@@ -4078,18 +4105,115 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         (await gatherPipelineTexts()).forEach(t => { const { style, room } = topicTag(t, false); if (room) pipeRoom.add(room); if (style && room) pipePairs.add(style + '|' + room); });
         const searched = await readJsonFileSafe('data/discover-searched.json', []);
         const searchedSet = new Set((Array.isArray(searched) ? searched : []).map(x => String(x).toLowerCase()));
-        const styleList = TOPIC_STYLE_DICT.map(e => ({ name: e[0], term: e[1][0], synonyms: e[1].slice(1) }));
+        const styleList = TOPIC_STYLE_DICT.map(e => ({ name: e[0], term: e[1][0], synonyms: e[1].slice(1), isCustom: !BUILTIN_STYLE_NAMES.has(String(e[0]).toLowerCase()) }));
         const rooms = TOPIC_ROOM_DICT.map(e => {
           const room = e[0], roomTerm = e[1][0], roomSyn = e[1].slice(1);
           const styles = styleList.map(s => ({
-            style: s.name, term: s.term, synonyms: s.synonyms,
+            style: s.name, term: s.term, synonyms: s.synonyms, isCustom: s.isCustom,
             covered: publishedPairs.has(s.name + '|' + room),
             inPipeline: !publishedPairs.has(s.name + '|' + room) && pipePairs.has(s.name + '|' + room),
             searched: searchedSet.has((s.term + ' ' + roomTerm).toLowerCase())
           }));
-          return { room, roomTerm, roomSynonyms: roomSyn, generalCount: roomCount[room] || 0, generalInPipeline: pipeRoom.has(room), generalSearched: searchedSet.has(roomTerm.toLowerCase()), styles };
+          return { room, roomTerm, roomSynonyms: roomSyn, isCustom: !BUILTIN_ROOM_NAMES.has(String(room).toLowerCase()), generalCount: roomCount[room] || 0, generalInPipeline: pipeRoom.has(room), generalSearched: searchedSet.has(roomTerm.toLowerCase()), styles };
         });
         return res.status(200).json({ success: true, rooms, terms: DISCOVER_TERMS });
+      }
+
+      // ── ACTIONS: discover-add-room / discover-add-style / discover-remove-room / discover-remove-style ──
+      // Mae adds or removes rooms/styles by hand from the Discover tab. Stored on GitHub; merged into the live
+      // taxonomy above (so they show in the cards AND are recognised by the duplicate check). Built-in names
+      // are protected — they can't be re-added or removed.
+      if (req.body.action === 'discover-add-room' || req.body.action === 'discover-add-style') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const isRoom = req.body.action === 'discover-add-room';
+        const file = isRoom ? 'data/discover-custom-rooms.json' : 'data/discover-custom-styles.json';
+        const builtin = isRoom ? BUILTIN_ROOM_NAMES : BUILTIN_STYLE_NAMES;
+        const name = String(req.body.name || '').trim();
+        if (!name) return res.status(200).json({ success: false, error: 'Name is required' });
+        const nameLc = name.toLowerCase();
+        if (builtin.has(nameLc)) return res.status(200).json({ success: false, error: `"${name}" is already a built-in ${isRoom ? 'room' : 'style'}.` });
+        const syns = Array.isArray(req.body.synonyms)
+          ? req.body.synonyms.map(s => String(s).trim()).filter(Boolean)
+          : String(req.body.synonyms || '').split(',').map(s => s.trim()).filter(Boolean);
+        let list = await readJsonFileSafe(file, []); if (!Array.isArray(list)) list = [];
+        if (list.some(e => String(e.name || '').toLowerCase() === nameLc)) return res.status(200).json({ success: false, error: `"${name}" is already added.` });
+        list.push({ name, synonyms: syns, addedAt: new Date().toISOString() });
+        await writeJsonFile(file, list, `Discover: add ${isRoom ? 'room' : 'style'} "${name}"`);
+        return res.status(200).json({ success: true, list });
+      }
+      if (req.body.action === 'discover-remove-room' || req.body.action === 'discover-remove-style') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const isRoom = req.body.action === 'discover-remove-room';
+        const file = isRoom ? 'data/discover-custom-rooms.json' : 'data/discover-custom-styles.json';
+        const name = String(req.body.name || '').trim();
+        const nameLc = name.toLowerCase();
+        if (!nameLc) return res.status(200).json({ success: false, error: 'Name is required' });
+        let list = await readJsonFileSafe(file, []); if (!Array.isArray(list)) list = [];
+        const next = list.filter(e => String(e.name || '').toLowerCase() !== nameLc);
+        await writeJsonFile(file, next, `Discover: remove ${isRoom ? 'room' : 'style'} "${name}"`);
+        return res.status(200).json({ success: true, list: next });
+      }
+
+      // ── ACTION: gsc-blog-gaps ── (the improved "Priority from GSC" panel source) a BROAD live pull of the last
+      // 12 months of Search Console queries, kept to informational / blog-worthy ones that NO blog already covers,
+      // above an editable impressions floor. Each is flagged if a live blog shares its room and/or style (so Mae
+      // can tell a fresh angle from cannibalisation). Sorted by searches (impressions), top 300.
+      if (req.body.action === 'gsc-blog-gaps' || req.query.action === 'gsc-blog-gaps') {
+        const body = req.body || {};
+        const minImpr = Math.max(0, parseInt(body.minImpr != null ? body.minImpr : ((req.query && req.query.minImpr) || 20), 10) || 20);
+        const host = req.headers['x-forwarded-host'] || req.headers.host;
+        const proto = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0];
+        const endD = new Date().toISOString().slice(0, 10);
+        const sD = new Date(); sD.setFullYear(sD.getFullYear() - 1); const startD = sD.toISOString().slice(0, 10);
+        let rows = [];
+        try {
+          const gr = await fetch(`${proto}://${host}/api/gsc?action=queries&startDate=${startD}&endDate=${endD}&limit=25000`);
+          if (gr.ok) { const gj = await gr.json(); const rr = (gj && gj.data && gj.data.rows) || []; rows = rr.map(r => ({ keyword: String((r.keys && r.keys[0]) || '').trim(), impressions: Math.round(r.impressions || 0), clicks: Math.round(r.clicks || 0), position: Math.round((r.position || 0) * 10) / 10 })); }
+        } catch (e) { /* fall through → empty */ }
+        if (!rows.length) return res.status(200).json({ success: true, options: [], total: 0, floor: minImpr, note: 'No live GSC data came back.' });
+        const BRAND_RE = /about\s*wall\s*art|aboutwallart/i;
+        const INFO_RE = /\b(idea|ideas|how|what|why|when|where|which|who|guide|guides|tip|tips|best|top|example|examples|inspiration|inspo|decorate|decorating|decor|design|designs|style|styles|theme|themes|meaning|vs|diy|trend|trends|20\d\d|should|can|make|choose|hang|hanging|arrange|arranging|layout|colour|color|palette)\b/i;
+        const PRODUCT_RE = /\b(buy|price|prices|cheap|sale|discount|for sale|near me|shop|store|order|delivery|coupon|voucher|print|prints|poster|posters|canvas|framed|frame|cushion|rug|mug|sticker)\b/i;
+        let intentCache = {};
+        try { const ic = await readJsonFileSafe('data/gsc-keyword-intent-cache.json', {}); intentCache = ic && typeof ic === 'object' ? ic : {}; } catch (e) {}
+        let blogKws = [];
+        try {
+          const rc = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/keyword-locker-registry.csv?t=${Date.now()}`);
+          if (rc.ok) { const txt = await rc.text(); txt.split('\n').forEach((line, i) => { if (i === 0 || !line.trim()) return; const c = parseCSVLine(line.replace(/\r/g, '')); const src = (c[9] || ''); if ((src === 'Published Blog' || src === 'To_Write_Blog') && c[0]) blogKws.push(c[0].toLowerCase()); }); }
+        } catch (e) {}
+        let dismissed = [];
+        try { const df = await getGitHubFile('data/gsc-blog-dismissed.json'); dismissed = (JSON.parse(df.content) || []).map(x => String(x).toLowerCase()); } catch (e) { dismissed = []; }
+        const dismSet = new Set(dismissed);
+        let existingBlogs = [];
+        try { existingBlogs = await fetchBlogsPubAndSched(); } catch (e) { existingBlogs = []; }
+        if (!existingBlogs.length) { try { const bi = await getGitHubFile('data/blog-index.json'); const j = JSON.parse(bi.content); existingBlogs = (j.articles || []).map(a => ({ title: a.title })); } catch (e) {} }
+        const blogTags = existingBlogs.map(b => { const t = topicTag(b.title || '', false); return { title: b.title || '', style: t.style, room: t.room }; });
+        const overlapFor = (kw) => {
+          const t = topicTag(kw, false); const qS = t.style, qR = t.room;
+          if (qS && qR) { const b = blogTags.find(bt => bt.style === qS && bt.room === qR); if (b) return { style: qS, room: qR, type: 'both', title: b.title }; }
+          if (qR) { const b = blogTags.find(bt => bt.room === qR); if (b) return { style: qS, room: qR, type: 'room', title: b.title }; }
+          if (qS) { const b = blogTags.find(bt => bt.style === qS); if (b) return { style: qS, room: qR, type: 'style', title: b.title }; }
+          return { style: qS, room: qR, type: null, title: '' };
+        };
+        const seen = new Set();
+        const options = rows
+          .filter(r => {
+            const kw = r.keyword; const lc = kw.toLowerCase();
+            if (!kw || seen.has(lc)) return false;
+            if (r.impressions < minImpr) return false;
+            if (BRAND_RE.test(kw)) return false;
+            if (dismSet.has(lc)) return false;
+            if (blogKws.some(bk => bk === lc || lc.includes(bk))) return false; // a blog already targets it
+            const cached = String(intentCache[kw] || intentCache[lc] || '').toLowerCase();
+            if (cached === 'product') return false;
+            const info = cached === 'blog' || (INFO_RE.test(kw) && !PRODUCT_RE.test(kw));
+            if (!info) return false;
+            seen.add(lc); return true;
+          })
+          .sort((a, b) => b.impressions - a.impressions)
+          .slice(0, 300)
+          .map(r => { const ov = overlapFor(r.keyword); return { keyword: r.keyword, impressions: r.impressions, clicks: r.clicks, position: r.position, style: ov.style || '', room: ov.room || '', overlap: ov.type ? { type: ov.type, title: ov.title } : null }; });
+        return res.status(200).json({ success: true, options, total: options.length, floor: minImpr });
       }
 
       // ── ACTION: discover-search ── search each seed phrase × each term on Serper, collect the questions,
