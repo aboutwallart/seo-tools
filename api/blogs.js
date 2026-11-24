@@ -1,4 +1,10 @@
-// blogs.js — v6.33
+// blogs.js — v6.34
+// v6.34 (2026-11-24): FOUR fixes. (1) MONTH IN PROGRESS — a blog now leaves that tab ONLY when Mae clicks its own
+//   "Mark as done" (recorded in data/blog-done.json); publishing keeps the month tag so completed blogs stay visible
+//   until she marks them. (2) Thick black divider between GSC rows (front end). (3) H1 TITLE — write-blog-body now
+//   generates the click-worthy H1 and returns it so the card shows it at the write step; publish reuses that exact title.
+//   (4) AUTO-LINK — approving a GSC query locked to a PRODUCT adds an auto-link rule (query → product URL) so the blog
+//   links to it for SEO, without touching the blog body.
 // v6.33 (2026-11-24): PERMANENT BLOG IMAGE CODE (bug fix — orphaned images). Each blog's image code now lives in
 //   data/blog-codes.json keyed by its keyword and is SET ONCE, NEVER CHANGED. New helper stableBlogCode() + action
 //   get-blog-code. write-blog-body returns it; finish-blog + publish-blog read it from there (seeding from the draft's
@@ -3198,6 +3204,9 @@ Include EXACTLY 3 items.`;
         });
         if (!found) return res.status(404).json({ error: 'blog not found in the list' });
         await updateGitHubFile('data/blog_ideas.csv', out.join('\n'), f.sha, 'Mark blog done: ' + title);
+        // Record the EXPLICIT "done" in a dedicated permanent list. The Month-in-progress tab hides ONLY the blogs in
+        // this list — so a blog leaves that view only when Mae clicks its own "Mark as done", never on publish/refresh.
+        try { let done = await readJsonFileSafe('data/blog-done.json', []); if (!Array.isArray(done)) done = []; const lc = title.trim().toLowerCase(); if (!done.includes(lc)) { done.push(lc); await writeJsonFile('data/blog-done.json', done, 'Marked done: ' + title); } } catch (e) {}
         return res.status(200).json({ success: true });
       }
 
@@ -4494,7 +4503,24 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
           if (touched) await writeJsonFile('data/discover-pool.json', arr, `Discover: grouped ${secondary.length + 1} topic(s) into ${keyword}`);
         } catch (e) {}
 
-        return res.status(200).json({ success: true, keyword, covers: secondary.length });
+        // 7) If any grouped query was LOCKED to a PRODUCT / other page, add an auto-link rule (query → that URL) so the
+        //    new blog automatically links to it and passes SEO to the money page. This reuses the storefront auto-linker
+        //    — it never edits the blog body here. Skips blog-locked targets and any keyword already ruled.
+        let linkedTargets = 0;
+        try {
+          const targets = Array.isArray(req.body.lockedTargets) ? req.body.lockedTargets : [];
+          const clean = targets.map(t => ({ keyword: String((t && t.keyword) || '').trim(), url: String((t && t.url) || '').trim() })).filter(t => t.keyword && t.url);
+          if (clean.length) {
+            const f = await getGitHubFile('data/autolink-rules.json');
+            const rules = JSON.parse(f.content || '[]');
+            const nrmk = (s) => String(s || '').trim().toLowerCase();
+            let maxId = rules.reduce((mx, r) => Math.max(mx, parseInt(r.id) || 0), 0);
+            clean.forEach(t => { if (!rules.some(r => nrmk(r.keyword) === nrmk(t.keyword))) { rules.unshift({ id: ++maxId, keyword: t.keyword, url: t.url, linksAdded: 0, verified: 'ok' }); linkedTargets++; } });
+            if (linkedTargets) await updateGitHubFile('data/autolink-rules.json', JSON.stringify(rules, null, 2), f.sha, `Auto-link reused product keyword(s) → product for blog: ${keyword}`);
+          }
+        } catch (e) {}
+
+        return res.status(200).json({ success: true, keyword, covers: secondary.length, linkedTargets });
       }
 
       // ── ACTION: discover-probe ── test one seed: return EVERY question Google brings, with kept/dropped + why.
@@ -6136,7 +6162,7 @@ Return only the JSON.`;
         //      swap it for the click-worthy one the SEO pass wrote. A title that is already proper (has capitals)
         //      is kept untouched. pbTitle stays the key for drafts/CSV lookups; only Shopify gets the nice title. ----
         const rawTitleLike = norm(pbTitle) === norm(keyword) || !/[A-Z]/.test(pbTitle);
-        const blogTitleGen = deEnt(boxes.blogTitle || '').trim();
+        const blogTitleGen = deEnt(draft.h1Title || boxes.blogTitle || '').trim(); // prefer the H1 Mae already saw at the write step
         const articleTitle = (rawTitleLike && blogTitleGen) ? blogTitleGen : pbTitle;
         if (articleTitle !== pbTitle) { handle = slugify(articleTitle).slice(0, 110) || slugify(keyword); report.push({ ok: true, label: 'Title made click-worthy: "' + articleTitle + '"' }); }
         // How-To schema — Money Page Doctor's exact format (JSON-LD in a script tag), only for real how-tos
@@ -6426,7 +6452,8 @@ Return only the JSON.`;
               while (cols.length < 10) cols.push('');
               month = cols[9] || '';
               cols[5] = 'PUBLISHED';
-              cols[9] = '';
+              // Keep the month tag (do NOT clear it) so a published blog stays visible in "Month in progress" until
+              // Mae explicitly marks it done. It only leaves that tab via its own "Mark as done" (data/blog-done.json).
               return cols.map(esc).join(',');
             }
             return line;
@@ -6678,7 +6705,9 @@ IMAGE RULES — YOU write the full prompt for every image; the generator only dr
 - INFOGRAPHIC — use kind "infographic" ONLY when the section is genuinely a COMPARISON, before/after, proportion, measurement, steps, or a stats/checklist. NEVER for a plain tip list or a room scene. When it is, the FULL PROMPT must be: "Clean minimal educational infographic, plain WHITE background, photoreal, all text solid BLACK. A short centred title near the top, then a clear VISUAL comparison (two labelled photos side by side, or simple labelled icons/steps), minimal words, generous white space, nothing near the edges. No people, no watermarks." THEN name the exact comparison/steps to show.
 - Aim for about 3 infographics WHERE THEY GENUINELY FIT; if fewer sections truly suit one, that is fine — never mislabel a room scene as an infographic.
 
-HERO IMAGE — at the VERY END, after the closing paragraph, output ONE line exactly: [[HERO|FULL PROMPT]] — one strong square featured scene for this blog (the reader's main situation/room, editorial look as above, NO framed wall art but other wall decor welcome, the keyword idea reflected in the setting). DESCRIBE THE ROOM/SCENE ONLY — do NOT put a specific person in it, and do NOT say how many people; leave the person completely open (the 5 featured options each add a different person). This is the ONLY place you describe the hero; it becomes 5 variations later.`;
+HERO IMAGE — at the VERY END, after the closing paragraph, output ONE line exactly: [[HERO|FULL PROMPT]] — one strong square featured scene for this blog (the reader's main situation/room, editorial look as above, NO framed wall art but other wall decor welcome, the keyword idea reflected in the setting). DESCRIBE THE ROOM/SCENE ONLY — do NOT put a specific person in it, and do NOT say how many people; leave the person completely open (the 5 featured options each add a different person). This is the ONLY place you describe the hero; it becomes 5 variations later.
+
+TITLE — also at the VERY END, output ONE line exactly: [[TITLE|the blog's H1]] where the H1 is a compelling, click-worthy blog title for a real reader: specific and benefit- or curiosity-driven, Title Case, UK spelling, includes the topic naturally, 40-70 characters, NO year unless genuinely useful, NOT the bare keyword, NOT clickbait, NOT ALL CAPS, no quotes. This is the blog's real H1 title.`;
 
         // Bigger ceiling so a long body (every section imaged, a table, 6 products) always finishes.
         let bodyHtml = await callClaudeText(bodyPrompt, 16000);
@@ -6686,6 +6715,9 @@ HERO IMAGE — at the VERY END, after the closing paragraph, output ONE line exa
         // Pull the hero (featured) image prompt out of the body — it's not part of the body.
         let heroPrompt = '';
         bodyHtml = bodyHtml.replace(/\[\[HERO\|([\s\S]*?)\]\]/, (m, p) => { heroPrompt = (p || '').trim(); return ''; }).trim();
+        // Pull the H1 title the SAME write call produced (one call — no extra AI request): shown on the card + reused at publish.
+        let h1Title = '';
+        bodyHtml = bodyHtml.replace(/\[\[TITLE\|([\s\S]*?)\]\]/, (m, p) => { h1Title = (p || '').trim().replace(/^["'\s]+|["'\s]+$/g, '').replace(/\s+/g, ' '); return ''; }).trim();
         // Inject the real trend links into the Visual-Inspiration marker.
         if (trendsHtml) bodyHtml = bodyHtml.replace(/\[\[TRENDS\]\]/g, trendsHtml);
         else bodyHtml = bodyHtml.replace(/\[\[TRENDS\]\]/g, '');
@@ -6703,6 +6735,7 @@ HERO IMAGE — at the VERY END, after the closing paragraph, output ONE line exa
           featuredBase,
           heroPrompt,
           blogCode,
+          h1Title,
           authority: { title: sources.authorityTitle, url: sources.authorityUrl },
           youtube: { title: sources.youtubeTitle, link: sources.youtubeLink }
         });
