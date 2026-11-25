@@ -1,4 +1,12 @@
-// blogs.js — v6.37
+// blogs.js — v6.38
+// v6.38 (2026-11-25): SAFEGUARDS + smarter tree filter. (1) NEW `version` action returns BLOGS_JS_VERSION so the page
+//   can check the backend is new enough and warn Mae which file to upload (no more silent half-done 2-file upgrades).
+//   (2) NEW `tree-filter` action: a Haiku pass keeps only the AlsoAsked questions RELEVANT to the blog (judgement, not
+//   word-matching) and returns the filtered branches + dropped count; Mae then ✕-removes more before writing.
+//   (3) write-blog-body now takes the reviewed `alsoAskedTree` (structured) — the CSV parser/outline helpers moved to
+//   module scope and `alsoAskedCsv` still works as a fallback. (4) save-draft is now RACE-SAFE and VERIFIED: it re-reads
+//   the fresh map on each attempt and re-applies the draft (a concurrent save can't clobber another blog), PUTs directly
+//   so a 409 re-loops, and confirms the draft actually persisted before returning success. Pairs with html v6.56.
 // v6.37 (2026-11-25): GSC CLUSTERS. New action `gsc-cluster` — a Haiku pass groups the GSC gap queries into clusters
 //   (the same search said different ways = ONE blog) so Mae decides per group, not per row. Queries are pre-sorted by
 //   room/style signature so related ones share a chunk; chunked (80) so a long list never truncates the JSON; same-label
@@ -378,6 +386,7 @@ export default async function handler(req, res) {
 
   const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
   const REPO = 'aboutwallart/seo-tools';
+  const BLOGS_JS_VERSION = '6.38'; // bump on every blogs.js change; the tool checks this against what the page needs
   const SHEETS_WEBHOOK = process.env.SHEETS_WEBHOOK_URL;
 
   // Helper: fetch file from GitHub
@@ -435,6 +444,56 @@ export default async function handler(req, res) {
       return '"' + str.replace(/"/g, '""') + '"';
     }
     return str;
+  }
+
+  // ── AlsoAsked tree helpers (shared by tree-filter + write-blog-body) ──
+  // AlsoAsked CSV export: the question tree lives in "tier 1 position"/"tier 2 position" (tier1>0 + tier2=0 = a branch
+  // parent; tier2>0 = its sub-questions; tier1=0 = the seed, skipped). Answers are blank/locked on the free plan, so we
+  // use ONLY the questions + structure. A proper tokeniser handles the multi-line quoted answer field without breaking.
+  function parseCsvRecords(text) {
+    const rows = []; let row = [], field = '', inQ = false;
+    const s = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+      if (inQ) { if (ch === '"') { if (s[i + 1] === '"') { field += '"'; i++; } else { inQ = false; } } else field += ch; }
+      else if (ch === '"') { inQ = true; }
+      else if (ch === ',') { row.push(field); field = ''; }
+      else if (ch === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+      else field += ch;
+    }
+    if (field.length || row.length) { row.push(field); rows.push(row); }
+    return rows;
+  }
+  function parseAlsoAskedBranches(csv) {
+    const rows = parseCsvRecords(csv);
+    if (rows.length < 2) return [];
+    const header = rows[0].map(h => String(h || '').trim().toLowerCase());
+    const qi = header.indexOf('question'), t1i = header.indexOf('tier 1 position'), t2i = header.indexOf('tier 2 position');
+    if (qi === -1 || t1i === -1 || t2i === -1) return [];
+    const branches = {};
+    for (let r = 1; r < rows.length; r++) {
+      const rec = rows[r]; if (!rec || !rec.length) continue;
+      const q = String(rec[qi] || '').trim(); if (!q) continue;
+      const t1 = parseInt(rec[t1i], 10), t2 = parseInt(rec[t2i], 10);
+      if (!Number.isInteger(t1) || t1 <= 0) continue;
+      if (!branches[t1]) branches[t1] = { parent: '', children: [] };
+      if (t2 === 0) branches[t1].parent = q;
+      else if (Number.isInteger(t2)) branches[t1].children.push(q);
+    }
+    return Object.keys(branches).map(n => parseInt(n, 10)).sort((a, b) => a - b).map(k => {
+      const b = branches[k]; const parent = b.parent || b.children[0] || ''; if (!parent) return null;
+      const seen = new Set([parent.toLowerCase()]);
+      const kids = b.children.filter(c => { const lc = c.toLowerCase(); if (seen.has(lc)) return false; seen.add(lc); return true; });
+      return { parent, children: (b.parent ? kids : kids.slice(1)) };
+    }).filter(Boolean);
+  }
+  function alsoAskedOutlineFromBranches(branches) {
+    if (!Array.isArray(branches)) return '';
+    return branches.map(b => {
+      const parent = String((b && b.parent) || '').trim(); if (!parent) return '';
+      const kids = Array.isArray(b.children) ? b.children.map(c => String(c || '').trim()).filter(Boolean) : [];
+      return '- ' + parent + (kids.length ? '\n' + kids.map(c => '   · ' + c).join('\n') : '');
+    }).filter(Boolean).join('\n');
   }
 
   // Helper: detect intent from URL
@@ -5535,11 +5594,31 @@ Return ONLY a JSON array, one object per title in order, exactly:
         const draft = req.body.draft && typeof req.body.draft === 'object' ? req.body.draft : null;
         if (!t || !draft) return res.status(400).json({ error: 'title and draft required' });
         if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
-        let map = {}, sha;
-        try { const f = await getGitHubFile('data/blog-drafts.json'); map = JSON.parse(f.content || '{}'); sha = f.sha; } catch (e) { map = {}; sha = undefined; }
-        map[t.toLowerCase()] = { ...draft, savedAt: new Date().toISOString() };
-        await updateGitHubFile('data/blog-drafts.json', JSON.stringify(map, null, 2), sha, `Save blog draft: ${t}`);
-        return res.status(200).json({ success: true });
+        const key = t.toLowerCase();
+        const entry = { ...draft, savedAt: new Date().toISOString() };
+        // RACE-SAFE SAVE: on every attempt re-read the FRESH map and re-apply THIS draft, then PUT directly so a 409
+        // (someone else saved meanwhile) bubbles up and we loop with a fresh read — so a concurrent save can never
+        // clobber another blog (the old bug: the generic retry kept stale content and dropped other blogs). Finally we
+        // VERIFY the draft actually persisted before reporting success — no more "✅ saved" that didn't land.
+        let saved = false, lastErr = '';
+        for (let attempt = 0; attempt < 5 && !saved; attempt++) {
+          let map = {}, sha;
+          try { const f = await getGitHubFile('data/blog-drafts.json'); map = JSON.parse(f.content || '{}'); sha = f.sha; } catch (e) { map = {}; sha = undefined; }
+          map[key] = entry;
+          try {
+            const put = await fetch(`https://api.github.com/repos/${REPO}/contents/data/blog-drafts.json`, {
+              method: 'PUT',
+              headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+              body: JSON.stringify({ message: `Save blog draft: ${t}`, content: Buffer.from(JSON.stringify(map, null, 2)).toString('base64'), sha })
+            });
+            if (!put.ok) { lastErr = (await put.text()).slice(0, 150); await new Promise(r => setTimeout(r, 300 * (attempt + 1))); continue; }
+          } catch (e) { lastErr = e.message || String(e); await new Promise(r => setTimeout(r, 300 * (attempt + 1))); continue; }
+          // Verify it really landed (read back and match our timestamp).
+          try { const v = await getGitHubFile('data/blog-drafts.json'); const vm = JSON.parse(v.content || '{}'); if (vm[key] && vm[key].savedAt === entry.savedAt) saved = true; else { lastErr = 'save did not persist (verify mismatch)'; await new Promise(r => setTimeout(r, 300 * (attempt + 1))); } }
+          catch (e) { lastErr = 'could not verify save'; }
+        }
+        if (!saved) return res.status(200).json({ success: false, error: 'Could not confirm the blog saved to GitHub — press Save again. (' + lastErr + ')' });
+        return res.status(200).json({ success: true, verified: true });
       }
 
       // ── ACTION: pick-products ── (Products batch, chunk 1: topic-matched products with ALL images, split About Wall Art vs Collective)
@@ -6732,6 +6811,44 @@ Return only the JSON.`;
         });
       }
 
+      // ── ACTION: version ── the page calls this on load to confirm the backend (this file) is new enough for it.
+      // If the page needs a newer blogs.js than what's deployed, it shows a banner telling Mae which file to upload —
+      // so a half-done two-file upgrade never runs wrong in silence.
+      if (req.body.action === 'version') {
+        return res.status(200).json({ success: true, version: BLOGS_JS_VERSION });
+      }
+
+      // ── ACTION: tree-filter ── a Haiku pass that reads an AlsoAsked tree and KEEPS only the questions relevant to
+      // this blog, dropping off-topic People-Also-Ask drift with judgement (not word-matching). Returns the filtered
+      // branches + how many it dropped. Mae then reviews and removes more (her ✕) before writing — she's the last filter.
+      if (req.body.action === 'tree-filter') {
+        const keyword = String(req.body.keyword || '').trim();
+        const title = String(req.body.title || '').trim();
+        const branches = Array.isArray(req.body.tree) ? req.body.tree : parseAlsoAskedBranches(String(req.body.csv || ''));
+        const items = []; // flatten every question with its branch index
+        branches.forEach((b, bi) => {
+          const parent = String((b && b.parent) || '').trim();
+          if (parent) items.push({ bi, kind: 'parent', text: parent });
+          (Array.isArray(b && b.children) ? b.children : []).forEach(c => { const t = String(c || '').trim(); if (t) items.push({ bi, kind: 'child', text: t }); });
+        });
+        if (!items.length) return res.status(200).json({ success: true, branches: [], dropped: 0, aiUsed: false });
+        const numbered = items.map((it, i) => (i + 1) + '. ' + it.text).join('\n');
+        const prompt = `This is a blog for About Wall Art (UK wall art & home decor). Blog topic: "${title || keyword}" (main keyword: "${keyword}").
+Below are research questions from Google "People Also Ask". Decide, with judgement (NOT word-matching), which are RELEVANT to write about in THIS blog, and which are OFF-TOPIC drift that does not belong (examples of off-topic: house prices, what devalues a home, which side of the bed people sleep on, closing doors at night, unrelated feng-shui superstitions). KEEP anything genuinely about the room, the style, decor, colour, wall art, layout, furniture or how-to for this topic.
+Questions:
+${numbered}
+Return ONLY a JSON object {"keep":[the numbers of the RELEVANT questions]}. No prose, no markdown.`;
+        let keep = null;
+        try { const raw = await callClaudeText(prompt, 1500, 'claude-haiku-4-5-20251001'); const m = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').match(/\{[\s\S]*\}/); const o = m ? JSON.parse(m[0]) : {}; if (Array.isArray(o.keep)) keep = new Set(o.keep.map(n => parseInt(n, 10)).filter(n => Number.isInteger(n))); } catch (e) { keep = null; }
+        // AI failed → keep everything (never silently drop the whole tree); Mae's ✕ is still the final filter.
+        const kept = items.filter((it, i) => keep ? keep.has(i + 1) : true);
+        const dropped = items.length - kept.length;
+        const byBi = {};
+        kept.forEach(it => { if (!byBi[it.bi]) byBi[it.bi] = { parent: '', children: [] }; if (it.kind === 'parent') byBi[it.bi].parent = it.text; else byBi[it.bi].children.push(it.text); });
+        const out = Object.keys(byBi).map(n => parseInt(n, 10)).sort((a, b) => a - b).map(k => { const b = byBi[k]; const parent = b.parent || b.children[0] || ''; if (!parent) return null; return { parent, children: (b.parent ? b.children : b.children.slice(1)) }; }).filter(Boolean);
+        return res.status(200).json({ success: true, branches: out, dropped, aiUsed: !!keep });
+      }
+
       // ── ACTION: write-blog-body ── (Stage 2 STEP 2: write the full body using the sources from step 1)
       // Input: { keyword, title, brief?, authority?, youtube?, trendsHtml? }
       // Output: { success, bodyHtml (with [[IMG|...]] + [[PRODUCT|...]] markers), featuredBase, authority, youtube }
@@ -6784,61 +6901,19 @@ Return only the JSON.`;
         const curYear = new Date().getFullYear();
         const nextYear = curYear + 1;
 
-        // ── AlsoAsked tree (optional) ── Mae can drop an AlsoAsked CSV export before writing. It carries a
-        //    People-Also-Ask question tree where the hierarchy lives in "tier 1 position" / "tier 2 position"
-        //    (tier1 = branch; tier1>0 + tier2=0 = the branch's parent question; tier2>0 = its sub-questions).
-        //    We use ONLY the questions + structure (answers are blank/locked on the free plan). Parsed here so a
-        //    multi-line quoted CSV never breaks. Fed to the writer as section structure — irrelevant PAA drift ignored.
-        function parseCsvRecords(text) {
-          const rows = []; let row = [], field = '', inQ = false;
-          const s = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-          for (let i = 0; i < s.length; i++) {
-            const ch = s[i];
-            if (inQ) {
-              if (ch === '"') { if (s[i + 1] === '"') { field += '"'; i++; } else { inQ = false; } }
-              else field += ch;
-            } else if (ch === '"') { inQ = true; }
-            else if (ch === ',') { row.push(field); field = ''; }
-            else if (ch === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
-            else field += ch;
-          }
-          if (field.length || row.length) { row.push(field); rows.push(row); }
-          return rows;
-        }
-        function buildAlsoAskedOutline(csv) {
-          const rows = parseCsvRecords(csv);
-          if (rows.length < 2) return '';
-          const header = rows[0].map(h => String(h || '').trim().toLowerCase());
-          const qi = header.indexOf('question'), t1i = header.indexOf('tier 1 position'), t2i = header.indexOf('tier 2 position');
-          if (qi === -1 || t1i === -1 || t2i === -1) return '';
-          const branches = {};
-          for (let r = 1; r < rows.length; r++) {
-            const rec = rows[r]; if (!rec || !rec.length) continue;
-            const q = String(rec[qi] || '').trim(); if (!q) continue;
-            const t1 = parseInt(rec[t1i], 10), t2 = parseInt(rec[t2i], 10);
-            if (!Number.isInteger(t1) || t1 <= 0) continue; // skip the seed row (tier1=0)
-            if (!branches[t1]) branches[t1] = { parent: '', children: [] };
-            if (t2 === 0) branches[t1].parent = q;
-            else if (Number.isInteger(t2)) branches[t1].children.push(q);
-          }
-          const lines = [];
-          Object.keys(branches).map(n => parseInt(n, 10)).sort((a, b) => a - b).forEach(k => {
-            const b = branches[k]; const parent = b.parent || b.children[0] || ''; if (!parent) return;
-            const seen = new Set([parent.toLowerCase()]);
-            const kids = b.children.filter(c => { const lc = c.toLowerCase(); if (seen.has(lc)) return false; seen.add(lc); return true; });
-            lines.push('- ' + parent + (kids.length ? '\n' + kids.map(c => '   · ' + c).join('\n') : ''));
-          });
-          return lines.join('\n');
-        }
+        // ── AlsoAsked tree (optional) ── The front end filters the tree (Haiku relevance + Mae's ✕ review) and sends
+        //    the final branches as `alsoAskedTree`. A raw `alsoAskedCsv` is still accepted (legacy / un-filtered). Fed
+        //    to the writer as section structure. (Shared parser/outline helpers live at module scope.)
         let alsoAskedBlock = '';
         try {
-          if (req.body.alsoAskedCsv) {
-            const outline = buildAlsoAskedOutline(String(req.body.alsoAskedCsv));
-            if (outline) alsoAskedBlock = `
-RESEARCH QUESTION TREE (from AlsoAsked / Google "People Also Ask") — use this to SHAPE the blog. Turn the branches that genuinely FIT this blog into H2 sections, and make sure the blog naturally answers the relevant sub-questions within those sections. This is raw People-Also-Ask data, so some questions are OFF-TOPIC for wall art / this blog (unrelated feng-shui, house-price or sleep questions, etc.) — IGNORE anything that does not fit; never force an irrelevant question in. Do NOT keyword-stuff; cover naturally in Mae's voice.
+          let branches = [];
+          if (Array.isArray(req.body.alsoAskedTree)) branches = req.body.alsoAskedTree;
+          else if (req.body.alsoAskedCsv) branches = parseAlsoAskedBranches(String(req.body.alsoAskedCsv));
+          const outline = alsoAskedOutlineFromBranches(branches);
+          if (outline) alsoAskedBlock = `
+RESEARCH QUESTION TREE (from AlsoAsked / Google "People Also Ask") — use this to SHAPE the blog. Turn these branches into H2 sections and make sure the blog naturally answers the relevant sub-questions within those sections. If any item still does not fit this blog, skip it. Do NOT keyword-stuff; cover naturally in Mae's voice.
 ${outline}
 `;
-          }
         } catch (e) { alsoAskedBlock = ''; }
 
         const bodyPrompt = `You are Mae Osz, a friendly UK home-decor advisor writing a blog for aboutwallart.com (wall art + home decor). Write the FULL blog body as clean HTML.
