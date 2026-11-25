@@ -1,4 +1,16 @@
-// blogs.js — v6.35
+// blogs.js — v6.37
+// v6.37 (2026-11-25): GSC CLUSTERS. New action `gsc-cluster` — a Haiku pass groups the GSC gap queries into clusters
+//   (the same search said different ways = ONE blog) so Mae decides per group, not per row. Queries are pre-sorted by
+//   room/style signature so related ones share a chunk; chunked (80) so a long list never truncates the JSON; same-label
+//   groups merged across chunks; result cached by query-set hash in data/gsc-clusters-cache.json (model
+//   claude-haiku-4-5-20251001, falls back to the default engine if unavailable). Front end lets Mae ✕-remove misfits and
+//   Approve a group into the existing Ubersuggest → To Write flow. Pairs with html v6.55.
+// v6.36 (2026-11-25): ALSOASKED TREE at the write step. write-blog-body now accepts an optional `alsoAskedCsv`
+//   (raw AlsoAsked CSV export). A proper CSV parser (handles quoted newlines) reads the question tree from the
+//   "tier 1 position" / "tier 2 position" columns (tier1>0 + tier2=0 = a branch parent; tier2>0 = its sub-questions;
+//   the seed row tier1=0 is skipped; answers are ignored — blank/locked on the free plan). The branches are fed into
+//   the body prompt as section structure, with an explicit instruction to IGNORE off-topic People-Also-Ask drift and
+//   never keyword-stuff. Optional and per-blog; no tree = writes exactly as before. Pairs with html v6.54.
 // v6.35 (2026-11-25): PRIORITY-FROM-GSC reuse + link. (1) discover-group-to-write lock check now BLOCKS only a
 //   keyword locked to another BLOG (same intent → cannibalise); a keyword locked to a PRODUCT / other page is
 //   different intent → ALLOWED, and its URL is remembered. (2) The reused main keyword's product + any grouped
@@ -4316,6 +4328,52 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         return res.status(200).json({ success: true, results });
       }
 
+      // ── ACTION: gsc-cluster ── group the GSC gap queries into clusters (the same search said different ways = ONE
+      // blog). A Haiku pass does the grouping (Mae reviews + removes misfits after, so a good first draft is enough).
+      // Queries are pre-sorted by room/style signature so related ones land in the same chunk; chunked so a long list
+      // never truncates the JSON; groups with the same label are merged across chunks; result cached by query-set hash.
+      if (req.body.action === 'gsc-cluster') {
+        const queries = Array.isArray(req.body.queries) ? [...new Set(req.body.queries.map(q => String(q || '').trim()).filter(Boolean))] : [];
+        const fresh = req.body.fresh === true;
+        if (queries.length < 2) return res.status(200).json({ success: true, clusters: [], leftovers: queries });
+        const CACHE = 'data/gsc-clusters-cache.json';
+        const uniqLc = queries.map(q => q.toLowerCase()).sort();
+        const hashKey = (() => { let h = 0; const s = uniqLc.join('|'); for (let i = 0; i < s.length; i++) { h = (h * 31 + s.charCodeAt(i)) | 0; } return 'h' + (h >>> 0).toString(16); })();
+        if (!fresh) { try { const c = await readJsonFileSafe(CACHE, {}); if (c && c[hashKey]) return res.status(200).json({ success: true, clusters: c[hashKey].clusters || [], leftovers: c[hashKey].leftovers || [], cached: true }); } catch (e) {} }
+        // Sort by topic signature (room|style|text) so similar queries sit together → chunking rarely splits a group.
+        const keyed = queries.map(q => { const t = topicTagBoth(q); const room = (t.tagS.room || t.tagP.room || ''); const style = (t.tagS.style || t.tagP.style || ''); return { q, sort: room + '|' + style + '|' + q.toLowerCase() }; });
+        keyed.sort((a, b) => a.sort.localeCompare(b.sort));
+        const sorted = keyed.map(k => k.q);
+        const CHUNK = 80;
+        const allGroups = [];
+        for (let i = 0; i < sorted.length; i += CHUNK) {
+          const chunk = sorted.slice(i, i + CHUNK);
+          const prompt = `You are an SEO editor for About Wall Art (UK wall art & home decor). Below is a numbered list of Google Search queries. GROUP the ones that are the SAME underlying search/topic — the same thing asked in different words, that ONE blog post would answer together.
+Rules:
+- Only group queries that share the SAME search intent (same room + style, or the same specific topic). NEVER merge genuinely different intents into one group.
+- A group needs at least 2 queries. A query that does not clearly belong with others stays OUT (leave it ungrouped).
+- Give each group a short plain label (3-5 words) describing the shared topic.
+Queries:
+${chunk.map((q, idx) => (idx + 1) + '. ' + q).join('\n')}
+Return ONLY a JSON array of groups: [{"label":"short topic","idx":[1,2,...]}] using the numbers above. No prose, no markdown.`;
+          let arr = [];
+          try { const raw = await callClaudeText(prompt, 2000, 'claude-haiku-4-5-20251001'); const m = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').match(/\[[\s\S]*\]/); arr = m ? JSON.parse(m[0]) : []; } catch (e) { arr = []; }
+          (Array.isArray(arr) ? arr : []).forEach(g => {
+            const idxs = Array.isArray(g && g.idx) ? g.idx.map(n => parseInt(n, 10)).filter(n => Number.isInteger(n) && n >= 1 && n <= chunk.length) : [];
+            const members = [...new Set(idxs.map(n => chunk[n - 1]).filter(Boolean))];
+            if (members.length >= 2) allGroups.push({ label: String((g && g.label) || '').trim() || members[0], members });
+          });
+        }
+        // Merge groups across chunks that share the same (normalized) label.
+        const merged = {}; const order = [];
+        allGroups.forEach(g => { const lk = g.label.toLowerCase().replace(/\s+/g, ' ').trim(); if (!merged[lk]) { merged[lk] = { label: g.label, members: [] }; order.push(lk); } g.members.forEach(m => { if (!merged[lk].members.includes(m)) merged[lk].members.push(m); }); });
+        const clusters = order.map(lk => merged[lk]).filter(c => c.members.length >= 2);
+        const inGroup = new Set(); clusters.forEach(c => c.members.forEach(m => inGroup.add(m.toLowerCase())));
+        const leftovers = queries.filter(q => !inGroup.has(q.toLowerCase()));
+        try { const c = await readJsonFileSafe(CACHE, {}); const cc = (c && typeof c === 'object') ? c : {}; cc[hashKey] = { clusters, leftovers, at: new Date().toISOString() }; await writeJsonFile(CACHE, cc, `GSC clusters: ${clusters.length} groups`); } catch (e) {}
+        return res.status(200).json({ success: true, clusters, leftovers });
+      }
+
       // ── ACTION: discover-search ── search each seed phrase × each term on Serper, collect the questions,
       // drop ones already covered by a blog / already an idea / already in the pool, save the rest to the pool.
       if (req.body.action === 'discover-search') {
@@ -6726,6 +6784,63 @@ Return only the JSON.`;
         const curYear = new Date().getFullYear();
         const nextYear = curYear + 1;
 
+        // ── AlsoAsked tree (optional) ── Mae can drop an AlsoAsked CSV export before writing. It carries a
+        //    People-Also-Ask question tree where the hierarchy lives in "tier 1 position" / "tier 2 position"
+        //    (tier1 = branch; tier1>0 + tier2=0 = the branch's parent question; tier2>0 = its sub-questions).
+        //    We use ONLY the questions + structure (answers are blank/locked on the free plan). Parsed here so a
+        //    multi-line quoted CSV never breaks. Fed to the writer as section structure — irrelevant PAA drift ignored.
+        function parseCsvRecords(text) {
+          const rows = []; let row = [], field = '', inQ = false;
+          const s = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+          for (let i = 0; i < s.length; i++) {
+            const ch = s[i];
+            if (inQ) {
+              if (ch === '"') { if (s[i + 1] === '"') { field += '"'; i++; } else { inQ = false; } }
+              else field += ch;
+            } else if (ch === '"') { inQ = true; }
+            else if (ch === ',') { row.push(field); field = ''; }
+            else if (ch === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+            else field += ch;
+          }
+          if (field.length || row.length) { row.push(field); rows.push(row); }
+          return rows;
+        }
+        function buildAlsoAskedOutline(csv) {
+          const rows = parseCsvRecords(csv);
+          if (rows.length < 2) return '';
+          const header = rows[0].map(h => String(h || '').trim().toLowerCase());
+          const qi = header.indexOf('question'), t1i = header.indexOf('tier 1 position'), t2i = header.indexOf('tier 2 position');
+          if (qi === -1 || t1i === -1 || t2i === -1) return '';
+          const branches = {};
+          for (let r = 1; r < rows.length; r++) {
+            const rec = rows[r]; if (!rec || !rec.length) continue;
+            const q = String(rec[qi] || '').trim(); if (!q) continue;
+            const t1 = parseInt(rec[t1i], 10), t2 = parseInt(rec[t2i], 10);
+            if (!Number.isInteger(t1) || t1 <= 0) continue; // skip the seed row (tier1=0)
+            if (!branches[t1]) branches[t1] = { parent: '', children: [] };
+            if (t2 === 0) branches[t1].parent = q;
+            else if (Number.isInteger(t2)) branches[t1].children.push(q);
+          }
+          const lines = [];
+          Object.keys(branches).map(n => parseInt(n, 10)).sort((a, b) => a - b).forEach(k => {
+            const b = branches[k]; const parent = b.parent || b.children[0] || ''; if (!parent) return;
+            const seen = new Set([parent.toLowerCase()]);
+            const kids = b.children.filter(c => { const lc = c.toLowerCase(); if (seen.has(lc)) return false; seen.add(lc); return true; });
+            lines.push('- ' + parent + (kids.length ? '\n' + kids.map(c => '   · ' + c).join('\n') : ''));
+          });
+          return lines.join('\n');
+        }
+        let alsoAskedBlock = '';
+        try {
+          if (req.body.alsoAskedCsv) {
+            const outline = buildAlsoAskedOutline(String(req.body.alsoAskedCsv));
+            if (outline) alsoAskedBlock = `
+RESEARCH QUESTION TREE (from AlsoAsked / Google "People Also Ask") — use this to SHAPE the blog. Turn the branches that genuinely FIT this blog into H2 sections, and make sure the blog naturally answers the relevant sub-questions within those sections. This is raw People-Also-Ask data, so some questions are OFF-TOPIC for wall art / this blog (unrelated feng-shui, house-price or sleep questions, etc.) — IGNORE anything that does not fit; never force an irrelevant question in. Do NOT keyword-stuff; cover naturally in Mae's voice.
+${outline}
+`;
+          }
+        } catch (e) { alsoAskedBlock = ''; }
+
         const bodyPrompt = `You are Mae Osz, a friendly UK home-decor advisor writing a blog for aboutwallart.com (wall art + home decor). Write the FULL blog body as clean HTML.
 
 YEARS — CRITICAL: AVOID putting a year anywhere unless it is genuinely necessary — most of the time the blog reads better with no year at all, so leave it out. When a year is truly needed, use ${nextYear} (we are near the end of ${curYear}); only use ${curYear} if it is strictly factually required, and NEVER an earlier year such as ${curYear - 1}.
@@ -6737,7 +6852,7 @@ TARGET LENGTH: at least ${wordTarget} words IN THE BODY (this already leaves ~50
 ${mustCover.length ? `MUST COVER these topics as H2 sections: ${mustCover.join('; ')}.` : ''}
 ${gaps.length ? `WIN ON these gaps the top pages miss (add as extra H2 sections): ${gaps.join('; ')}.` : ''}
 ${secondaryAngles.length ? `FUSED SEARCH TERMS — this post merges several near-duplicate searches into ONE blog so they stop competing with each other: cover EACH of these as its own H2 section, using its exact phrase naturally in that section's heading and text (no keyword-stuffing): ${secondaryAngles.map(s => `"${s}"`).join('; ')}.` : ''}
-
+${alsoAskedBlock}
 VOICE (this is what makes it sound human, not AI):
 - First person (I / we), a warm, friendly personal decorator advisor talking directly to the reader — like a friend who styles homes for a living.
 - Write with real PERSONALITY. In several sections, include a short personal anecdote or a real problem-and-fix — "I once helped a client whose...", "the mistake I always see is...", "here's what happened when I tried...". You MAY invent these anecdotes naturally (a client, a room, a mistake) — keep them realistic and grounded. NEVER invent hard facts, brands, prices, stats or URLs.
