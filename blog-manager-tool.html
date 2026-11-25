@@ -269,7 +269,8 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.55 - 2026-11-25</p>
+        <p class="version">v6.56 - 2026-11-25</p>
+        <div id="version-banner" style="display:none;"></div>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -3004,10 +3005,12 @@ Give me:
             try { return JSON.parse(text); }
             catch (e) { throw new Error('⚠️ The AI step didn\'t respond — you may be out of Claude credits (or it timed out). Check your Anthropic account, top up if needed, then press again.'); }
         }
-        // ── AlsoAsked tree (optional) ── before writing OR re-writing, ask Mae if she wants to drop an AlsoAsked
-        //    CSV so the blog's sections follow real "People Also Ask" questions. She can drop the file or click to
-        //    choose it, OR write without a tree. The CSV is kept in memory for this session so a re-write can reuse it.
-        window._treeCsv = window._treeCsv || {};
+        // ── AlsoAsked tree (optional) ── before writing OR re-writing, Mae can drop an AlsoAsked CSV. The tool filters
+        //    it with AI (keeps only questions relevant to this blog), then shows the branches so she removes any others
+        //    with ✕ (she's the final filter). "Write with these" writes using exactly what she kept. Kept in memory for
+        //    the session so a re-write can reuse it.
+        window._treeBranches = window._treeBranches || {};
+        window._treeMeta = window._treeMeta || {};
         function treeDragOver(e, on) { e.preventDefault(); const z = e.currentTarget; if (z) z.style.background = on ? '#f3e9ff' : '#fff'; }
         function treeDrop(e, index) { e.preventDefault(); const z = document.getElementById('tree-drop-' + index); if (z) z.style.background = '#fff'; const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if (f) readTreeFile(index, f); }
         function treePick(e, index) { const f = e.target.files && e.target.files[0]; if (f) readTreeFile(index, f); }
@@ -3015,28 +3018,67 @@ Give me:
             const st = document.getElementById('tree-status-' + index);
             if (!/\.csv$/i.test(file.name || '')) { if (st) { st.style.color = '#a33'; st.textContent = 'Please choose the AlsoAsked CSV file (.csv).'; } return; }
             const rd = new FileReader();
-            rd.onload = () => {
-                window._treeCsv[index] = String(rd.result || '');
-                if (st) { st.style.color = '#2e7d32'; st.textContent = '✓ Tree loaded (' + (file.name || 'CSV') + ') — it will shape the blog sections.'; }
-                const go = document.getElementById('tree-go-' + index); if (go) go.style.display = 'inline-block';
+            rd.onload = async () => {
+                if (st) { st.style.color = '#5a4a7a'; st.textContent = '🤖 Reading and filtering the tree with AI…'; }
+                const idea = allIdeas.find(i => i.index === index); const stored = idea ? briefFor(idea) : {};
+                const keyword = ((stored.keyword || (idea && idea.keyword) || (idea && idea.currentKeyword) || '')).trim();
+                try {
+                    const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'tree-filter', keyword, title: idea ? idea.currentTitle : '', csv: String(rd.result || '') }) }).then(x => x.json());
+                    if (!r || !r.success) throw new Error((r && r.error) || 'Could not filter the tree');
+                    window._treeBranches[index] = r.branches || [];
+                    window._treeMeta[index] = { dropped: r.dropped || 0, aiUsed: !!r.aiUsed };
+                    renderTreeReview(index);
+                } catch (e) { if (st) { st.style.color = '#a33'; st.textContent = 'Could not read/filter the tree: ' + e.message; } }
             };
             rd.onerror = () => { if (st) { st.style.color = '#a33'; st.textContent = 'Could not read that file — try again.'; } };
             rd.readAsText(file);
         }
-        function writeWithoutTree(index) { window._treeCsv[index] = null; writeBlog(index); }
-        function askTreeThenWrite(index) {
+        function removeTreeBranch(index, bi) { const b = window._treeBranches[index]; if (!b) return; b.splice(bi, 1); renderTreeReview(index); }
+        function removeTreeChild(index, bi, ci) { const b = window._treeBranches[index]; if (!b || !b[bi]) return; b[bi].children.splice(ci, 1); renderTreeReview(index); }
+        function writeWithoutTree(index) { window._treeBranches[index] = null; writeBlog(index); }
+        function renderTreeReview(index) {
             const out = document.getElementById('write-' + index); if (!out) return;
             out.style.display = 'block';
             const caret = document.querySelector('#write-btn-' + index + ' .step-caret'); if (caret) caret.textContent = '▾';
-            const hasTree = !!(window._treeCsv && window._treeCsv[index]);
+            const branches = window._treeBranches[index] || [];
+            const meta = window._treeMeta[index] || { dropped: 0, aiUsed: true };
+            let html = '<div style="background:#f6f0ff;border:1px solid #e0cffb;border-radius:10px;padding:14px;margin-bottom:10px;">'
+                + '<div style="font-weight:700;font-size:14px;color:#4a2d7a;margin-bottom:6px;">AlsoAsked tree — review before writing</div>'
+                + (meta.aiUsed
+                    ? '<div style="font-size:12px;color:#5a4a7a;margin-bottom:10px;">AI set aside ' + meta.dropped + ' off-topic question' + (meta.dropped === 1 ? '' : 's') + '. Remove any others that don\'t fit with ✕, then write. (✕ on a heading removes its whole branch.)</div>'
+                    : '<div style="font-size:12px;color:#8a5a00;margin-bottom:10px;">Couldn\'t AI-filter this time — showing everything. Remove what doesn\'t fit with ✕.</div>');
+            if (!branches.length) {
+                html += '<div style="font-size:12.5px;color:#a33;margin-bottom:8px;">Nothing left to use — write without a tree, or upload a different one.</div>';
+            } else {
+                branches.forEach((b, bi) => {
+                    html += '<div style="border:0.5px solid #e0cffb;border-radius:8px;padding:8px 10px;margin-bottom:8px;background:#fff;">'
+                        + '<div style="display:flex;align-items:center;gap:8px;"><button onclick="removeTreeBranch(' + index + ',' + bi + ')" title="Remove this whole branch" style="background:#fff;color:#c33;border:1px solid #f0caca;border-radius:5px;width:22px;height:22px;line-height:1;font-weight:700;cursor:pointer;flex:none;">✕</button><span style="font-weight:700;font-size:13.5px;color:#1a1a1a;">' + escHtml(b.parent) + '</span></div>';
+                    (b.children || []).forEach((c, ci) => {
+                        html += '<div style="display:flex;align-items:center;gap:8px;margin-top:5px;padding-left:12px;"><button onclick="removeTreeChild(' + index + ',' + bi + ',' + ci + ')" title="Remove" style="background:#fff;color:#c33;border:1px solid #f0caca;border-radius:5px;width:20px;height:20px;line-height:1;font-weight:700;cursor:pointer;flex:none;font-size:11px;">✕</button><span style="font-size:12.5px;color:#444;">' + escHtml(c) + '</span></div>';
+                    });
+                    html += '</div>';
+                });
+            }
+            html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">'
+                + (branches.length ? '<button onclick="writeBlog(' + index + ')" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:9px 16px;font-weight:800;cursor:pointer;">✍️ Write with these</button>' : '')
+                + '<button onclick="writeWithoutTree(' + index + ')" style="background:#fff;color:#4a2d7a;border:1px solid #b89fe0;border-radius:6px;padding:9px 16px;font-weight:700;cursor:pointer;">Write without a tree</button>'
+                + '<button onclick="askTreeThenWrite(' + index + ',true)" style="background:#fff;color:#6a1b9a;border:1px solid #d9cff0;border-radius:6px;padding:9px 12px;font-weight:700;cursor:pointer;">↻ Upload a different tree</button>'
+                + '</div></div>';
+            out.innerHTML = html;
+        }
+        function askTreeThenWrite(index, forceNew) {
+            // If a tree is already filtered for this blog (and not forcing a new upload), jump straight to the review.
+            if (!forceNew && window._treeBranches && Array.isArray(window._treeBranches[index]) && window._treeBranches[index].length) { renderTreeReview(index); return; }
+            const out = document.getElementById('write-' + index); if (!out) return;
+            out.style.display = 'block';
+            const caret = document.querySelector('#write-btn-' + index + ' .step-caret'); if (caret) caret.textContent = '▾';
             out.innerHTML = '<div style="background:#f6f0ff;border:1px solid #e0cffb;border-radius:10px;padding:14px;margin-bottom:10px;">'
                 + '<div style="font-weight:700;font-size:14px;color:#4a2d7a;margin-bottom:4px;">Add an AlsoAsked question tree? (optional)</div>'
-                + '<div style="font-size:12.5px;color:#5a4a7a;margin-bottom:10px;">Drop the AlsoAsked CSV to shape the blog\'s sections around real "People Also Ask" questions. Writing replaces the current version.</div>'
+                + '<div style="font-size:12.5px;color:#5a4a7a;margin-bottom:10px;">Drop the AlsoAsked CSV. The tool filters it with AI, then lets you remove anything that doesn\'t fit before writing. Writing replaces the current version.</div>'
                 + '<div id="tree-drop-' + index + '" ondrop="treeDrop(event,' + index + ')" ondragover="treeDragOver(event,true)" ondragleave="treeDragOver(event,false)" onclick="document.getElementById(\'tree-file-' + index + '\').click()" style="border:2px dashed #b89fe0;border-radius:8px;padding:18px;text-align:center;color:#6a1b9a;font-size:13px;cursor:pointer;background:#fff;">⬆️ Drop the AlsoAsked CSV here, or click to choose a file</div>'
                 + '<input id="tree-file-' + index + '" type="file" accept=".csv,text/csv" style="display:none;" onchange="treePick(event,' + index + ')">'
-                + '<div id="tree-status-' + index + '" style="font-size:12.5px;font-weight:700;margin-top:8px;color:#2e7d32;">' + (hasTree ? '✓ Tree already loaded — it will shape the blog sections.' : '') + '</div>'
+                + '<div id="tree-status-' + index + '" style="font-size:12.5px;font-weight:700;margin-top:8px;"></div>'
                 + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">'
-                + '<button id="tree-go-' + index + '" onclick="writeBlog(' + index + ')" style="display:' + (hasTree ? 'inline-block' : 'none') + ';background:#43a047;color:#fff;border:none;border-radius:6px;padding:9px 16px;font-weight:800;cursor:pointer;">✍️ Write with this tree</button>'
                 + '<button onclick="writeWithoutTree(' + index + ')" style="background:#fff;color:#4a2d7a;border:1px solid #b89fe0;border-radius:6px;padding:9px 16px;font-weight:700;cursor:pointer;">Write without a tree</button>'
                 + '</div></div>';
         }
@@ -3064,15 +3106,15 @@ Give me:
                 });
                 const sd = await readJson(s);
                 if (!sd.success) throw new Error(sd.error || 'Could not gather sources');
-                const treeCsv = (window._treeCsv && window._treeCsv[index]) ? window._treeCsv[index] : null;
-                pct = Math.max(pct, 45); label = treeCsv ? 'Writing the blog with your AlsoAsked tree…' : 'Writing the blog…'; draw();
+                const treeBranches = (window._treeBranches && Array.isArray(window._treeBranches[index]) && window._treeBranches[index].length) ? window._treeBranches[index] : null;
+                pct = Math.max(pct, 45); label = treeBranches ? 'Writing the blog with your AlsoAsked tree…' : 'Writing the blog…'; draw();
 
                 // STEP 2 — the body, using those sources. If this blog fused several near-duplicate
                 // searches into one (see Find duplicate topics), pass the secondary angles along so
-                // the writer covers each as its own H2 section. An AlsoAsked tree (optional) shapes the sections too.
+                // the writer covers each as its own H2 section. An AlsoAsked tree (filtered + reviewed) shapes sections too.
                 const r = await fetch('/api/blogs', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'write-blog-body', keyword, title: idea.currentTitle, brief: stored.brief || null, authority: sd.authority, youtube: sd.youtube, trendsHtml: sd.trendsHtml, secondaryAngles: fusionFor(idea), alsoAskedCsv: treeCsv })
+                    body: JSON.stringify({ action: 'write-blog-body', keyword, title: idea.currentTitle, brief: stored.brief || null, authority: sd.authority, youtube: sd.youtube, trendsHtml: sd.trendsHtml, secondaryAngles: fusionFor(idea), alsoAskedTree: treeBranches })
                 });
                 const data = await readJson(r);
                 if (!data.success) throw new Error(data.error || 'Writing failed');
@@ -5404,10 +5446,36 @@ Give me:
             </div>`;
         }
 
+        // ── Version guard ── this page needs at least this blogs.js version. On load we ask the backend its version;
+        // if the deployed api/blogs.js is older (you uploaded the page but not the backend), a banner says which file to
+        // upload — so a half-done two-file upgrade never runs wrong in silence. Bump REQUIRED_BACKEND with every release
+        // that changes blogs.js, to the new blogs.js version.
+        const REQUIRED_BACKEND = '6.38';
+        async function checkBackendVersion() {
+            const banner = document.getElementById('version-banner'); if (!banner) return;
+            const parse = v => { const p = String(v || '').split('.'); return [parseInt(p[0], 10) || 0, parseInt(p[1], 10) || 0]; };
+            let backendVer = null;
+            try { const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'version' }) }).then(x => x.json()); if (r && r.success && r.version) backendVer = String(r.version); } catch (e) { backendVer = null; }
+            const [rMaj, rMin] = parse(REQUIRED_BACKEND);
+            if (backendVer) {
+                const [bMaj, bMin] = parse(backendVer);
+                if (bMaj < rMaj || (bMaj === rMaj && bMin < rMin)) {
+                    banner.style.cssText = 'display:block;background:#fde8e6;border:1px solid #f0b4ad;border-radius:8px;padding:12px 14px;margin:10px 0;color:#8f1c16;font-size:13.5px;font-weight:700;';
+                    banner.innerHTML = '⚠️ The backend is out of date — this page (needs api/blogs.js v' + REQUIRED_BACKEND + '+) but the server has v' + backendVer + '. Upload <b>api/blogs.js</b> to finish the update. Until then, new features won\'t work.';
+                    return;
+                }
+                banner.style.display = 'none'; return;
+            }
+            // Couldn't read a version → likely an old backend without the version check (or a blip). Softer amber note.
+            banner.style.cssText = 'display:block;background:#fff4e0;border:1px solid #f0ddb8;border-radius:8px;padding:12px 14px;margin:10px 0;color:#8a5a00;font-size:13.5px;font-weight:700;';
+            banner.innerHTML = '⚠️ Couldn\'t confirm the backend version. If something misbehaves, make sure <b>api/blogs.js</b> is uploaded (it may be an older version).';
+        }
+
         // ============================================
         // INITIALIZE
         // ============================================
         loadData();
+        checkBackendVersion();
     </script>
 
     <div id="review-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;overflow:auto;padding:30px 16px;">
