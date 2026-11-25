@@ -72,6 +72,8 @@ My own working/scratchpad folder I can use freely. Anything **OUTSIDE** it on Ma
 
 **Why this exists and why it is absolute:** On 20 Oct 2026, a stale local copy of keyword-locker-registry.csv was uploaded over the live version. It destroyed 565 optimized rows — weeks of Mae's work. It cost money, tokens, time, and stress to investigate and fix. This was 100% preventable. It will not happen again.
 
+**CLAUDE.md itself is now in the repo (root) and follows this same rule.** From 25 Nov 2026, this file lives on GitHub and is the source of truth. Before fixing or modifying CLAUDE.md, DOWNLOAD the live version from GitHub first (`https://raw.githubusercontent.com/aboutwallart/seo-tools/main/CLAUDE.md`), edit THAT, and give Mae the new version to upload — never edit the local copy blind. (Claude Code still reads the rules from the local file at session start; GitHub is for the source of truth + cross-machine sync.)
+
 ## RULE #4.7 — SHOPIFY: ALWAYS MATCH BY PRODUCT ID (GID)
 
 Every new tool or feature that touches Shopify products **MUST** identify them by their Shopify product ID (GID), never by metafield search, title search, or any other indirect lookup. Metafield search is unreliable (silently fails on values with spaces/special characters). If a GID is not available, do a full catalogue scan to build a reliable map first. If there is genuinely no way to use ID for a specific case, **STOP and explain why** before building — never silently fall back to search-based matching. Existing tools will be fixed tool by tool.
