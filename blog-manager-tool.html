@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.54 - 2026-11-25</p>
+        <p class="version">v6.55 - 2026-11-25</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -573,6 +573,7 @@
             const hCell = (c, label) => '<div onclick="setGscSort(\'' + c + '\')" style="font-weight:700;color:#444;cursor:pointer;user-select:none;">' + label + car(c) + '</div>';
             box.innerHTML = floorRow
                 + '<div style="margin-bottom:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
+                + '<button onclick="groupGscWithAI()" style="background:#6a1b9a;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">🤖 Group with AI</button>'
                 + '<button onclick="gscGroupIntoBlog()" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">Group ticked into one blog →</button>'
                 + '<button onclick="gscToDecideLater()" style="background:#fff;color:#5e35b1;border:1px solid #5e35b1;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;">To decide later</button>'
                 + '<button onclick="gscDiscardForever()" style="background:#fff;color:#c33;border:1px solid #c33;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;">Discard forever</button>'
@@ -586,31 +587,110 @@
             const sortBar = '<div style="display:flex;gap:16px;align-items:center;font-size:12px;color:#5a7a70;margin-bottom:8px;padding-left:4px;">'
                 + '<span>Sort:</span>' + sCell('keyword', 'Keyword') + sCell('impressions', 'Impr.') + sCell('clicks', 'Clicks') + sCell('position', 'Pos.')
                 + '</div>';
-            const metric = (label, val) => '<div><div style="font-size:10.5px;color:#8aa39b;text-transform:uppercase;letter-spacing:.3px;">' + label + '</div>'
-                + '<div style="font-size:14px;font-weight:500;color:#333;">' + (val != null ? val : '—') + '</div></div>';
-            const cardsHtml = shown.map((p) => {
-                const o = p.o, i = p.i;
-                const addBtn = (o.overlap && !o.overlap.pipeline && o.overlap.url)
-                    ? '<button onclick="gscAddToBlog(' + i + ')" style="background:#fff;color:#1565c0;border:1px solid #bcd7f0;border-radius:5px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer;">➕ Add to that blog</button>'
-                    : '';
-                const pos = o.position != null ? (Math.round(o.position * 10) / 10) : null;
-                return '<div style="display:flex;overflow:hidden;border:0.5px solid #dcdcdc;border-radius:12px;background:#fff;">'
-                    + '<div style="width:5px;flex:none;background:#43a047;"></div>'
-                    + '<div style="flex:1;min-width:0;padding:12px 14px;display:flex;gap:12px;align-items:flex-start;">'
-                      + '<div style="padding-top:1px;"><input type="checkbox" data-ggi="' + i + '"></div>'
-                      + '<div style="flex:1;min-width:0;">'
-                        + '<div style="font-weight:500;font-size:15px;color:#222;">' + escBlog(o.keyword) + '</div>'
-                        + (gscFlag(o) ? '<div style="margin-top:3px;">' + gscFlag(o) + '</div>' : '')
-                        + (gscLockFlag(o) ? '<div style="margin-top:3px;">' + gscLockFlag(o) + '</div>' : '')
-                        + '<div id="gsc-ai-' + i + '" style="margin-top:3px;">' + (o.aiVerdict ? gscAiHtml(o.aiVerdict) : '') + '</div>'
-                        + '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><button onclick="askGscAI(' + i + ')" style="background:#fff;color:#6a1b9a;border:1px solid #d9cff0;border-radius:5px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer;">🤖 Ask AI</button>' + addBtn + '</div>'
-                      + '</div>'
-                      + '<div style="flex:none;display:flex;gap:16px;text-align:right;">' + metric('Impr.', o.impressions) + metric('Clicks', o.clicks) + metric('Pos.', pos) + '</div>'
-                    + '</div>'
-                + '</div>';
-            }).join('');
+            const cardsHtml = shown.map((p) => gscQueryCardHtml(p.o, p.i)).join('');
             box.innerHTML += sortBar + '<div style="display:flex;flex-direction:column;gap:10px;">' + cardsHtml + '</div>';
             maybeAutoAI();
+        }
+        // One query as a card (white bg, green left bar). Reused by the flat list AND the "not grouped" area of the
+        // cluster view. `i` is the index into GSC_GAPS so every handler (tick, Ask AI, Add) keeps working.
+        function gscMetric(label, val) {
+            return '<div><div style="font-size:10.5px;color:#8aa39b;text-transform:uppercase;letter-spacing:.3px;">' + label + '</div>'
+                + '<div style="font-size:14px;font-weight:500;color:#333;">' + (val != null ? val : '—') + '</div></div>';
+        }
+        function gscQueryCardHtml(o, i) {
+            const addBtn = (o.overlap && !o.overlap.pipeline && o.overlap.url)
+                ? '<button onclick="gscAddToBlog(' + i + ')" style="background:#fff;color:#1565c0;border:1px solid #bcd7f0;border-radius:5px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer;">➕ Add to that blog</button>'
+                : '';
+            const pos = o.position != null ? (Math.round(o.position * 10) / 10) : null;
+            return '<div style="display:flex;overflow:hidden;border:0.5px solid #dcdcdc;border-radius:12px;background:#fff;">'
+                + '<div style="width:5px;flex:none;background:#43a047;"></div>'
+                + '<div style="flex:1;min-width:0;padding:12px 14px;display:flex;gap:12px;align-items:flex-start;">'
+                  + '<div style="padding-top:1px;"><input type="checkbox" data-ggi="' + i + '"></div>'
+                  + '<div style="flex:1;min-width:0;">'
+                    + '<div style="font-weight:500;font-size:15px;color:#222;">' + escBlog(o.keyword) + '</div>'
+                    + (gscFlag(o) ? '<div style="margin-top:3px;">' + gscFlag(o) + '</div>' : '')
+                    + (gscLockFlag(o) ? '<div style="margin-top:3px;">' + gscLockFlag(o) + '</div>' : '')
+                    + '<div id="gsc-ai-' + i + '" style="margin-top:3px;">' + (o.aiVerdict ? gscAiHtml(o.aiVerdict) : '') + '</div>'
+                    + '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><button onclick="askGscAI(' + i + ')" style="background:#fff;color:#6a1b9a;border:1px solid #d9cff0;border-radius:5px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer;">🤖 Ask AI</button>' + addBtn + '</div>'
+                  + '</div>'
+                  + '<div style="flex:none;display:flex;gap:16px;text-align:right;">' + gscMetric('Impr.', o.impressions) + gscMetric('Clicks', o.clicks) + gscMetric('Pos.', pos) + '</div>'
+                + '</div>'
+            + '</div>';
+        }
+        // ── GSC clusters ── one AI pass (Haiku) groups the queries so Mae decides per GROUP (= one blog) instead of
+        // ~300 single rows. She reviews: ✕ removes a query from a group (it drops to "not grouped"); Approve sends the
+        // group through the same Ubersuggest → To Write flow as a manual group. GSC_CLUSTERS null = flat list view.
+        window.GSC_CLUSTERS = null;
+        async function groupGscWithAI() {
+            const box = document.getElementById('gsc-blog-list'); if (!box) return;
+            const queries = (GSC_GAPS || []).map(o => o.keyword).filter(Boolean);
+            if (queries.length < 2) { alert('Need at least a couple of queries to group.'); return; }
+            box.innerHTML = '<div style="padding:20px;color:#6a1b9a;font-size:14px;font-weight:700;">🤖 Grouping your GSC queries… this may take a moment.</div>';
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'gsc-cluster', queries }) }).then(x => x.json());
+                if (!r || !r.success) throw new Error((r && r.error) || 'Grouping failed');
+                // Map each cluster's member keywords back to the full GSC_GAPS objects (for metrics/flags).
+                const byKw = {}; GSC_GAPS.forEach((o, i) => { byKw[o.keyword.toLowerCase()] = i; });
+                GSC_CLUSTERS = (r.clusters || []).map(c => ({
+                    label: c.label || '',
+                    members: (c.members || []).map(kw => byKw[String(kw).toLowerCase()]).filter(i => i != null)
+                })).filter(c => c.members.length >= 2);
+                renderGscClusters();
+            } catch (e) { box.innerHTML = '<div style="padding:16px;color:#a33;font-size:13px;">Could not group: ' + escHtml(e.message) + ' <button onclick="renderGscBlogList()" style="margin-left:8px;background:#fff;color:#6a1b9a;border:1px solid #6a1b9a;border-radius:6px;padding:5px 10px;font-weight:700;cursor:pointer;">← Back to list</button></div>'; }
+        }
+        function renderGscClusters() {
+            const box = document.getElementById('gsc-blog-list'); if (!box) return;
+            if (!GSC_CLUSTERS) { renderGscBlogList(); return; }
+            const grouped = new Set(); GSC_CLUSTERS.forEach(c => c.members.forEach(i => grouped.add(i)));
+            const header = '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">'
+                + '<button onclick="GSC_CLUSTERS=null;renderGscBlogList()" style="background:#fff;color:#6a1b9a;border:1px solid #6a1b9a;border-radius:6px;padding:7px 12px;font-weight:700;cursor:pointer;">← Back to full list</button>'
+                + '<button onclick="groupGscWithAI()" style="background:#fff;color:#6a1b9a;border:1px solid #d9cff0;border-radius:6px;padding:7px 12px;font-weight:700;cursor:pointer;">↻ Re-group with AI</button>'
+                + '<span style="color:#5a7a70;font-size:12px;">' + GSC_CLUSTERS.length + ' group' + (GSC_CLUSTERS.length === 1 ? '' : 's') + '. Remove any query that does not belong with ✕, then Approve a group.</span>'
+                + '</div>';
+            let clustersHtml = '';
+            GSC_CLUSTERS.forEach((c, ci) => {
+                const members = c.members.map(i => ({ i, o: GSC_GAPS[i] })).filter(m => m.o);
+                if (!members.length) return;
+                const impr = members.reduce((s, m) => s + (m.o.impressions || 0), 0);
+                const rows = members.map(m => '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-top:0.5px solid #eee;">'
+                    + '<button onclick="removeFromCluster(' + ci + ',' + m.i + ')" title="Remove from this group" style="background:#fff;color:#c33;border:1px solid #f0caca;border-radius:5px;width:22px;height:22px;line-height:1;font-weight:700;cursor:pointer;flex:none;">✕</button>'
+                    + '<span style="flex:1;min-width:0;font-size:13.5px;color:#222;">' + escBlog(m.o.keyword) + '</span>'
+                    + '<span style="flex:none;font-size:11.5px;color:#8aa39b;">' + (m.o.impressions != null ? m.o.impressions + ' impr' : '') + '</span>'
+                    + '</div>').join('');
+                clustersHtml += '<div style="display:flex;overflow:hidden;border:0.5px solid #cfe2db;border-radius:12px;background:#fff;margin-bottom:10px;">'
+                    + '<div style="width:5px;flex:none;background:#43a047;"></div>'
+                    + '<div style="flex:1;min-width:0;padding:12px 14px;">'
+                      + '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px;">'
+                        + '<div style="font-weight:700;font-size:15px;color:#1a1a1a;">' + escBlog(c.label || members[0].o.keyword) + '</div>'
+                        + '<div style="font-size:11.5px;color:#5a7a70;">' + members.length + ' queries · ' + impr + ' impr total</div>'
+                      + '</div>'
+                      + rows
+                      + '<div style="margin-top:10px;"><button onclick="approveCluster(' + ci + ')" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">Approve this group →</button></div>'
+                    + '</div>'
+                + '</div>';
+            });
+            // "Not grouped" = every GSC_GAPS row not in a cluster → the normal cards, with manual grouping.
+            const looseIdx = GSC_GAPS.map((o, i) => i).filter(i => !grouped.has(i));
+            let looseHtml = '';
+            if (looseIdx.length) {
+                looseHtml = '<div style="margin-top:18px;margin-bottom:8px;font-weight:700;font-size:14px;color:#444;">Not grouped (' + looseIdx.length + ')</div>'
+                    + '<div style="font-size:12px;color:#5a7a70;margin-bottom:8px;">Tick any of these and group them by hand.</div>'
+                    + '<div style="margin-bottom:10px;"><button onclick="gscGroupIntoBlog()" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">Group ticked into one blog →</button></div>'
+                    + '<div style="display:flex;flex-direction:column;gap:10px;">' + looseIdx.map(i => gscQueryCardHtml(GSC_GAPS[i], i)).join('') + '</div>';
+            }
+            box.innerHTML = header + (clustersHtml || '<div style="color:#888;font-size:13px;padding:8px 0;">The AI did not find clear groups — group what you need by hand below.</div>') + looseHtml;
+        }
+        function removeFromCluster(ci, i) {
+            if (!GSC_CLUSTERS || !GSC_CLUSTERS[ci]) return;
+            GSC_CLUSTERS[ci].members = GSC_CLUSTERS[ci].members.filter(m => m !== i);
+            GSC_CLUSTERS = GSC_CLUSTERS.filter(c => c.members.length >= 1); // a group emptied/left with 1 drops away; its rows fall to "not grouped"
+            renderGscClusters();
+        }
+        function approveCluster(ci) {
+            if (!GSC_CLUSTERS || !GSC_CLUSTERS[ci]) return;
+            const items = GSC_CLUSTERS[ci].members.map(i => GSC_GAPS[i]).filter(Boolean);
+            if (!items.length) return;
+            gscGroupFromItems(items);
         }
         // Auto-run the reasoned AI check ONLY on rows the mechanical check didn't flag (and with no verdict yet).
         // Done in chunks so a big list never truncates the AI's JSON; results fill in as each chunk returns. Cached.
@@ -712,6 +792,12 @@
         // Group ticked queries → Ubersuggest prompt → paste keyword/searches/difficulty → lock check → To Write.
         function gscGroupIntoBlog() {
             const items = gscTicked(); if (!items.length) { alert('Tick at least one first.'); return; }
+            gscGroupFromItems(items);
+        }
+        // Shared by the ticked-rows button AND an approved AI cluster: turn a set of GSC gap objects into the group
+        // editor (same Ubersuggest → dedup → To Write flow either way).
+        function gscGroupFromItems(items) {
+            if (!items || !items.length) return;
             window._discSeedMap = window._discSeedMap || {};
             const group = items.map(o => {
                 const seed = 'gsc::' + o.keyword.toLowerCase();
@@ -765,6 +851,7 @@
                 const used = new Set((window._gscGroup || []).map(it => it.question.toLowerCase()));
                 try { await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'dismiss-gsc-blog-topic', keywords: (window._gscGroup || []).map(it => it.question) }) }); } catch (e) {}
                 GSC_GAPS = GSC_GAPS.filter(o => !used.has(o.keyword.toLowerCase()));
+                GSC_CLUSTERS = null; // the GSC list changed → drop the (now-stale) cluster indexes; re-group fetches fresh
                 if (msg) { msg.style.color = '#2e7d32'; msg.textContent = '✓ Added to To Write. Back to the list…'; }
                 try { await loadData(); if (typeof refreshAll === 'function') refreshAll(); } catch (e) {}
                 setTimeout(() => renderGscBlogList(), 900);
@@ -1900,33 +1987,39 @@
             const roomLabel = rooms.length ? rooms.join(' / ') : 'the room';
             const maxCount = infos.reduce((m, i) => Math.max(m, i.count || 0), 0);
             const floorN = floor || 100;
-            const topicsList = items.map(it => '- ' + it.question).join('\n');
+            // Keep the prompt SHORT and bounded — some AI chat inputs cut long pastes. Only a few representative
+            // angles are needed (the AI only needs the THEME to find the keyword), so cap the list.
+            const MAX_ANGLES = 8;
+            const allAngles = items.map(it => it.question);
+            const shownAngles = allAngles.slice(0, MAX_ANGLES);
+            const extra = allAngles.length - shownAngles.length;
+            const topicsList = shownAngles.map(a => '- ' + a).join('\n') + (extra > 0 ? `\n(+${extra} more variations on the same theme)` : '');
             let themeLine, ruleKeep;
             if (styles.length) {
                 const styleLabel = styles.join(' / ');
-                themeLine = `I'm planning ONE blog post for this STYLE gap: ${styleLabel} style for the ${roomLabel}.`;
-                ruleKeep = `2. KEEP THE STYLE: prioritise keywords that still contain or clearly relate to "${styleLabel}". I already have many "${roomLabel}" blogs, so do NOT recommend generic room-level keywords — that would cannibalise my own content.`;
+                themeLine = `ONE blog for a STYLE gap: ${styleLabel} style for the ${roomLabel}.`;
+                ruleKeep = `2. Keep the style: favour keywords that still relate to "${styleLabel}". I have many "${roomLabel}" blogs — skip generic room-level keywords (they'd cannibalise mine).`;
             } else {
-                themeLine = `I'm planning ONE blog post for the ${roomLabel} (general — no specific style).`;
+                themeLine = `ONE blog for the ${roomLabel} (general — no specific style).`;
                 ruleKeep = (maxCount >= 10)
-                    ? `2. I already have ${maxCount} "${roomLabel}" blogs, so DON'T give me the obvious generic keyword — find a sub-topic / specific angle I likely don't cover yet.`
-                    : `2. I only have ${maxCount} "${roomLabel}" blog(s), so broad informational room-level keywords are fine here.`;
+                    ? `2. I have ${maxCount} "${roomLabel}" blogs — skip the obvious generic keyword; find a sub-topic/angle I likely don't cover.`
+                    : `2. I have ${maxCount} "${roomLabel}" blog(s) — broad informational room-level keywords are fine.`;
             }
-            return `I run About Wall Art, a UK brand selling wall art / art sets (sets of 3). ${themeLine}
+            return `About Wall Art — UK brand, wall art / art sets (sets of 3). ${themeLine}
 
-Topic angles I'd cover in it:
+Angles I'd cover:
 ${topicsList}
 
-Explore the topic broadly in Ubersuggest (UK) — don't just look up those exact phrases, they're long-tail with little volume.
+Explore the topic broadly in Ubersuggest (UK) — not just those exact long-tail phrases.
 
 RULES:
-1. Only keywords with at least ${floorN} monthly UK searches. Ignore anything below.
+1. Only keywords with >= ${floorN} monthly UK searches.
 ${ruleKeep}
-3. Prioritise INFORMATIONAL intent (ideas, how-to, what-is, guides) — for a blog, not a product page. Only include commercial/transactional keywords if no informational one clears the threshold, and label each keyword's intent.
+3. Informational intent first (ideas, how-to, what-is, guides) — for a blog. Add commercial only if no informational one clears the threshold; label each keyword's intent.
 
 Give me:
 1. Recommended keyword + monthly volume + SEO difficulty + intent.
-2. Up to 5 alternatives above the threshold (keyword · volume · difficulty · intent), style-keeping and informational first.`;
+2. Up to 5 alternatives above the threshold (keyword · volume · difficulty · intent).`;
         }
         function genDiscoverPrompt() {
             const floor = +((document.getElementById('disc-floor') || {}).value) || 100;
