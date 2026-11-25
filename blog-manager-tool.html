@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.56 - 2026-11-25</p>
+        <p class="version">v6.57 - 2026-11-25</p>
         <div id="version-banner" style="display:none;"></div>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
@@ -2591,6 +2591,9 @@ Give me:
                 const data = await res.json();
                 const arts = (data && data.articles) || [];
                 window._publishedTitles = new Set(arts.map(a => String(a.title || '').trim().toLowerCase()).filter(Boolean));
+                // Also keep the handles: the published H1 is a creative rewrite, so it won't equal the keyword — but the
+                // handle (slug of the H1) still contains the keyword's words, so we match a To Write idea against these.
+                window._publishedHandles = arts.map(a => String(a.handle || '').trim().toLowerCase()).filter(Boolean);
                 // How many blogs are already scheduled/live on the store per month (YYYY-MM) — counts toward completing that month.
                 window._publishedMonthCount = {};
                 arts.forEach(a => { const m = String(a.publishedAt || '').slice(0, 7); if (/^\d{4}-\d{2}$/.test(m)) window._publishedMonthCount[m] = (window._publishedMonthCount[m] || 0) + 1; });
@@ -2608,13 +2611,33 @@ Give me:
             return !!(window._doneTitles && window._doneTitles.has(t));
         }
         // True if this blog is already live/scheduled (published) — should never be offered to write.
+        // The published H1 is a creative rewrite (e.g. keyword "japandi bedroom" → "Create a Japandi Bedroom: Calm,
+        // Minimal Design Guide"), so an exact-title match misses it and the topic wrongly reappears in To Write. We also
+        // match the idea's keyword against the published HANDLE: strong = the keyword slug appears as whole consecutive
+        // tokens in a handle; looser = ≥75% of the keyword's meaningful words appear in a handle (needs ≥3 such words,
+        // so short/generic keywords only match on the strong rule — no false hides).
+        const GENERIC_KW_WORDS = new Set(['the', 'a', 'an', 'of', 'to', 'for', 'your', 'with', 'and', 'how', 'what', 'that', 'ideas', 'idea', 'tips', 'best', 'guide']);
+        function slugifyKwLocal(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, ''); }
         function isPublishedBlog(i) {
             if (!i) return false;
             const title = String(i.title || i.currentTitle || '').trim().toLowerCase();
             if (window._publishedTitles && window._publishedTitles.has(title)) return true;
             if (i.status === 'PUBLISHED') return true;
             const d = window._draftsByTitle && window._draftsByTitle[(i.currentTitle || '').toLowerCase()];
-            return !!(d && d.published);
+            if (d && d.published) return true;
+            const handles = window._publishedHandles || [];
+            if (handles.length) {
+                const kwSlug = slugifyKwLocal(i.keyword || i.currentKeyword || i.title || i.currentTitle || '');
+                if (kwSlug) {
+                    const needle = '-' + kwSlug + '-';
+                    for (const h of handles) { if (('-' + h + '-').indexOf(needle) !== -1) return true; }
+                    const toks = kwSlug.split('-').filter(t => t.length >= 3 && !GENERIC_KW_WORDS.has(t));
+                    if (toks.length >= 3) {
+                        for (const h of handles) { const hset = new Set(('-' + h + '-').split('-')); const hit = toks.filter(t => hset.has(t)).length; if (hit / toks.length >= 0.75) return true; }
+                    }
+                }
+            }
+            return false;
         }
 
         // Re-show a saved written blog on its card (session copy first, then the one saved on GitHub).
