@@ -1,4 +1,12 @@
-// blogs.js — v6.34
+// blogs.js — v6.35
+// v6.35 (2026-11-25): PRIORITY-FROM-GSC reuse + link. (1) discover-group-to-write lock check now BLOCKS only a
+//   keyword locked to another BLOG (same intent → cannibalise); a keyword locked to a PRODUCT / other page is
+//   different intent → ALLOWED, and its URL is remembered. (2) The reused main keyword's product + any grouped
+//   product-locked queries are saved to data/blog-link-targets.json (keyed by the blog keyword), replacing the old
+//   auto-link-rule step. (3) finish-blog adds ONE clean contextual IN-BODY link to the (primary) product — the AI
+//   only picks a paragraph + a verbatim anchor phrase, we build the <a> ourselves; no natural fit → no link. (4)
+//   publish-blog resolves those product URL(s) → GID and puts them (first, so the 4-item cap keeps them) in the
+//   blog's related-products metafield custom.blog_products_list. Pairs with html v6.53.
 // v6.34 (2026-11-24): FOUR fixes. (1) MONTH IN PROGRESS — a blog now leaves that tab ONLY when Mae clicks its own
 //   "Mark as done" (recorded in data/blog-done.json); publishing keeps the month tag so completed blogs stay visible
 //   until she marks them. (2) Thick black divider between GSC rows (front end). (3) H1 TITLE — write-blog-body now
@@ -4448,8 +4456,10 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
         if (!keyword) return res.status(400).json({ error: 'A chosen keyword is required.' });
         const kwLc = keyword.toLowerCase();
 
-        // 1) LOCKED check — read the registry FRESH (contents API, no CDN lag). A LOCKED row with a real URL means
-        //    the keyword is taken by another page → block, so Mae picks a different one.
+        // 1) LOCKED check — read the registry FRESH (contents API, no CDN lag).
+        //    Locked to a BLOG (source Published Blog / To_Write_Blog) = SAME intent → BLOCK (would cannibalise).
+        //    Locked to a PRODUCT / other page = DIFFERENT intent → ALLOW, and remember the URL so we link the blog to it.
+        let reuseLink = null;
         try {
           const reg = await getGitHubFile('data/keyword-locker-registry.csv');
           const rl = (reg.content || '').split('\n');
@@ -4459,8 +4469,14 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
             const rkw = (c[0] || '').trim().toLowerCase();
             const rurl = (c[1] || '').trim();
             const rlk = (c[2] || '').trim().toUpperCase();
+            const rsrc = (c[9] || '').trim();
             if (rkw === kwLc && rlk === 'LOCKED' && rurl && rurl !== 'N/A') {
-              return res.status(200).json({ success: false, locked: true, lockedUrl: rurl, error: 'That keyword is locked to another URL (' + rurl + '). Pick a different keyword.' });
+              const isBlogLock = (rsrc === 'Published Blog' || rsrc === 'To_Write_Blog');
+              if (isBlogLock) {
+                return res.status(200).json({ success: false, locked: true, lockedUrl: rurl, error: 'That keyword is locked to another BLOG (' + rurl + ') — same intent, it would cannibalise. Pick a different keyword.' });
+              }
+              reuseLink = { keyword: keyword, url: rurl }; // product / other page → reuse + link
+              break;
             }
           }
         } catch (e) { /* if the registry can't be read, don't silently approve a maybe-locked keyword */ return res.status(200).json({ success: false, error: 'Could not read the keyword registry to check locks — try again.' }); }
@@ -4503,20 +4519,27 @@ ${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).j
           if (touched) await writeJsonFile('data/discover-pool.json', arr, `Discover: grouped ${secondary.length + 1} topic(s) into ${keyword}`);
         } catch (e) {}
 
-        // 7) If any grouped query was LOCKED to a PRODUCT / other page, add an auto-link rule (query → that URL) so the
-        //    new blog automatically links to it and passes SEO to the money page. This reuses the storefront auto-linker
-        //    — it never edits the blog body here. Skips blog-locked targets and any keyword already ruled.
+        // 7) Save the PRODUCT / other-page link target(s) for this blog → data/blog-link-targets.json, keyed by the blog
+        //    keyword. When the blog is written, finish-blog adds ONE clean contextual in-body link to the (primary)
+        //    target, and publish-blog puts the product(s) in the blog's related-products metafield (custom.blog_products_list).
+        //    Merges the main keyword's reuse link (if it was locked to a product) with any grouped secondary queries that
+        //    were locked to a product/page (req.body.lockedTargets). Blog-locked targets never reach here.
         let linkedTargets = 0;
         try {
-          const targets = Array.isArray(req.body.lockedTargets) ? req.body.lockedTargets : [];
-          const clean = targets.map(t => ({ keyword: String((t && t.keyword) || '').trim(), url: String((t && t.url) || '').trim() })).filter(t => t.keyword && t.url);
-          if (clean.length) {
-            const f = await getGitHubFile('data/autolink-rules.json');
-            const rules = JSON.parse(f.content || '[]');
-            const nrmk = (s) => String(s || '').trim().toLowerCase();
-            let maxId = rules.reduce((mx, r) => Math.max(mx, parseInt(r.id) || 0), 0);
-            clean.forEach(t => { if (!rules.some(r => nrmk(r.keyword) === nrmk(t.keyword))) { rules.unshift({ id: ++maxId, keyword: t.keyword, url: t.url, linksAdded: 0, verified: 'ok' }); linkedTargets++; } });
-            if (linkedTargets) await updateGitHubFile('data/autolink-rules.json', JSON.stringify(rules, null, 2), f.sha, `Auto-link reused product keyword(s) → product for blog: ${keyword}`);
+          const incoming = [];
+          if (reuseLink && reuseLink.url) incoming.push({ keyword: reuseLink.keyword, url: reuseLink.url });
+          (Array.isArray(req.body.lockedTargets) ? req.body.lockedTargets : []).forEach(t => {
+            const k = String((t && t.keyword) || '').trim(); const u = String((t && t.url) || '').trim();
+            if (k && u) incoming.push({ keyword: k, url: u });
+          });
+          if (incoming.length) {
+            const map = await readJsonFileSafe('data/blog-link-targets.json', {});
+            const m = (map && typeof map === 'object' && !Array.isArray(map)) ? map : {};
+            const bucket = (m[kwLc] && Array.isArray(m[kwLc].links)) ? m[kwLc].links : [];
+            const seen = new Set(bucket.map(x => String((x && x.url) || '').toLowerCase()));
+            incoming.forEach(t => { const key = t.url.toLowerCase(); if (!seen.has(key)) { bucket.push({ keyword: t.keyword, url: t.url }); seen.add(key); linkedTargets++; } });
+            m[kwLc] = { blogKeyword: keyword, links: bucket, updatedAt: new Date().toISOString() };
+            await writeJsonFile('data/blog-link-targets.json', m, `Blog link targets for ${keyword}`);
           }
         } catch (e) {}
 
@@ -6040,6 +6063,47 @@ Return ONLY a JSON object mapping each id to its alt line, and nothing else.`;
           if (r.ok) body = insertIntoBestH2(body, r.html, p);
         }
 
+        // ---- REUSED-KEYWORD LINK — if this blog reused a keyword locked to a PRODUCT / other page, add ONE clean
+        //      contextual in-body link to it (passes SEO to that page). Safe: the AI only picks a paragraph and a
+        //      verbatim phrase to turn into the anchor — we build the <a> ourselves. No fit → no link (no-op).
+        //      Body is rebuilt from bodyHtml each run, so this never corrupts the source; re-running is safe.
+        try {
+          const ltMap = await readJsonFileSafe('data/blog-link-targets.json', {});
+          const ltEntry = (ltMap && typeof ltMap === 'object') ? ltMap[(fbKw || '').toLowerCase()] : null;
+          const primary = (ltEntry && Array.isArray(ltEntry.links) && ltEntry.links[0]) ? ltEntry.links[0] : null;
+          const linkUrl = primary && String(primary.url || '').trim();
+          if (linkUrl) {
+            // Collect candidate paragraphs that have no existing link and enough text.
+            const pRe = /<p\b[^>]*>([\s\S]*?)<\/p>/gi; const cands = []; let pm;
+            while ((pm = pRe.exec(body)) !== null) {
+              const inner = pm[1]; const text = inner.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+              if (text.length > 60 && !/<a\b/i.test(inner)) cands.push({ full: pm[0], inner, text });
+            }
+            if (cands.length) {
+              const numbered = cands.map((c, i) => (i + 1) + '. ' + c.text).slice(0, 30).join('\n');
+              const prompt = `You are a UK wall-art blog editor for About Wall Art. One of the paragraphs below should link to this product page: ${linkUrl}
+Pick the ONE paragraph where a link to that product reads most naturally and helpfully. Return the paragraph number and an "anchor" = a SHORT phrase (2 to 5 words) copied EXACTLY (verbatim, same case) from that paragraph, which will become the clickable link text. The anchor must be natural link text (describe wall art / the room / the style), never a whole sentence and never generic words like "click here". If NO paragraph is a genuinely natural fit, return skip.
+Return ONLY compact JSON: {"index":N,"anchor":"exact phrase from that paragraph"} OR {"skip":true}.
+PARAGRAPHS (numbered):
+${numbered}`;
+              let raw = ''; try { raw = await callClaudeText(prompt, 400); } catch (e) { raw = ''; }
+              const mm = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').match(/\{[\s\S]*\}/);
+              let o = {}; try { o = mm ? JSON.parse(mm[0]) : {}; } catch (e) { o = {}; }
+              const idx = parseInt(o.index, 10); const anchor = String(o.anchor || '').trim();
+              const target = (!o.skip && Number.isInteger(idx) && idx >= 1 && idx <= cands.length) ? cands[idx - 1] : null;
+              if (target && anchor && target.inner.indexOf(anchor) !== -1) {
+                const aTag = '<a href="' + linkUrl + '">' + anchor + '</a>';
+                const newInner = target.inner.replace(anchor, aTag); // first occurrence only
+                const newFull = target.full.replace(target.inner, newInner);
+                body = body.replace(target.full, newFull);
+                report.push({ ok: true, label: 'Added a contextual link to the reused product page' });
+              } else {
+                report.push({ ok: true, label: 'Reused product page: no natural in-body link spot — added to related products only' });
+              }
+            }
+          }
+        } catch (e) { /* linking is best-effort — never block finishing the blog */ }
+
         // ---- MISSING-IMAGES GATE — never finish (or later publish) with a dead placeholder ----
         // If any image is still missing and she hasn't chosen to drop them, STOP here and return the list so the
         // tool can ask her: Generate (she gets the prompt + exact save-name) or Cancel. Nothing is saved.
@@ -6268,7 +6332,22 @@ Return only the JSON.`;
         //      picks a gallery from the report, its 2 get added (set-blog-gallery). Separate from the body products.
         const awaGids = (prods.awa || []).filter(p => p && p.gid).sort((a, b) => (b.price || 0) - (a.price || 0)).map(p => p.gid).slice(0, 2);
         const galleryGids = bestGallery ? galleryProductGids(bestGallery, awaGids) : [];
-        const productGids = [...awaGids, ...galleryGids].slice(0, 4);
+        // Reused-keyword product(s): if this blog reused a keyword locked to a PRODUCT, add that product to the
+        // related-products list (resolve its /products/<handle> URL → product GID). Put it FIRST so the 4-item cap
+        // never drops it. Non-product URLs (pages/collections) are skipped here — the in-body link already covers them.
+        let reusedGids = [];
+        try {
+          const ltMap = await readJsonFileSafe('data/blog-link-targets.json', {});
+          const ltEntry = (ltMap && typeof ltMap === 'object') ? ltMap[(keyword || '').toLowerCase()] : null;
+          const links = (ltEntry && Array.isArray(ltEntry.links)) ? ltEntry.links : [];
+          for (const lk of links) {
+            const mh = String((lk && lk.url) || '').match(/\/products\/([^\/?#]+)/i);
+            if (!mh) continue;
+            const handle = decodeURIComponent(mh[1]).toLowerCase();
+            try { const d = await shopifyGraphQL(`query($q:String!){ products(first:1, query:$q){ edges{ node{ id } } } }`, { q: 'handle:' + handle }); const g = d && d.products && d.products.edges[0] && d.products.edges[0].node && d.products.edges[0].node.id; if (g && !reusedGids.includes(g)) reusedGids.push(g); } catch (e) {}
+          }
+        } catch (e) {}
+        const productGids = [...reusedGids, ...awaGids, ...galleryGids].filter((g, i, a) => g && a.indexOf(g) === i).slice(0, 4);
 
         // ---- 7) Schedule — the first free day; today → 19:00 UK, any future day → 10:00 UK, EVERY OTHER DAY (1 on, 1 off) ----
         function londonOffsetMin(date) { const u = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' })); const l = new Date(date.toLocaleString('en-US', { timeZone: 'Europe/London' })); return Math.round((l - u) / 60000); }
