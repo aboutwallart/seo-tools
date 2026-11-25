@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.52 - 2026-11-24</p>
+        <p class="version">v6.53 - 2026-11-25</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -581,29 +581,35 @@
                 + '</div>';
             const shown = opts.map((o, i) => ({ o, i })).filter(p => !GSC_ONLY_CANNIB || isGscCannib(p.o));
             if (!shown.length) { box.innerHTML += '<div style="color:#888;font-size:13px;padding:8px 0;">Nothing flagged as "may cannibalise" yet (AI verdicts may still be loading).</div>'; return; }
-            const rowsHtml = shown.map((p, n) => {
-                const o = p.o, i = p.i;
-                const divider = n > 0 ? '<div style="grid-column:1/-1;border-top:3px solid #000;margin:6px 0;"></div>' : '';
-                const addBtn = (o.overlap && !o.overlap.pipeline && o.overlap.url)
-                    ? '<button onclick="gscAddToBlog(' + i + ')" style="margin-left:8px;background:#fff;color:#1565c0;border:1px solid #bcd7f0;border-radius:5px;padding:2px 8px;font-size:11px;font-weight:700;cursor:pointer;">➕ Add to that blog</button>'
-                    : '';
-                return divider
-                    + '<div style="align-self:start;padding-top:6px;"><input type="checkbox" data-ggi="' + i + '"></div>'
-                    + '<div style="padding:5px 0;"><div style="font-weight:600;">' + escBlog(o.keyword) + '</div>'
-                      + (gscFlag(o) ? '<div style="margin-top:2px;">' + gscFlag(o) + '</div>' : '')
-                      + (gscLockFlag(o) ? '<div style="margin-top:2px;">' + gscLockFlag(o) + '</div>' : '')
-                      + '<div id="gsc-ai-' + i + '" style="margin-top:2px;">' + (o.aiVerdict ? gscAiHtml(o.aiVerdict) : '') + '</div>'
-                      + '<div style="margin-top:3px;"><button onclick="askGscAI(' + i + ')" style="background:#fff;color:#6a1b9a;border:1px solid #d9cff0;border-radius:5px;padding:2px 8px;font-size:11px;font-weight:700;cursor:pointer;">🤖 Ask AI</button>' + addBtn + '</div>'
-                    + '</div>'
-                    + '<div style="align-self:start;padding-top:6px;">' + (o.impressions != null ? o.impressions : '—') + '</div>'
-                    + '<div style="align-self:start;padding-top:6px;">' + (o.clicks != null ? o.clicks : '—') + '</div>'
-                    + '<div style="align-self:start;padding-top:6px;">' + (o.position != null ? o.position : '—') + '</div>';
-            }).join('');
-            box.innerHTML += '<div style="display:grid;grid-template-columns:auto 1fr auto auto auto;gap:0 14px;align-items:center;font-size:13px;">'
-                + '<div></div>' + hCell('keyword', 'Keyword') + hCell('impressions', 'Impr.') + hCell('clicks', 'Clicks') + hCell('position', 'Pos.')
-                + '<div style="grid-column:1/-1;border-top:2px solid #ddd;margin-top:4px;"></div>'
-                + rowsHtml
+            // Sort bar (keeps the sortable columns in the card layout)
+            const sCell = (c, label) => '<span onclick="setGscSort(\'' + c + '\')" style="cursor:pointer;user-select:none;font-weight:' + (GSC_SORT.col === c ? '700' : '400') + ';color:' + (GSC_SORT.col === c ? '#2e7d32' : '#5a7a70') + ';">' + label + car(c) + '</span>';
+            const sortBar = '<div style="display:flex;gap:16px;align-items:center;font-size:12px;color:#5a7a70;margin-bottom:8px;padding-left:4px;">'
+                + '<span>Sort:</span>' + sCell('keyword', 'Keyword') + sCell('impressions', 'Impr.') + sCell('clicks', 'Clicks') + sCell('position', 'Pos.')
                 + '</div>';
+            const metric = (label, val) => '<div><div style="font-size:10.5px;color:#8aa39b;text-transform:uppercase;letter-spacing:.3px;">' + label + '</div>'
+                + '<div style="font-size:14px;font-weight:500;color:#333;">' + (val != null ? val : '—') + '</div></div>';
+            const cardsHtml = shown.map((p) => {
+                const o = p.o, i = p.i;
+                const addBtn = (o.overlap && !o.overlap.pipeline && o.overlap.url)
+                    ? '<button onclick="gscAddToBlog(' + i + ')" style="background:#fff;color:#1565c0;border:1px solid #bcd7f0;border-radius:5px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer;">➕ Add to that blog</button>'
+                    : '';
+                const pos = o.position != null ? (Math.round(o.position * 10) / 10) : null;
+                return '<div style="display:flex;overflow:hidden;border:0.5px solid #dcdcdc;border-radius:12px;background:#fff;">'
+                    + '<div style="width:5px;flex:none;background:#43a047;"></div>'
+                    + '<div style="flex:1;min-width:0;padding:12px 14px;display:flex;gap:12px;align-items:flex-start;">'
+                      + '<div style="padding-top:1px;"><input type="checkbox" data-ggi="' + i + '"></div>'
+                      + '<div style="flex:1;min-width:0;">'
+                        + '<div style="font-weight:500;font-size:15px;color:#222;">' + escBlog(o.keyword) + '</div>'
+                        + (gscFlag(o) ? '<div style="margin-top:3px;">' + gscFlag(o) + '</div>' : '')
+                        + (gscLockFlag(o) ? '<div style="margin-top:3px;">' + gscLockFlag(o) + '</div>' : '')
+                        + '<div id="gsc-ai-' + i + '" style="margin-top:3px;">' + (o.aiVerdict ? gscAiHtml(o.aiVerdict) : '') + '</div>'
+                        + '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><button onclick="askGscAI(' + i + ')" style="background:#fff;color:#6a1b9a;border:1px solid #d9cff0;border-radius:5px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer;">🤖 Ask AI</button>' + addBtn + '</div>'
+                      + '</div>'
+                      + '<div style="flex:none;display:flex;gap:16px;text-align:right;">' + metric('Impr.', o.impressions) + metric('Clicks', o.clicks) + metric('Pos.', pos) + '</div>'
+                    + '</div>'
+                + '</div>';
+            }).join('');
+            box.innerHTML += sortBar + '<div style="display:flex;flex-direction:column;gap:10px;">' + cardsHtml + '</div>';
             maybeAutoAI();
         }
         // Auto-run the reasoned AI check ONLY on rows the mechanical check didn't flag (and with no verdict yet).
@@ -754,7 +760,7 @@
             try {
                 const lockedTargets = (window._gscGroup || []).filter(it => it.locked && !it.locked.isBlog && it.locked.url).map(it => ({ keyword: it.question, url: it.locked.url }));
                 const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'discover-group-to-write', keyword: kw, volume: vol, difficulty: diff, questions: (window._gscGroup || []).map(it => ({ question: it.question, seed: it.seed, term: it.term })), lockedTargets, title: '' }) }).then(x => x.json());
-                if (r && r.locked) { if (msg) { msg.style.color = '#a33'; msg.textContent = '🔒 "' + kw + '" is locked to another URL (' + r.lockedUrl + '). Pick a different keyword.'; } return; }
+                if (r && r.locked) { if (msg) { msg.style.color = '#a33'; msg.textContent = '🔒 "' + kw + '" is locked to another BLOG (' + r.lockedUrl + ') — same intent, it would cannibalise. Pick a different keyword.'; } return; }
                 if (!r || !r.success) throw new Error((r && r.error) || 'Failed');
                 const used = new Set((window._gscGroup || []).map(it => it.question.toLowerCase()));
                 try { await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'dismiss-gsc-blog-topic', keywords: (window._gscGroup || []).map(it => it.question) }) }); } catch (e) {}
@@ -1940,7 +1946,7 @@ Give me:
             if (msg) { msg.style.color = '#888'; msg.textContent = 'Checking lock + adding…'; }
             try {
                 const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'discover-group-to-write', keyword: kw, volume: vol, difficulty: diff, questions: (window._discGroup || []).map(it => ({ question: it.question, seed: it.seed, term: it.term })), title: '' }) }).then(x => x.json());
-                if (r && r.locked) { if (msg) { msg.style.color = '#a33'; msg.textContent = '🔒 "' + kw + '" is locked to another URL (' + r.lockedUrl + '). Pick a different keyword.'; } return; }
+                if (r && r.locked) { if (msg) { msg.style.color = '#a33'; msg.textContent = '🔒 "' + kw + '" is locked to another BLOG (' + r.lockedUrl + ') — same intent, it would cannibalise. Pick a different keyword.'; } return; }
                 if (!r || !r.success) throw new Error((r && r.error) || 'Failed');
                 // Drop the grouped topics from the review so she can make ANOTHER group from what's left.
                 const used = new Set((window._discGroup || []).map(it => String(it.question).toLowerCase()));
