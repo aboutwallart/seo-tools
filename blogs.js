@@ -1,4 +1,214 @@
-// blogs.js — v5.2
+// blogs.js — v6.36
+// v6.36 (2026-11-25): ALSOASKED TREE at the write step. write-blog-body now accepts an optional `alsoAskedCsv`
+//   (raw AlsoAsked CSV export). A proper CSV parser (handles quoted newlines) reads the question tree from the
+//   "tier 1 position" / "tier 2 position" columns (tier1>0 + tier2=0 = a branch parent; tier2>0 = its sub-questions;
+//   the seed row tier1=0 is skipped; answers are ignored — blank/locked on the free plan). The branches are fed into
+//   the body prompt as section structure, with an explicit instruction to IGNORE off-topic People-Also-Ask drift and
+//   never keyword-stuff. Optional and per-blog; no tree = writes exactly as before. Pairs with html v6.54.
+// v6.35 (2026-11-25): PRIORITY-FROM-GSC reuse + link. (1) discover-group-to-write lock check now BLOCKS only a
+//   keyword locked to another BLOG (same intent → cannibalise); a keyword locked to a PRODUCT / other page is
+//   different intent → ALLOWED, and its URL is remembered. (2) The reused main keyword's product + any grouped
+//   product-locked queries are saved to data/blog-link-targets.json (keyed by the blog keyword), replacing the old
+//   auto-link-rule step. (3) finish-blog adds ONE clean contextual IN-BODY link to the (primary) product — the AI
+//   only picks a paragraph + a verbatim anchor phrase, we build the <a> ourselves; no natural fit → no link. (4)
+//   publish-blog resolves those product URL(s) → GID and puts them (first, so the 4-item cap keeps them) in the
+//   blog's related-products metafield custom.blog_products_list. Pairs with html v6.53.
+// v6.34 (2026-11-24): FOUR fixes. (1) MONTH IN PROGRESS — a blog now leaves that tab ONLY when Mae clicks its own
+//   "Mark as done" (recorded in data/blog-done.json); publishing keeps the month tag so completed blogs stay visible
+//   until she marks them. (2) Thick black divider between GSC rows (front end). (3) H1 TITLE — write-blog-body now
+//   generates the click-worthy H1 and returns it so the card shows it at the write step; publish reuses that exact title.
+//   (4) AUTO-LINK — approving a GSC query locked to a PRODUCT adds an auto-link rule (query → product URL) so the blog
+//   links to it for SEO, without touching the blog body.
+// v6.33 (2026-11-24): PERMANENT BLOG IMAGE CODE (bug fix — orphaned images). Each blog's image code now lives in
+//   data/blog-codes.json keyed by its keyword and is SET ONCE, NEVER CHANGED. New helper stableBlogCode() + action
+//   get-blog-code. write-blog-body returns it; finish-blog + publish-blog read it from there (seeding from the draft's
+//   existing code so in-flight blogs keep theirs). The front end fetches the code from the server instead of minting a
+//   random one — so a re-write, reload, reorder or "mark as done" can no longer give a blog a new code and orphan the
+//   images it already has in Shopify (named "<slug>-<code>").
+// v6.32 (2026-11-24): GSC gaps — locked keywords now distinguish WHERE they're locked: EXACT match to a BLOG (same
+//   intent) → hidden; locked to a PRODUCT / other page, or any SIMILAR match → only flagged (reusable for a blog, Mae
+//   decides). Each overlap flag now carries the blog's URL so the front end's "Add to that blog" can append a paragraph
+//   to the existing post (reuses add-angle-preview/apply). Pairs with html v6.50.
+// v6.31 (2026-11-24): GSC gaps — smarter overlap. gsc-blog-gaps now flags against published + scheduled + PIPELINE
+//   (To Write + grouped + singles), and adds a TOPIC flag (2+ distinctive shared words), not only room/style. Locked
+//   keywords: EXACT (locked to a page/blog) → filtered out; SIMILAR → flagged (Mae decides). NEW gsc-ai-check: reasoned
+//   intent-overlap via Haiku (cannibalise | angle | new + reason), cached in data/gsc-topic-overlap-cache.json; the
+//   front end auto-runs it only on queries with no mechanical hit, plus a per-row "Ask AI" button (fresh=true).
+// v6.30 (2026-11-24): DISCOVER + GSC upgrades. (1) Custom rooms/styles Mae adds by hand (data/discover-custom-rooms.json
+//   + discover-custom-styles.json) are merged into the live taxonomy (TOPIC_*_DICT) → show in the cards AND are seen by
+//   the duplicate check; built-in names protected. NEW actions discover-add-room/add-style/remove-room/remove-style;
+//   discover-gaps now flags isCustom per room/style. (2) NEW gsc-blog-gaps: a BROAD live 12-month GSC query pull (not the
+//   small cron "opportunities" list), kept to informational / no-blog ones above an editable impressions floor, each
+//   flagged if a live blog shares its room and/or style; sorted by searches, top 300 — powers the improved tab-2 panel.
+// v6.29 (2026-11-23): DISCOVER review controls. NEW discover-discard ("Discard forever" → data/discover-discarded.json);
+//   discover-search now also skips forever-discarded questions (alongside pool/idea dupes). Pairs with the HTML change
+//   where review questions come UNticked, cards are clearer, and each ticked set can go to Group / To decide later /
+//   Discard forever.
+// v6.28 (2026-11-23): No code change — version sync only (the "searched seeds re-tickable" fix was HTML-only;
+//   this bump just satisfied the version check. blogs.js behaviour identical to v6.27).
+// v6.27 (2026-11-23): DISCOVER TOPICS — group into one blog. NEW discover-group-to-write: Mae ticks topics, pastes
+//   the keyword she chose in Ubersuggest (+ volume/difficulty), and it (1) checks the keyword isn't LOCKED to
+//   another URL (registry, fresh), (2) creates ONE approved blog in To Write (status TO_WRITE + blog-approved.json),
+//   (3) saves the metrics to keyword-metrics.json, (4) stores the other grouped topics as "also covers"
+//   (blog-fused-groups.json), (5) clears them from the pool. The Ubersuggest prompt is generated in the tool
+//   (broad, style-keeping, informational-first, editable volume floor). No second filter — it's ready to write.
+// v6.26 (2026-11-23): DISCOVER TOPICS — suggest, don't filter. (1) discover-search no longer DROPS questions: it
+//   returns EVERY new question (only skipping exact pool/idea dupes), each flagged maybeCovered + coveredReason.
+//   "Maybe covered" now fires ONLY when the EXACT style AND room (or synonyms) are both present in another blog —
+//   the old filter also matched a single axis (via TOPIC_PHASES singleMatch), which dropped almost everything. It
+//   no longer auto-saves to the pool. (2) NEW discover-add-questions — saves only the questions Mae ticks. (3) NEW
+//   discover-compare — type two keywords, returns the live blogs that relate to BOTH (manual overlap check).
+//   TOPIC_PHASES is untouched (still used by the dedup); the stricter both-axes rule is local to Discover.
+// v6.25 (2026-11-22): PUBLISH GATE EXTENDED — publish-blog now runs its OWN missing-content gate FIRST (before
+//   any SEO/AI call): if the finished body still has a dead [[IMG|...]] image OR a [[PRODUCT|topic]] product
+//   placeholder, it STOPS and returns the list so the tool asks Mae (fix it, or Cancel → drop + publish clean).
+//   This catches drafts finished before the gate existed and direct publishes (the gate used to live only in
+//   finish-blog, and publish silently stripped [[IMG]] — never [[PRODUCT]] — so product holes slipped through).
+//   The final safety strip now also removes [[PRODUCT|...]]. (Front: regenProducts "Find again" now keeps the
+//   ticks for ALL re-matched products, not only SKU extras — a re-fetch no longer wipes the chosen products.)
+// v6.24 (2026-11-22): (1) CRASH FIX — the missing-images feature was split across two actions, so finish-blog
+//   threw "missingImages is not defined" and publish-blog threw "Assignment to constant variable". The whole
+//   missing-images gate now lives in finish-blog (step 5, where images are resolved): it declares its own
+//   missingImages/dropMissingImages, returns needsImageDecision before saving, and strips dropped markers;
+//   publish-blog's duplicate gate was removed and its body is now `let` with a safety strip for old drafts.
+//   (2) ADD-ANGLE retry — the group "add angle" AI call now retries up to 3× before the "did not return the
+//   section" error (it was intermittent).
+// v6.23 (2026-11-21): (1) INTERNAL LINK placement — the ranking page now links to the covered blog with an
+//   IN-BODY contextual link whose anchor is the keyword (or a natural variant), chosen in the most relevant
+//   paragraph, instead of a "Related reading" line tacked on the bottom (better SEO). Falls back to a short
+//   natural sentence only if no paragraph fits. Backup + dedup kept. (2) YEARS — now AVOID a year unless
+//   genuinely needed; when needed use next year (we're near the end of the current one), never an earlier year.
+// v6.22 (2026-11-21): ADD-ANGLE FIX — "Add angle to the blog" from the duplicate check now covers the WHOLE
+//   group. Before, it rewrote ONE paragraph with ONE phrase, so it dropped most grouped searches and often
+//   skipped the main topic. Now, for a group (2+ searches) it writes ONE new section led by the MAIN topic
+//   that naturally works in EVERY grouped search. Single-keyword adds keep the light paragraph rewrite. Year
+//   rule applied here too. (Internal linking from the ranking page → this blog is unchanged, in add-angle-apply.)
+// v6.21 (2026-11-21): (1) NEVER publish with dead image placeholders — before creating the blog on Shopify,
+//   if any image (cover or body) isn't generated, STOP and return the list so the tool asks Mae: Generate
+//   (she gets each prompt + the exact save-name) or Cancel (drops the placeholder + publishes clean). Safety
+//   strip removes any leftover [[IMG|...]] before create. (2) YEARS — the blog body + SEO fields may only ever
+//   use the current year or the next one (computed live), never a past year. (3) CLICK-WORTHY TITLE — when the
+//   saved title is just the raw keyword (lowercase), the SEO pass now writes a proper H1 title and it is used
+//   as the Shopify article title + handle; titles that are already proper are kept.
+// v6.20 (2026-11-21): PUBLISH FIX — "related blogs" at publish are now chosen from LIVE Shopify, not from the
+//   saved blog-index.json (which still named deleted blogs → Shopify rejected the whole publish with
+//   "Value references non-existent resource"). One live pass gets every real article + its inbound-link count,
+//   so a deleted blog can never be linked again. The daily watcher (scripts/blog-index-sync.js) keeps the
+//   saved list clean for everything else that still reads it.
+// v6.19 (2026-11-18): (1) discover-probe — test one seed, returns EVERY question Google brings with kept/dropped
+//   + the reason (which blog / idea / pipeline item matched), nothing saved, to check the filter isn't too strict.
+//   (2) mark-idea-towrite — the Blog Ideas "Mark for Writing" button now persists the row as TO_WRITE AND
+//   approves the keyword, so it actually appears in To Write instead of vanishing.
+// v6.18 (2026-11-18): (1) discover-promote now ATTACHES the same-seed angle topics to the blog (writes them as
+//   secondary in blog-fused-groups.json → "+ also covers" + used as sections when writing). (2) New delete-blog-row
+//   (removes ONE matching keyword[+title] row from blog_ideas.csv — for the To Write 🗑 delete button; a duplicate
+//   pair loses exactly one). (3) New gsc-approve-dedup: approving GSC topics runs the duplicate check right there —
+//   covered → a 'covered' group, the rest → Singles — so nothing lands in limbo.
+// v6.17 (2026-11-18): Discover polish. discover-promote now sends an approved topic STRAIGHT TO TO WRITE
+//   (status TO_WRITE + adds the keyword to blog-approved.json so it shows; updates the existing row instead of
+//   duplicating) and clears the same-seed angle topics from the pool. discover-gaps + discover-search now also
+//   count IN-PROGRESS topics (To Write / pending / Blog Ideas / month, plus Grouped winners+secondary and
+//   Singles) via gatherPipelineTexts, so a room/style already being worked on is greyed ("in pipeline") and
+//   never re-offered. Ignored topics are NOT counted (can resurface).
+// v6.16 (2026-11-18): DISCOVER topics (Serper). New actions: discover-gaps (per-room general count + which
+//   styles are covered/already searched, from the room+style dictionaries), discover-search (searches each
+//   seed × 2 terms "wall art"/"home decor" on Serper via SERPER_KEY, keeps only questions NOT already covered
+//   by a blog / an idea / the pool, saves to data/discover-pool.json, records searched seeds in
+//   data/discover-searched.json), discover-list-pool, discover-set-keyword (Claude fills the main keyword),
+//   discover-promote (ready pool item → Blog Idea row). Added "Reading room" to the room dictionary and fixed
+//   the Nursery/Kids synonyms (phrases, not loose single words).
+// v6.15 (2026-11-17): (A) updateGitHubFile now RETRIES on a 409 SHA conflict (re-fetch the current SHA, up to
+//   3 tries) — fixes "Failed to update …: status 409" when GitHub's contents API returns a stale SHA. (B)
+//   reject-fusion-keyword ("✕ not this one") now puts the rejected keyword straight back into the Singles list
+//   (and kept members too if the group dissolves), so it's usable immediately without re-running the check.
+// v6.14 (2026-11-17): three new dedup actions. (1) fusion-suggest-singles-for-group → singles that fit a
+//   grouped card by the same 4-step room/style cascade. (2) fusion-add-single-to-group → move a single into an
+//   existing group's secondary and drop it from Singles. (3) fusion-single-to-blog → match a single to a chosen
+//   published/scheduled blog, turning it into an Already-covered group (where the angle paragraph is written).
+// v6.13 (2026-11-16): add-angle-preview now also accepts a blogUrl (resolves it to the article id) so the
+//   Blog Ideas "Add paragraph to that blog" button can add an angle to the conflicting blog directly.
+// v6.12 (2026-11-16): (A) new action fusion-ignore-single → sets the keyword IGNORED in blog_ideas.csv (adds
+//   a row if it's a rank keyword) so it moves to the Ignored tab and leaves Singles for good. (B) add-angle-
+//   apply now AUTO-PLACES the internal link on the OLD ranking page instead of only queuing it in MPD: old
+//   page = BLOG → append a short "Related reading" link paragraph (body backed up to blog-angle-backups.json,
+//   undo-able); old page = PRODUCT → add this blog to the product's custom.linked_blogs metafield (previous
+//   value saved to linked-blogs-backups.json). Anything that fails falls back to the MPD "Add the link" queue.
+// v6.11 (2026-11-16): covered match tightened — a single-dimension match (style-only OR room-only) now only
+//   covers a GENERAL blog on the other dimension (style-only kw ↔ style-only blog, room-only kw ↔ room-only
+//   blog). Before, "old money living room" / "grey and beige living room" were flagged covered by an
+//   "Abstract + Living room" blog just because both were Living room. Now those genuinely different topics go
+//   to Grouped/Singles for a new blog instead of being wrongly marked already-covered. Pair matches unchanged.
+// v6.10 (2026-11-16): ROOT-CAUSE fix for "no blogs found". fetchBlogsPubAndSched had query:"published_status:any"
+//   on the articles query, which Shopify honours by returning only ~21 articles (hasNextPage:false) instead
+//   of all ~250. So the dedup + blog search only ever saw ~21 (the scheduled ones) → published blogs like
+//   coastal/old-money/office were invisible, and "covered" only ever matched scheduled blogs. Removed the
+//   filter (the code already skips drafts by publishedAt), so the full catalogue is fetched.
+// v6.9 (2026-11-16): search-blogs-for-group now RETURNS already-used blogs too (with used:true) instead of
+//   hiding them — so Mae can see the search is working. Available first, used last; the UI greys the used
+//   ones out and disables them. Empty result now truly means "no blog matches".
+// v6.8 (2026-11-16): duplicate-check reliability. (1) fetchBlogsPubAndSched made robust — 100/page +
+//   retry + partial results (first:250 was intermittently failing the WHOLE fetch → the dedup + the blog
+//   search found "no blogs"). (2) search-blogs-for-group now also matches by the room/style cascade, not
+//   only the literal typed words. (3) grouping no longer DROPS overflow to singles — a bucket of same
+//   style/room is split into groups of ≤4 so nothing (incl. low-volume "already ranks") falls through.
+// v6.7 (2026-11-16): duplicate-check matching rebuilt. Shared topic matcher (room/style) used by BOTH the
+//   automatic check AND the by-hand Singles grouping. Matches the PRINCIPAL word first, then synonyms, and
+//   pairs (style+room) before singles (style OR room) — exactly: (1) principal pair, (2) synonym pair,
+//   (3) principal single, (4) synonym single. Tolerant of plurals (office/offices) and words written
+//   joined or split (playroom / play room). The style/room list now includes each name as its own
+//   principal (e.g. "old money" was missing → that's why old-money keywords never matched/grouped). New
+//   actions: search-blogs-for-group (live blog search by title, hides blogs already used as covered) and
+//   fusion-attach-blog (attach a chosen blog to a grouped card → moves it to Already covered).
+// v6.6 (2026-11-15): "one place at a time" flow. To Write only shows APPROVED blogs now — a topic lives in
+//   the Duplicate check (Singles/Grouped/Covered) until Mae approves it, then it moves to To Write. New
+//   data/blog-approved.json (lowercased keywords); apply-fusion-group + fusion-single-to-write add to it;
+//   get-fused-groups returns `approved`; find-fusion-groups EXCLUDES approved keywords from the pool so an
+//   approved blog never re-appears in the dedup.
+// v6.5 (2026-11-15): Blog Manager 8-tab reorg. save-blog-ideas honours a row.status (so pasted ideas land
+//   as BLANK = Blog Ideas, not TO_WRITE). New set-keyword-metric (saves target keyword vol/difficulty to
+//   data/keyword-metrics.json). find-fusion-groups now ALSO returns `singles` (tagged leftovers not covered
+//   and not grouped) so the Duplicate check "Singles" sub-tab can show them; lead keyword of a group now
+//   prioritises already-ranks + metrics. New fusion-manual-group (group chosen singles → match an existing
+//   blog by TITLE only → covered-add-angle, else a new To Write group).
+// v6.4 (2026-11-14): covered detection now DISTRIBUTES keywords across the matching blogs instead of dumping
+//   them all on the first one. Phase 1: specifics (style+room) spread across blogs of the same style+room,
+//   max 5 per blog, never the same blog twice. Phase 2: the leftovers (style-only, room-only, or specifics
+//   that didn't fit) go to a blog sharing style OR room, same cap. Keywords that fit no blog stay separate.
+//   One card per blog (no more repeating the same blog). Grouping of uncovered keywords is unchanged.
+// v6.3 (2026-11-14): find-fusion-groups takes reset:true → wipes the saved pending + the "already checked"
+//   cache first, so a run re-evaluates EVERYTHING with the current logic (powers the "Reset & re-check"
+//   button — old cached groups no longer mask new results). Covered cards are now split into chunks of ≤5
+//   so no card is a giant wall of keywords (merge groups were already capped at 4).
+// v6.2 (2026-11-14): synonym dictionary culled by Mae (1×1 review) + matching is now EXACT (no substring,
+//   no typos) so "toilet"≠"toile", "wallpaper"≠"wall". Coffee style removed (no synonyms left). Grouping is
+//   back to Mae's model: same style and/or room (general vs specific) — the meaningful-overlap experiment is
+//   gone. Covered no longer uses the loose common-word fallback. Merge groups capped at 4 per blog. Kept:
+//   persistent reject memory, and add-angle-apply auto-queues the Money Page Doctor link for folded keywords
+//   that already rank (claim-to-registry → "Add the link").
+// v6.0 (2026-11-14): fusion reject now PERSISTS. reject-fusion-keyword records the rejected keyword+bucket
+//   in data/blog-fusion-rejections.json so future runs never re-form that same grouping (the keyword stays
+//   free to join a different group/room or a future one). find-fusion-groups honours those rejections when
+//   bucketing + detecting covered. New action restore-fusion-rejection powers a session-only "put back"
+//   (undo) that re-adds the keyword to its original group and clears its rejection record.
+// v5.9 (2026-11-14): find-fusion-groups is now DETERMINISTIC (no AI). Groups keywords by a STYLE (29) +
+//   ROOM (10) synonym dictionary, typo-tolerant (Levenshtein on words ≥5 chars). General = only a style OR
+//   only a room; specific = both. Generals group by shared style/room; a specific rolls into a general of
+//   its style (preferred) or room; two specifics need style AND room. Covered keywords (already answered by
+//   a published/scheduled blog) are pulled out first, bucketed per blog. New action reject-fusion-keyword
+//   drops ONE keyword from a pending group and frees it for a future run. The old AI prompt is left unused.
+// v5.7 (2026-11-13): find-fusion-groups — compact output {groups:[[..]], covered:[{k,blog}]} so the AI stops
+//   listing every keyword (which overflowed tokens → 0 results). Keeps existing/scheduled-blog detection as
+//   the priority. JSON-only, max_tokens 8000. Parse normalises the object into the group/covered entries.
+// v5.6 (2026-11-13): find-fusion-groups prompt rewritten — groups by GENERAL vs SPECIFIC (same style and/or
+//   same room; a specific can roll into a general of its style or room; two specifics need style+room match;
+//   never across a different room/style). FIXES the "0 groups" bug where the AI returned every keyword as a
+//   1-member group: output now must be real 2+ groups or a single keyword that is covered_by an existing blog.
+// v5.5 (2026-11-13): UNIFIED duplicate check. find-fusion-groups now pools To Write + "You already rank"
+//   in one run AND cross-checks published + scheduled blogs (new helpers fetchBlogsPubAndSched + getRankPool).
+//   A group can be a merge (new blog) or "covered" (already in a published/scheduled blog). New actions:
+//   remove-covered, add-angle-preview, add-angle-apply (Shopify articleUpdate + backup to
+//   data/blog-angle-backups.json), add-angle-undo. apply-fusion-group now also adds a rank winner as a
+//   TO_WRITE row and hides folded ranked keywords (gsc-performing-dismissed.json).
 // v5.2 (2026-09-27): performing-keywords-blog cleans ranking URLs (drop query) so the real page shows + URL-lock check matches.
 // v5.1 (2026-09-27): performing-keywords-blog now also hides the shared "✕ Dismiss" list (gsc-performing-dismissed.json).
 // v5.0 (2026-09-27): new GET action performing-keywords-blog — "Ya rankeás — capturá más" (blog side):
@@ -182,24 +392,33 @@ export default async function handler(req, res) {
 
   // Helper: update file on GitHub
   async function updateGitHubFile(filePath, content, sha, message) {
-    const response = await fetch(`https://api.github.com/repos/${REPO}/contents/${filePath}`, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `token ${GITHUB_TOKEN}`,
-        'Accept': 'application/vnd.github.v3+json',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        message,
-        content: Buffer.from(content).toString('base64'),
-        sha
-      })
-    });
-    if (!response.ok) {
-      const err = await response.text();
-      throw new Error(`Failed to update ${filePath}: ${err}`);
+    // Retry on a 409 SHA conflict: GitHub's contents API is read-after-write lagged, so a freshly-read SHA
+    // can already be stale → re-fetch the current SHA and try again (up to 3 attempts) instead of failing.
+    let attempt = 0, lastErr = '';
+    while (attempt < 3) {
+      const response = await fetch(`https://api.github.com/repos/${REPO}/contents/${filePath}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `token ${GITHUB_TOKEN}`,
+          'Accept': 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          message,
+          content: Buffer.from(content).toString('base64'),
+          sha
+        })
+      });
+      if (response.ok) return true;
+      lastErr = await response.text();
+      const isConflict = response.status === 409 || /but expected|does not match|sha/i.test(lastErr);
+      if (!isConflict) throw new Error(`Failed to update ${filePath}: ${lastErr}`);
+      attempt++;
+      if (attempt >= 3) break;
+      await new Promise(r => setTimeout(r, 400 * attempt));
+      try { const cur = await getGitHubFile(filePath); sha = cur.sha; } catch (e) { /* keep old sha, retry anyway */ }
     }
-    return true;
+    throw new Error(`Failed to update ${filePath}: ${lastErr}`);
   }
 
   // Helper: quote a CSV field if it contains commas, quotes or newlines
@@ -471,6 +690,203 @@ If you genuinely cannot find one of the two, leave its two fields as empty strin
     return out;
   }
 
+  // Helper: published AND future-scheduled blog articles (id + title + handle + status) — used by the
+  // unified duplicate check (to flag a topic already covered) and by "add angle to an existing blog".
+  async function fetchBlogsPubAndSched() {
+    // Robust: 100/page (first:250 intermittently failed the whole fetch → the dedup + blog search found
+    // "no blogs"), retry each page once, and keep whatever we already have if a later page still fails
+    // (partial beats empty). Never throws, so a Shopify hiccup never silently empties the blog list.
+    const out = [];
+    let cursor = null;
+    const now = Date.now();
+    const QUERY = `query($cursor:String){ articles(first:100, after:$cursor, sortKey:PUBLISHED_AT, reverse:true){ edges{ cursor node{ id title handle publishedAt blog{ handle } } } pageInfo{ hasNextPage } } }`;
+    for (let page = 0; page < 30; page++) {
+      let data = null;
+      try { data = await shopifyGraphQL(QUERY, { cursor }); }
+      catch (e1) { try { await new Promise(r => setTimeout(r, 600)); data = await shopifyGraphQL(QUERY, { cursor }); } catch (e2) { console.error('fetchBlogsPubAndSched page ' + page + ' failed:', (e2 && e2.message) || e2); break; } }
+      const conn = data && data.articles; if (!conn) break;
+      const edges = conn.edges || [];
+      for (const e of edges) {
+        const n = e.node; if (!n) continue;
+        const t = n.publishedAt ? new Date(n.publishedAt).getTime() : null;
+        const status = (t == null) ? 'draft' : (t > now ? 'scheduled' : 'published');
+        if (status === 'draft') continue; // tool-side drafts are handled separately
+        const blogHandle = (n.blog && n.blog.handle) || 'news-articles-home-decor-inspiration';
+        out.push({ id: n.id, title: n.title || '', handle: n.handle || '', status, url: `https://aboutwallart.com/blogs/${blogHandle}/${n.handle || ''}` });
+      }
+      if (!conn.pageInfo || !conn.pageInfo.hasNextPage) break;
+      cursor = edges.length ? edges[edges.length - 1].cursor : null;
+      if (!cursor) break;
+    }
+    return out;
+  }
+
+  // ── Shared topic matcher (duplicate check) ──────────────────────────────────────────────────────────
+  // Tags a keyword / blog TITLE with a STYLE and a ROOM. The FIRST word in each list is the PRINCIPAL
+  // (the canonical word, e.g. "old money", "office"); the rest are synonyms. Matching is plural-tolerant
+  // (office/offices) and joined/split tolerant (playroom = play room). Used by find-fusion-groups AND
+  // fusion-manual-group so the automatic check and the by-hand grouping behave identically.
+  const TOPIC_STYLE_DICT = [
+    ['Biophilic', ['biophilic','botanical','plants','greenery','nature']],
+    ['Farmhouse', ['farmhouse','floral','rustic','country','barn','cottage','cottagecore','wildflower']],
+    ['Shabby chic', ['shabby chic','romantic','pastel','antique rose']],
+    ['Vintage', ['vintage','retro','antique','nostalgic','heritage','old-fashioned']],
+    ['Japandi', ['japandi','japan','japanese','asian','oriental','wabi-sabi','crane','cranes']],
+    ['Zen', ['zen','buddha','buddhist','buddhism','lotus','meditation','mindfulness','yoga','spiritual']],
+    ['Scandinavian', ['scandinavian','scandi','nordic','hygge']],
+    ['Travel', ['travel','world','wanderlust']],
+    ['Christian', ['christian','faith','bible','scripture','cross','jesus','god','prayer','psalm','verse','church','blessing','holy']],
+    ['Islamic', ['islamic','islam','muslim','quran','arabic','arab','arabesque','mosque','allah','calligraphy','ayat','ramadan','eid','kaaba']],
+    ['Minimalism', ['minimalist','minimal','minimalism']],
+    ['Masculine', ['masculine','male','manly','gentleman']],
+    ['Industrial', ['industrial','urban','loft','steampunk']],
+    ['Moroccan', ['moroccan','morocco','marrakech','mosaic','tile']],
+    ['Abstract', ['abstract','modern art']],
+    ['Bohemian', ['bohemian','boho','hippie']],
+    ['Coastal', ['coastal','beach','sea','ocean','nautical','seaside','shells','waves','lighthouse','sailing','hamptons']],
+    ['Tropical', ['tropical','jungle','exotic']],
+    ['Wildlife', ['wildlife','safari','elephant','lion','tiger']],
+    ['Sun & moon', ['sun and moon','celestial','moon','stars','lunar','galaxy','constellation']],
+    ['Black & white', ['black and white','monochrome','greyscale']],
+    ['Chinoiserie', ['chinoiserie']],
+    ['Mid century', ['mid century','midcentury','retro','lux','luxury']],
+    ['Mediterranean', ['mediterranean']],
+    ['Contemporary', ['contemporary','modern']],
+    ['Maximalism', ['maximalism','maximalist','eclectic']],
+    ['French country', ['french country','provence','bees','hives','beehive']],
+    ['Old money', ['old money','heritage','classic']]
+  ];
+  const TOPIC_ROOM_DICT = [
+    ['Living room', ['living room','lounge','sitting room','tv room','snug']],
+    ['Family room', ['family room']],
+    ['Bedroom', ['bedroom','master bedroom','guest room','above bed']],
+    ['Nursery/Kids', ['nursery','kids room','kids bedroom','children bedroom','children room','baby room','playroom','boys room','girls room','teen bedroom','toddlers room','toddlers bedroom']],
+    ['Bathroom', ['bathroom','toilet','washroom','restroom']],
+    ['Kitchen', ['kitchen','breakfast nook','breakfast']],
+    ['Dining', ['dining room','dining']],
+    ['Hallway', ['hallway','corridor','entryway','entrance','foyer']],
+    ['Office', ['office','home office','study','workspace','desk']],
+    ['Reading room', ['reading room','reading nook','library']],
+    ['Outdoor', ['outdoor','garden','patio','balcony']]
+  ];
+  // ── Custom rooms/styles Mae adds by hand from the Discover tab (persisted on GitHub). They are merged into
+  // the live taxonomy above, so BOTH the Discover cards AND the duplicate check (topicTagBoth) recognise them
+  // — there is only one live list to keep in sync. Built-in names are captured first so the tool can tell a
+  // custom entry apart (for the remove "×"). Loaded only for discover/fusion/gsc actions; files may not exist.
+  const BUILTIN_STYLE_NAMES = new Set(TOPIC_STYLE_DICT.map(e => String(e[0]).toLowerCase()));
+  const BUILTIN_ROOM_NAMES = new Set(TOPIC_ROOM_DICT.map(e => String(e[0]).toLowerCase()));
+  if (/discover|fusion|gsc/i.test(String((req.body && req.body.action) || (req.query && req.query.action) || ''))) {
+    try {
+      const _customToPair = (e) => {
+        const name = String((e && e.name) || '').trim();
+        if (!name) return null;
+        const term = name.toLowerCase();
+        const syns = Array.isArray(e && e.synonyms) ? e.synonyms.map(s => String(s).toLowerCase().trim()).filter(Boolean) : [];
+        return [name, [term, ...syns]];
+      };
+      const _cs = await readJsonFileSafe('data/discover-custom-styles.json', []);
+      const _cr = await readJsonFileSafe('data/discover-custom-rooms.json', []);
+      (Array.isArray(_cs) ? _cs : []).map(_customToPair).filter(Boolean).forEach(p => { if (!TOPIC_STYLE_DICT.some(e => String(e[0]).toLowerCase() === p[0].toLowerCase())) TOPIC_STYLE_DICT.push(p); });
+      (Array.isArray(_cr) ? _cr : []).map(_customToPair).filter(Boolean).forEach(p => { if (!TOPIC_ROOM_DICT.some(e => String(e[0]).toLowerCase() === p[0].toLowerCase())) TOPIC_ROOM_DICT.push(p); });
+    } catch (e) { /* custom taxonomy optional */ }
+  }
+  const topicNorm = (s) => String(s || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  const topicDepl = (w) => (w.length > 3 && w.endsWith('s')) ? w.slice(0, -1) : w; // singular/plural tolerant
+  // A synonym "hits" if it appears as a whole word / consecutive phrase (plural tolerant), OR two adjacent
+  // words joined equal it (play room → playroom), OR a multi-word synonym joined equals one token.
+  const topicSynHit = (tokens, synRaw) => {
+    const syn = topicNorm(synRaw); if (!syn) return false;
+    const sw = syn.split(' ');
+    if (sw.length === 1) {
+      const s = topicDepl(syn);
+      for (let i = 0; i < tokens.length; i++) { if (topicDepl(tokens[i]) === s) return true; }
+      for (let i = 0; i + 1 < tokens.length; i++) { if (topicDepl(tokens[i] + tokens[i + 1]) === s) return true; }
+      return false;
+    }
+    const swd = sw.map(topicDepl);
+    for (let i = 0; i + sw.length <= tokens.length; i++) {
+      let ok = true; for (let j = 0; j < sw.length; j++) { if (topicDepl(tokens[i + j]) !== swd[j]) { ok = false; break; } }
+      if (ok) return true;
+    }
+    const joined = topicDepl(sw.join(''));
+    for (let i = 0; i < tokens.length; i++) { if (topicDepl(tokens[i]) === joined) return true; }
+    return false;
+  };
+  const topicTag = (text, principalOnly) => {
+    const tokens = topicNorm(text).split(' ').filter(Boolean);
+    let style = null, room = null;
+    for (const e of TOPIC_STYLE_DICT) { const syns = principalOnly ? [e[1][0]] : e[1]; if (syns.some(s => topicSynHit(tokens, s))) { style = e[0]; break; } }
+    for (const e of TOPIC_ROOM_DICT) { const syns = principalOnly ? [e[1][0]] : e[1]; if (syns.some(s => topicSynHit(tokens, s))) { room = e[0]; break; } }
+    return { style, room };
+  };
+  const topicTagBoth = (text) => ({ tagP: topicTag(text, true), tagS: topicTag(text, false) });
+  // The 4-step cascade: (1) principal pair, (2) synonym pair, (3) principal single, (4) synonym single.
+  // Each returns true if keyword-tag t matches blog-tag b at that level (both carry tagP + tagS).
+  // A single-dimension match (style-only or room-only) only covers a GENERAL blog on the other dimension —
+  // a style-only keyword is covered by a style-only blog, a room-only keyword by a room-only blog. So a
+  // Living-room keyword is never flagged covered by a specific "Abstract + Living room" blog (that blog is
+  // about abstract art, not the keyword's topic). Specific topics instead go to Grouped for a new blog.
+  // Pair matches (style+room both) stay exact.
+  const singleMatch = (tag, bt) => {
+    const styleOk = tag.style && bt.style === tag.style && !bt.room;  // keyword's style ↔ a general style blog
+    const roomOk  = tag.room  && bt.room  === tag.room  && !bt.style; // keyword's room  ↔ a general room blog
+    return !!(styleOk || roomOk);
+  };
+  const TOPIC_PHASES = [
+    (t, b) => !!(t.tagP.style && t.tagP.room && b.tagP.style === t.tagP.style && b.tagP.room === t.tagP.room),
+    (t, b) => !!(t.tagS.style && t.tagS.room && b.tagS.style === t.tagS.style && b.tagS.room === t.tagS.room),
+    (t, b) => singleMatch(t.tagP, b.tagP),
+    (t, b) => singleMatch(t.tagS, b.tagS)
+  ];
+
+  // Helper: the "You already rank" pool (informational keywords you already get clicks on, not locked,
+  // not already a blog, not dismissed) — mirrors the performing-keywords-blog action, returns ALL of them
+  // with the ranking URL + whether that URL is free. Used to fold "You already rank" into the duplicate check.
+  async function getRankPool() {
+    let list = [];
+    try {
+      const rr = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/gsc-performing-keywords.json?t=${Date.now()}`);
+      if (rr.ok) { const j = await rr.json(); list = Array.isArray(j.keywords) ? j.keywords : []; }
+    } catch (e) { /* no list yet */ }
+    const lockedSet = new Set(); const blogKws = []; const urlLock = {};
+    const cleanU = u => String(u || '').split(/[?#]/)[0];
+    const nrm = u => cleanU(u).trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
+    try {
+      const rc = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/keyword-locker-registry.csv?t=${Date.now()}`);
+      if (rc.ok) {
+        const txt = await rc.text();
+        txt.split('\n').forEach((line, i) => {
+          if (i === 0 || !line.trim()) return;
+          const c = parseCSVLine(line.replace(/\r/g, ''));
+          const kw = (c[0] || '').toLowerCase(); const url = (c[1] || '').trim(); const lk = (c[2] || '').toUpperCase(); const src = (c[9] || '');
+          if (kw && lk === 'LOCKED') lockedSet.add(kw);
+          if (url && url !== 'N/A' && lk === 'LOCKED') { const k = nrm(url); if (!urlLock[k]) urlLock[k] = c[0] || ''; }
+          if ((src === 'Published Blog' || src === 'To_Write_Blog') && c[0]) blogKws.push(kw);
+        });
+      }
+    } catch (e) { /* ignore */ }
+    let dismissed = [];
+    try { const df = await getGitHubFile('data/gsc-blog-dismissed.json'); dismissed = (JSON.parse(df.content) || []).map(s => String(s).toLowerCase()); } catch (e) { dismissed = []; }
+    let perfDismissed = [];
+    try { const pf = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/gsc-performing-dismissed.json?t=${Date.now()}`); if (pf.ok) { const j = await pf.json(); perfDismissed = (Array.isArray(j) ? j : []).map(s => String(s).toLowerCase()); } } catch (e) { perfDismissed = []; }
+    const lockedArr = [...lockedSet];
+    return list
+      .filter(k => k && k.keyword && k.intent === 'blog')
+      .filter(k => { const kw = k.keyword.toLowerCase();
+        if (lockedSet.has(kw)) return false;
+        if (lockedArr.some(lk => lk.includes(kw))) return false;
+        if (blogKws.some(bk => bk === kw || bk.includes(kw))) return false;
+        if (dismissed.includes(kw)) return false;
+        if (perfDismissed.includes(kw)) return false;
+        return true;
+      })
+      .map(k => {
+        const cleanRanking = k.rankingUrl ? cleanU(k.rankingUrl) : null;
+        const lockedTo = cleanRanking ? urlLock[nrm(cleanRanking)] : null;
+        return { keyword: k.keyword, impressions: k.impressions || null, pageUrl: cleanRanking || null, urlFree: !!(cleanRanking && !lockedTo), lockedToKeyword: lockedTo || null };
+      });
+  }
+
   // Helper: for each working title, derive the TRUE short main keyword and flag cannibalisation
   // against the already-published blogs — judged the way Google would: by SEARCH INTENT, not shared words.
   // Method: (1) derive the real short keyword, (2) NARROW to a shortlist of published blogs that share a
@@ -682,6 +1098,24 @@ Return ONLY a JSON object, no commentary, exactly:
     let sha = null;
     try { const existing = await getGitHubFile(filePath); sha = existing.sha; } catch (e) { sha = null; }
     await updateGitHubFile(filePath, JSON.stringify(obj, null, 2) + '\n', sha, message);
+  }
+  // A blog's image-code is PERMANENT: stored in data/blog-codes.json keyed by its (normalised) keyword, so every step
+  // (write → image prompts → finish → publish) and every re-write, reload or reordering reads the SAME code. The images
+  // a blog already has (named "<slug>-<code>") can therefore never be orphaned by a changed code. Set once, never changed.
+  // `fallback` seeds the code for an in-flight blog that already had one (from its draft) so nothing current breaks.
+  async function stableBlogCode(keyword, fallback) {
+    const clean = (s) => String(s || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    const kw = String(keyword || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const fb = clean(fallback);
+    if (!kw) return fb;
+    let map = {};
+    try { map = await readJsonFileSafe('data/blog-codes.json', {}); if (!map || typeof map !== 'object' || Array.isArray(map)) map = {}; } catch (e) { map = {}; }
+    const existing = clean(map[kw]);
+    if (existing) return existing;                 // already set → NEVER change it
+    const code = fb || (Date.now().toString(36).slice(-4) + Math.random().toString(36).slice(2, 4)).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 6);
+    map[kw] = code;
+    try { await writeJsonFile('data/blog-codes.json', map, 'Blog code (permanent): ' + kw + ' = ' + code); } catch (e) {}
+    return code;
   }
 
   // Column P — 3 "People Also Ask" Q&A pairs, plain text
@@ -1134,11 +1568,13 @@ Include EXACTLY 3 items.`;
       // "return { blogs }", so anything placed after that default never runs for a GET request.
       if (req.query.action === 'get-fusion-pending') {
         const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
-        return res.status(200).json({ success: true, groups: pending });
+        const singles = await readJsonFileSafe('data/blog-fusion-singles.json', []);
+        return res.status(200).json({ success: true, groups: pending, singles: Array.isArray(singles) ? singles : [] });
       }
       if (req.query.action === 'get-fused-groups') {
         const groups = await readJsonFileSafe('data/blog-fused-groups.json', {});
-        return res.status(200).json({ success: true, groups });
+        const approved = await readJsonFileSafe('data/blog-approved.json', []);
+        return res.status(200).json({ success: true, groups, approved: Array.isArray(approved) ? approved : [] });
       }
 
       // ── ACTION: performing-keywords-blog ── "Ya rankeás — capturá más" (BLOG side): informational
@@ -1190,7 +1626,7 @@ Include EXACTLY 3 items.`;
             const lockedTo = cleanRanking ? urlLock[nrm(cleanRanking)] : null;
             const urlFree = !!(cleanRanking && !lockedTo);
             return { keyword: k.keyword, impressions: k.impressions, clicks: k.clicks, position: k.position,
-              rankingUrl: urlFree ? cleanRanking : null, urlLockedToOther: !!lockedTo, topSix: (k.position != null && k.position <= 6) };
+              pageUrl: cleanRanking || null, urlFree: urlFree, lockedToKeyword: lockedTo || null, topSix: (k.position != null && k.position <= 6) };
           })
           .slice(0, 100);
         return res.status(200).json({ success: true, options });
@@ -2782,6 +3218,9 @@ Include EXACTLY 3 items.`;
         });
         if (!found) return res.status(404).json({ error: 'blog not found in the list' });
         await updateGitHubFile('data/blog_ideas.csv', out.join('\n'), f.sha, 'Mark blog done: ' + title);
+        // Record the EXPLICIT "done" in a dedicated permanent list. The Month-in-progress tab hides ONLY the blogs in
+        // this list — so a blog leaves that view only when Mae clicks its own "Mark as done", never on publish/refresh.
+        try { let done = await readJsonFileSafe('data/blog-done.json', []); if (!Array.isArray(done)) done = []; const lc = title.trim().toLowerCase(); if (!done.includes(lc)) { done.push(lc); await writeJsonFile('data/blog-done.json', done, 'Marked done: ' + title); } } catch (e) {}
         return res.status(200).json({ success: true });
       }
 
@@ -3097,7 +3536,7 @@ Include EXACTLY 3 items.`;
           if (r.isNew && !done.has(norm(r.title))) {
             const newCols = [
               r.keyword || '', r.title || '', r.perspective || '',
-              r.cannibalization || 'NO CONFLICT', r.conflictingKeyword || '', r.conflictingUrl || '', 'TO_WRITE', r.clashIntent || ''
+              r.cannibalization || 'NO CONFLICT', r.conflictingKeyword || '', r.conflictingUrl || '', (r.status !== undefined && r.status !== null ? r.status : 'TO_WRITE'), r.clashIntent || ''
             ];
             newLines.push(newCols.map(esc).join(','));
             done.add(norm(r.title));
@@ -3124,6 +3563,23 @@ Include EXACTLY 3 items.`;
         return res.status(200).json({ success: true, updated: done.size, appended });
       }
 
+      // ── ACTION: set-keyword-metric ── save a target keyword's Ubersuggest volume/difficulty into
+      // data/keyword-metrics.json (merged by keyword). Powers the Blog Ideas "needs keyword research" fields.
+      if (req.body.action === 'set-keyword-metric') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const kw = String(req.body.keyword || '').trim();
+        if (!kw) return res.status(400).json({ error: 'keyword required' });
+        const vol = (req.body.volume === '' || req.body.volume == null) ? null : Number(req.body.volume);
+        const diff = (req.body.difficulty === '' || req.body.difficulty == null) ? null : Number(req.body.difficulty);
+        const metrics = await readJsonFileSafe('data/keyword-metrics.json', {});
+        const prev = metrics[kw] || {};
+        metrics[kw] = Object.assign({}, prev,
+          (vol != null && !Number.isNaN(vol)) ? { volume: vol } : {},
+          (diff != null && !Number.isNaN(diff)) ? { difficulty: diff } : {});
+        await writeJsonFile('data/keyword-metrics.json', metrics, `Keyword metric: ${kw}`);
+        return res.status(200).json({ success: true, keyword: kw, metric: metrics[kw] });
+      }
+
       // ── ACTION: find-fusion-groups ── AI groups To Write keywords that share the SAME search intent
       // (so they'd fight each other in Google — cannibalisation WITHIN the write list, as opposed to
       // analyze-blog-titles above which only checks against ALREADY PUBLISHED blogs). Only sends
@@ -3132,9 +3588,16 @@ Include EXACTLY 3 items.`;
       // nothing in blog_ideas.csv changes until apply-fusion-group is called.
       if (req.body.action === 'find-fusion-groups') {
         if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        // reset = wipe the saved results + the "already checked" cache so EVERYTHING is re-evaluated from
+        // scratch with the current logic (used by the "Reset & re-check" button).
+        if (req.body.reset) {
+          try { await writeJsonFile('data/blog-fusion-pending.json', [], 'Fusion: reset pending (re-check all)'); } catch (e) {}
+          try { await writeJsonFile('data/blog-fusion-checked.json', { singletons: [], grouped: [] }, 'Fusion: reset checked (re-check all)'); } catch (e) {}
+          try { await writeJsonFile('data/blog-fusion-singles.json', [], 'Fusion: reset singles (re-check all)'); } catch (e) {}
+        }
         const ideasFile = await getGitHubFile('data/blog_ideas.csv');
         const lines = ideasFile.content.split('\n');
-        const poolMap = new Map(); // lowercase keyword -> { keyword, title }
+        const poolMap = new Map(); // lowercase keyword -> { keyword, title, source }
         lines.forEach((line, i) => {
           if (i === 0) return;
           const trimmed = line.trim().replace(/\r/g, '');
@@ -3143,16 +3606,33 @@ Include EXACTLY 3 items.`;
           const status = (cols[6] || '').trim().toUpperCase();
           const kw = (cols[0] || '').trim();
           if (!kw || (status !== 'TO_WRITE' && status !== 'TO_WRITE_PENDING')) return;
-          poolMap.set(kw.toLowerCase(), { keyword: kw, title: cols[1] || '' });
+          poolMap.set(kw.toLowerCase(), { keyword: kw, title: cols[1] || '', source: 'towrite' });
         });
+        // Also fold the "You already rank" keywords into the SAME run (unified dedup). They are not in
+        // blog_ideas.csv; each carries its ranking URL so the review card can add the link via MPD.
+        try {
+          const rankPool = await getRankPool();
+          rankPool.forEach(r => {
+            const lc = r.keyword.toLowerCase();
+            if (poolMap.has(lc)) return; // a To Write row already covers this keyword
+            poolMap.set(lc, { keyword: r.keyword, title: '', source: 'rank', pageUrl: r.pageUrl, urlFree: r.urlFree, lockedToKeyword: r.lockedToKeyword, impressions: r.impressions });
+          });
+        } catch (e) { /* if the rank list fails, To Write still runs */ }
 
         const checked = await readJsonFileSafe('data/blog-fusion-checked.json', { singletons: [], grouped: [] });
         const groupedSet = new Set((checked.grouped || []).map(s => String(s).toLowerCase()));
-        const pool = [...poolMap.values()].filter(p => !groupedSet.has(p.keyword.toLowerCase()));
+        const approvedArr = await readJsonFileSafe('data/blog-approved.json', []);
+        const approvedSet = new Set((Array.isArray(approvedArr) ? approvedArr : []).map(s => String(s).toLowerCase()));
+        const pool = [...poolMap.values()].filter(p => !groupedSet.has(p.keyword.toLowerCase()) && !approvedSet.has(p.keyword.toLowerCase()));
 
-        if (pool.length < 2) {
-          return res.status(200).json({ success: true, newGroups: [], checkedCount: pool.length, message: 'Nothing new to check.' });
+        if (!pool.length) {
+          return res.status(200).json({ success: true, newGroups: [], checkedCount: 0, message: 'Nothing new to check.' });
         }
+
+        // Existing blogs (published + scheduled) — so the AI can flag a topic that is ALREADY covered
+        // (→ "Remove" or "Add angle"), instead of proposing a duplicate new blog.
+        let existingBlogs = [];
+        try { existingBlogs = await fetchBlogsPubAndSched(); } catch (e) { existingBlogs = []; }
 
         // Best-effort volume/impressions data — never blocks the run if missing.
         let metrics = {};
@@ -3168,33 +3648,225 @@ Include EXACTLY 3 items.`;
         // Numbered list + the AI returns INDEX NUMBERS (not repeated text) — a model that paraphrases
         // even slightly while echoing text back (capitalisation, a comma, "the") used to make groups
         // silently vanish during exact-text matching. Numbers can't drift.
-        const prompt = `You are grouping SEO keywords for a UK wall-art & home-decor blog (About Wall Art) to avoid writing two blog posts that would compete with each other in Google (keyword cannibalisation).
+        const prompt = `You are grouping SEO keywords for About Wall Art (a UK wall-art & home-decor shop) so we don't write two blog posts that compete for the same Google search. Keywords are mostly about a ROOM (living room, bedroom, bathroom, nursery, kitchen, hallway, family room…) and/or a STYLE or theme (farmhouse, boho, coastal, japandi, grey, floral, minimalist, scandinavian…). USE JUDGEMENT — think about whether ONE blog post would sensibly serve the reader of all of them. Be willing to group; don't split hairs.
 
-Group keywords ONLY when a single blog post answering one of them would fully satisfy someone searching any of the others in the SAME group — they must be the SAME underlying question/intent, just phrased differently (spelling variants like colour/color, singular/plural, different word order, or an obvious synonym for the exact same question).
+Think GENERAL vs SPECIFIC:
+- GENERAL = names ONLY a style, OR ONLY a room (or is broad). e.g. "farmhouse room ideas" (style only), "living room wall art" (room only), "grey wall art" (style only), "wall art types" (broad).
+- SPECIFIC = fixes a style AND a room together. e.g. "farmhouse living room ideas", "coastal bedroom".
 
-WORKED EXAMPLE (group these — same intent, different phrasing): "what colour goes with grey", "what colors go with grey", "colours that go with grey", "what color goes with grey" — ALL the same question, just UK/US spelling and word-order variants. Group them together.
+GROUPING RULES:
+1. Two GENERAL keywords that share the SAME style → group. That share the SAME room → group.
+2. A SPECIFIC keyword can join a GENERAL blog/keyword of its SAME style, OR of its SAME room (the specific fits under that broader umbrella).
+3. Two SPECIFIC keywords group ONLY when they share BOTH the same style AND the same room.
+4. NEVER group across a DIFFERENT room or a DIFFERENT style. (A specific one needs room + style to match another specific; a general one needs the shared style or room.)
+5. Also group obvious same-search variants: UK/US spelling (colour/color), singular/plural, word order, clear synonyms.
 
-Do NOT group keywords that are merely on a similar TOPIC but ask a DIFFERENT question (e.g. "grey walls" and "grey and beige" are related topics but different questions — do not group them). When genuinely unsure, do NOT group — leave it out.
+WORKED EXAMPLES (About Wall Art):
+- GROUP: "farmhouse living rooms" + "cozy farmhouse living room ideas" → same style (farmhouse) + same room (living room).
+- GROUP: "farmhouse room ideas" (general farmhouse) with the farmhouse group → the general one fits under the farmhouse umbrella.
+- GROUP: "pictures of grey walls" + "grey wall art" → same style/topic.
+- DO NOT GROUP: "coastal bedroom" with a farmhouse or a living-room group → different style AND room.
+- DO NOT GROUP two specifics with different rooms (e.g. "farmhouse living room" vs "farmhouse kitchen") or different styles.
 
-Return ONLY compact JSON, no other text: an array of groups (2+ members each), referring to each keyword by its NUMBER from the list below (not its text). "suggested_primary" is the number of the clearest, most natural phrasing in that group.
-[{"members":[3,17],"suggested_primary":3,"reason":"short reason"}]
+ALSO: for each group, and for any SINGLE keyword already fully answered by an EXISTING blog below, set "covered_by" to that blog's NUMBER; otherwise null.
 
-Keywords that don't share intent with anything else must NOT appear in the output at all.
+THE MOST IMPORTANT JOB: flag any keyword already answered by an EXISTING blog below, so we never rewrite something we already published or scheduled.
 
-KEYWORDS (numbered):
-${pool.map((p, i) => (i + 1) + '. ' + p.keyword).join('\n')}`;
+OUTPUT — return ONLY compact JSON, ONE object, NOTHING else (no preamble, no explanation — start your reply with "{"). Use keyword NUMBERS and blog NUMBERS:
+{"groups":[[3,17],[5,9]],"covered":[{"k":22,"blog":4},{"k":31,"blog":7}]}
+- "groups" = clusters of 2+ keyword numbers that should share ONE blog (per the rules above). List ONLY real clusters of 2 or more. NEVER list a keyword that clusters with nothing.
+- "covered" = ONLY the keyword numbers already answered by an EXISTING blog, each with that blog's number. List ONLY covered ones. NEVER list an uncovered keyword.
+- Each keyword appears in AT MOST one place. If a cluster is already covered by an existing blog, put its members in "covered" (not "groups").
+- Most keywords will appear in NEITHER list — that is correct and expected. Omit them. Do NOT output one entry per keyword.
 
-        let aiText = '';
-        try { aiText = await callClaudeText(prompt, 4000); } catch (e) { return res.status(500).json({ error: 'AI grouping failed: ' + e.message }); }
-        // Always persist the raw response — never guess at a failure, read this file instead.
+KEYWORDS (numbered)${existingBlogs.length ? '' : ' — (no existing blogs loaded, so covered_by will be null)'}:
+${pool.map((p, i) => (i + 1) + '. ' + p.keyword + (p.source === 'rank' ? ' [already ranks elsewhere]' : '')).join('\n')}
+
+EXISTING BLOGS (numbered — published or scheduled):
+${existingBlogs.length ? existingBlogs.map((b, i) => (i + 1) + '. ' + b.title).join('\n') : '(none)'}`;
+
+        // ── DETERMINISTIC grouping (no AI) ── the prompt above is NO LONGER USED. The AI kept returning
+        // 0 groups, so grouping is now done in code from a STYLE + ROOM dictionary, typo-tolerant.
+        // Mae's rules: GENERAL = only a style OR only a room; SPECIFIC = a style AND a room. Two generals
+        // that share a style group; that share a room group. A specific rolls into a general of its same
+        // style (preferred) or same room. Two specifics group only if they share BOTH style and room.
+        // Covered = an existing (published/scheduled) blog already answers that scope → pulled out first.
+        // Mae reviewed the synonyms 1×1 (14 Nov) and culled them; matching is EXACT (no substring, no typos).
+        const STYLE_DICT = [
+          ['Biophilic', ['biophilic','botanical','plants','greenery','nature']],
+          ['Farmhouse', ['farmhouse','floral','rustic','country','barn','cottage','cottagecore','wildflower']],
+          ['Shabby chic', ['shabby chic','romantic','pastel','antique rose']],
+          ['Vintage', ['vintage','retro','antique','nostalgic','heritage','old-fashioned']],
+          ['Japandi', ['japandi','japan','japanese','asian','oriental','wabi-sabi','crane','cranes']],
+          ['Zen', ['zen','buddha','buddhist','buddhism','lotus','meditation','mindfulness','yoga','spiritual']],
+          ['Scandinavian', ['scandinavian','scandi','nordic','hygge']],
+          ['Travel', ['travel','world','wanderlust']],
+          ['Christian', ['christian','faith','bible','scripture','cross','jesus','god','prayer','psalm','verse','church','blessing','holy']],
+          ['Islamic', ['islamic','islam','muslim','quran','arabic','arab','arabesque','mosque','allah','calligraphy','ayat','ramadan','eid','kaaba']],
+          ['Minimalism', ['minimalist','minimal']],
+          ['Masculine', ['masculine','male','manly','gentleman']],
+          ['Industrial', ['industrial','urban','loft','steampunk']],
+          ['Moroccan', ['moroccan','morocco','marrakech','mosaic','tile']],
+          ['Abstract', ['abstract','modern art']],
+          ['Bohemian', ['bohemian','boho','hippie']],
+          ['Coastal', ['coastal','beach','sea','ocean','nautical','seaside','shells','waves','lighthouse','sailing','hamptons']],
+          ['Tropical', ['tropical','jungle','exotic']],
+          ['Wildlife', ['wildlife','safari','elephant','lion','tiger']],
+          ['Sun & moon', ['sun and moon','celestial','moon','stars','lunar','galaxy','constellation']],
+          ['Black & white', ['black and white','monochrome','greyscale']],
+          ['Chinoiserie', ['chinoiserie']],
+          ['Mid century', ['mid century','midcentury','retro','lux','luxury','50s','60s']],
+          ['Mediterranean', ['mediterranean']],
+          ['Contemporary', ['contemporary','modern']],
+          ['Maximalism', ['maximalism','maximalist','eclectic']],
+          ['French country', ['french country','provence','bees','hives','beehive']],
+          ['Old money', ['map','maps','classic']]
+        ];
+        const ROOM_DICT = [
+          ['Living room', ['living room','lounge','sitting room','tv room','snug']],
+          ['Family room', ['family room']],
+          ['Bedroom', ['bedroom','master bedroom','guest room','above bed']],
+          ['Nursery/Kids', ['nursery','kids','children','child','baby','playroom','boys room','girls room','teen']],
+          ['Bathroom', ['bathroom','toilet','washroom','restroom','spa']],
+          ['Kitchen', ['kitchen','breakfast nook','breakfast']],
+          ['Dining', ['dining room']],
+          ['Hallway', ['hallway','corridor','entryway','entrance','foyer']],
+          ['Office', ['office','home office','study','workspace','desk']],
+          ['Outdoor', ['garden','patio','balcony','outdoor']]
+        ];
+        const normTxt = (s) => String(s || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+        // EXACT matching only — a synonym matches a WHOLE word (or whole consecutive phrase). No substring,
+        // no typo tolerance. So "toilet" never matches "toile", "wallpaper" never matches "wall".
+        const synHit = (norm, tokens, synRaw) => {
+          const syn = normTxt(synRaw);
+          if (!syn) return false;
+          const sw = syn.split(' ');
+          if (sw.length === 1) return tokens.indexOf(syn) !== -1;
+          for (let i = 0; i + sw.length <= tokens.length; i++) {
+            let ok = true;
+            for (let j = 0; j < sw.length; j++) { if (tokens[i + j] !== sw[j]) { ok = false; break; } }
+            if (ok) return true;
+          }
+          return false;
+        };
+        const tagOne = (text) => {
+          const norm = normTxt(text);
+          const tokens = norm.split(' ').filter(Boolean);
+          let style = null, room = null;
+          for (const [name, syns] of STYLE_DICT) { if (syns.some(s => synHit(norm, tokens, s))) { style = name; break; } }
+          for (const [name, syns] of ROOM_DICT) { if (syns.some(s => synHit(norm, tokens, s))) { room = name; break; } }
+          return { style, room, tokens };
+        };
+
+        const tagged = pool.map((p, i) => { const tb = topicTagBoth(p.keyword + ' ' + (p.title || '')); return { idx: i + 1, p, tag: tb.tagS, tagP: tb.tagP, tagS: tb.tagS }; });
+        const blogTags = existingBlogs.map((b, i) => { const tb = topicTagBoth(b.title || ''); return { idx: i + 1, b, tag: tb.tagS, tagP: tb.tagP, tagS: tb.tagS }; });
+
+        // Persisted rejections: Mae said "this keyword does NOT belong in that group". We never re-form the
+        // same grouping for it. Map keyword(lowercase) -> array of forbidden bucket signatures
+        // ('S:<style>' | 'R:<room>' | 'SP:<style>|<room>' | 'COV:<blog handle/id>').
+        const rejections = await readJsonFileSafe('data/blog-fusion-rejections.json', {});
+        const isRejected = (kwLc, sig) => Array.isArray(rejections[kwLc]) && rejections[kwLc].includes(sig);
+        const covSigFor = (b, blogIdx) => 'COV:' + ((b && (b.handle || b.id)) || blogIdx);
+
+        // An existing blog that answers the SAME scope: specific→same style+room; style-only→a style-only
+        // blog of that style; room-only→a room-only blog of that room. An untagged keyword is never auto-
+        // flagged covered (no loose common-word matching).
+        const coveredByFor = (t) => {
+          const hasS = !!t.tag.style, hasR = !!t.tag.room;
+          if (!hasS && !hasR) return null;
+          const kwLc = (t.p && t.p.keyword || '').toLowerCase();
+          for (const bt of blogTags) {
+            if (isRejected(kwLc, covSigFor(bt.b, bt.idx))) continue; // Mae said this blog does NOT cover it
+            if (hasS && hasR) { if (bt.tag.style === t.tag.style && bt.tag.room === t.tag.room) return bt.idx; }
+            else if (hasS) { if (bt.tag.style === t.tag.style && !bt.tag.room) return bt.idx; }
+            else if (hasR) { if (bt.tag.room === t.tag.room && !bt.tag.style) return bt.idx; }
+          }
+          return null;
+        };
+
+        const aiGroups = [];
+        // 1) COVERED = DISTRIBUTE keywords across the existing blogs that share their style/room — max 5 per
+        //    blog, never the same blog twice. First the specifics (style+room) across same style+room blogs;
+        //    whatever is left over (style-only, room-only, or specifics that didn't fit) then goes to a blog
+        //    that shares style OR room. Keywords that still don't fit any blog are left separate (not covered).
+        const CAP = 5;
+        const coveredAssign = new Map(); // blogIdx -> [tagged]  (≤ CAP each)
+        const coveredUsed = new Set();
+        const hasSpace = (bi) => (coveredAssign.get(bi) || []).length < CAP;
+        const kwRejectsBlog = (t, bt) => isRejected((t.p.keyword || '').toLowerCase(), covSigFor(bt.b, bt.idx));
+        const placeIn = (t, blogs) => {
+          const bt = blogs.find(b => hasSpace(b.idx) && !kwRejectsBlog(t, b));
+          if (!bt) return false;
+          if (!coveredAssign.has(bt.idx)) coveredAssign.set(bt.idx, []);
+          coveredAssign.get(bt.idx).push(t); coveredUsed.add(t.idx); return true;
+        };
+        // 4-step cascade (Mae): principal pair → synonym pair → principal single → synonym single. Pairs
+        //    are matched first so a strong style+room blog is "used up" before a looser single match can
+        //    claim it. Same 5-per-blog cap, never the same blog twice. Untagged keywords are never covered.
+        TOPIC_PHASES.forEach(match => {
+          tagged.forEach(t => {
+            if (coveredUsed.has(t.idx)) return;
+            if (!(t.tag.style || t.tag.room)) return;
+            placeIn(t, blogTags.filter(bt => match(t, bt)));
+          });
+        });
+        // Emit one covered card per blog.
+        coveredAssign.forEach((arr, blogIdx) => {
+          aiGroups.push({ members: arr.map(t => t.idx), suggested_primary: arr[0].idx, covered_by: blogIdx, reason: '', sig: covSigFor(existingBlogs[blogIdx - 1], blogIdx) });
+        });
+
+        // 2) Group the REMAINING (uncovered) keywords: generals by shared style/room, specifics rolled in.
+        //    A keyword is NEVER placed in a bucket it was rejected from (persisted rejections); if every
+        //    bucket it could join is rejected, it stays a singleton.
+        const remaining = tagged.filter(t => !coveredUsed.has(t.idx));
+        const styleGenerals = new Map(); // style -> [tagged]
+        const roomGenerals = new Map();  // room  -> [tagged]
+        const specificPairs = new Map(); // 'SP:style|room' -> [tagged]
+        const specifics = [];
+        remaining.forEach(t => {
+          const kwLc = t.p.keyword.toLowerCase();
+          const hasS = !!t.tag.style, hasR = !!t.tag.room;
+          if (hasS && hasR) { specifics.push(t); }
+          else if (hasS) { if (!isRejected(kwLc, 'S:' + t.tag.style)) { if (!styleGenerals.has(t.tag.style)) styleGenerals.set(t.tag.style, []); styleGenerals.get(t.tag.style).push(t); } }
+          else if (hasR) { if (!isRejected(kwLc, 'R:' + t.tag.room)) { if (!roomGenerals.has(t.tag.room)) roomGenerals.set(t.tag.room, []); roomGenerals.get(t.tag.room).push(t); } }
+          // untagged → ungroupable, stays a singleton
+        });
+        specifics.forEach(t => {
+          const kwLc = t.p.keyword.toLowerCase();
+          const sSig = 'S:' + t.tag.style, rSig = 'R:' + t.tag.room, pSig = 'SP:' + t.tag.style + '|' + t.tag.room;
+          if (styleGenerals.has(t.tag.style) && !isRejected(kwLc, sSig)) styleGenerals.get(t.tag.style).push(t);
+          else if (roomGenerals.has(t.tag.room) && !isRejected(kwLc, rSig)) roomGenerals.get(t.tag.room).push(t);
+          else if (!isRejected(kwLc, pSig)) { if (!specificPairs.has(pSig)) specificPairs.set(pSig, []); specificPairs.get(pSig).push(t); }
+          // else → rejected from every bucket it could join → singleton
+        });
+        // Keep each merged post small (≤4) WITHOUT dropping anything: a bucket with more than 4 is SPLIT
+        // into several groups of ≤4 (sorted by volume), so low-volume "already ranks" keywords still get
+        // grouped instead of being thrown back to singles. A lone leftover (chunk of 1) is folded into the
+        // previous group (so it's never dropped); a genuinely alone keyword simply stays a single.
+        const volOf = (t) => { const m = metricsLc[t.p.keyword.toLowerCase()]; const g = gscLc[t.p.keyword.toLowerCase()]; return (m && m.volume) || t.p.impressions || (g && g.impressions) || 0; };
+        const chunk4 = (arr) => {
+          const s = arr.slice().sort((a, b) => volOf(b) - volOf(a));
+          const out = [];
+          for (let i = 0; i < s.length; i += 4) out.push(s.slice(i, i + 4));
+          if (out.length >= 2 && out[out.length - 1].length === 1) out[out.length - 2] = out[out.length - 2].concat(out.pop());
+          return out;
+        };
+        const emitGroups = (arr, reason, baseSig) => {
+          chunk4(arr).forEach((c, ci) => { if (c.length >= 2) aiGroups.push({ members: c.map(t => t.idx), suggested_primary: c[0].idx, covered_by: null, reason, sig: baseSig + (ci ? ('#' + (ci + 1)) : '') }); });
+        };
+        styleGenerals.forEach((arr, name) => emitGroups(arr, 'Same style: ' + name, 'S:' + name));
+        roomGenerals.forEach((arr, name) => emitGroups(arr, 'Same room: ' + name, 'R:' + name));
+        specificPairs.forEach((arr, pSig) => emitGroups(arr, pSig.replace('SP:', '').replace('|', ' + '), pSig));
+        const aiProposedCount = aiGroups.length;
+
+        // Persist the deterministic result (replaces the old raw-AI dump) — read this to debug grouping.
         try {
-          await writeJsonFile('data/blog-fusion-last-raw.json', { at: new Date().toISOString(), poolSize: pool.length, rawText: aiText }, 'Fusion: save raw AI response for debugging');
-        } catch (e) { /* debug file only — never blocks the real run */ }
-        const raw = aiText.replace(/```json\n?/g, '').replace(/```\n?/g, '');
-        const m = raw.match(/\[[\s\S]*\]/);
-        let aiGroups = [];
-        try { aiGroups = m ? JSON.parse(m[0]) : []; } catch (e) { aiGroups = []; }
-        const aiProposedCount = Array.isArray(aiGroups) ? aiGroups.length : 0;
+          await writeJsonFile('data/blog-fusion-last-raw.json', {
+            at: new Date().toISOString(), poolSize: pool.length, mode: 'deterministic',
+            tags: tagged.map(t => ({ keyword: t.p.keyword, style: t.tag.style, room: t.tag.room })),
+            groups: aiGroups
+          }, 'Fusion: save deterministic grouping for debugging');
+        } catch (e) { /* debug file only — never blocks the run */ }
 
         const newGroups = [];
         const nowGroupedLc = new Set();
@@ -3208,22 +3880,35 @@ ${pool.map((p, i) => (i + 1) + '. ' + p.keyword).join('\n')}`;
             const lc = p.keyword.toLowerCase();
             if (!seenLc.has(lc) && !nowGroupedLc.has(lc)) { seenLc.add(lc); validMembers.push(p); }
           });
-          if (validMembers.length < 2) return; // AI referenced a bad number or only 1 survived — skip
-          // Attach volume/impressions signals for winner selection + display.
+          // "covered_by" = this group's intent is already answered by an existing (published/scheduled) blog.
+          const covIdx = parseInt(g.covered_by, 10);
+          const coveredBlog = (Number.isInteger(covIdx) && covIdx >= 1 && covIdx <= existingBlogs.length) ? existingBlogs[covIdx - 1] : null;
+          // A plain merge needs 2+ members. A "covered" finding is valid even with a single keyword.
+          if (!coveredBlog && validMembers.length < 2) return;
+          if (coveredBlog && validMembers.length < 1) return;
+          // Attach volume/impressions signals + carry the member's source (towrite / rank) and its ranking URL.
           const withSignals = validMembers.map(v => {
             const met = metricsLc[v.keyword.toLowerCase()];
             const gsc = gscLc[v.keyword.toLowerCase()];
-            return { keyword: v.keyword, title: v.title, volume: met ? met.volume : null, difficulty: met ? met.seo_difficulty : null, impressions: gsc ? gsc.impressions : null };
+            return { keyword: v.keyword, title: v.title || '', source: v.source || 'towrite', pageUrl: v.pageUrl || null, urlFree: !!v.urlFree, lockedToKeyword: v.lockedToKeyword || null, volume: met ? met.volume : null, difficulty: met ? met.seo_difficulty : null, impressions: (met && met.impressions) || v.impressions || (gsc ? gsc.impressions : null) };
           });
-          // Winner: highest search volume (our own data) > highest GSC impressions > AI's suggested_primary.
+          // Lead keyword priority (Mae): 1st already-ranks + good metrics, 2nd already-ranks, 3rd the rest
+          // by metrics. So prefer a ranked member (source 'rank'); among ties use volume > impressions.
           let winner = null, signal = 'ai-choice';
-          const withVolume = withSignals.filter(s => s.volume != null);
-          if (withVolume.length) {
-            winner = withVolume.slice().sort((a, b) => (b.volume - a.volume) || ((a.difficulty ?? 99) - (b.difficulty ?? 99)))[0];
-            signal = 'volume';
+          const metricScore = (s) => (s.volume != null ? s.volume : (s.impressions != null ? s.impressions : 0));
+          const rankedMembers = withSignals.filter(s => s.source === 'rank');
+          if (rankedMembers.length) {
+            winner = rankedMembers.slice().sort((a, b) => (metricScore(b) - metricScore(a)) || ((a.difficulty ?? 99) - (b.difficulty ?? 99)))[0];
+            signal = 'ranks';
           } else {
-            const withImpr = withSignals.filter(s => s.impressions != null);
-            if (withImpr.length) { winner = withImpr.slice().sort((a, b) => b.impressions - a.impressions)[0]; signal = 'impressions'; }
+            const withVolume = withSignals.filter(s => s.volume != null);
+            if (withVolume.length) {
+              winner = withVolume.slice().sort((a, b) => (b.volume - a.volume) || ((a.difficulty ?? 99) - (b.difficulty ?? 99)))[0];
+              signal = 'volume';
+            } else {
+              const withImpr = withSignals.filter(s => s.impressions != null);
+              if (withImpr.length) { winner = withImpr.slice().sort((a, b) => b.impressions - a.impressions)[0]; signal = 'impressions'; }
+            }
           }
           if (!winner) {
             const spIdx = parseInt(g.suggested_primary, 10);
@@ -3232,15 +3917,22 @@ ${pool.map((p, i) => (i + 1) + '. ' + p.keyword).join('\n')}`;
             signal = 'ai-choice';
           }
           const secondary = withSignals.filter(s => s.keyword.toLowerCase() !== winner.keyword.toLowerCase());
-          if (!secondary.length) return; // winner ended up alone — nothing to fuse
+          if (!coveredBlog && !secondary.length) return; // a merge with nothing to merge — skip
           withSignals.forEach(s => nowGroupedLc.add(s.keyword.toLowerCase()));
           newGroups.push({
             id: `grp_${Date.now()}_${gi}`,
+            bucketSig: g.sig || null,
+            type: coveredBlog ? 'covered' : 'merge',
             winnerKeyword: winner.keyword,
             winnerTitle: winner.title,
+            winnerSource: winner.source,
+            winnerPageUrl: winner.pageUrl,
+            winnerUrlFree: winner.urlFree,
+            winnerLockedTo: winner.lockedToKeyword,
             reason: String(g.reason || ''),
             signals: signal,
-            secondary
+            secondary,
+            coveredBlog: coveredBlog ? { id: coveredBlog.id, title: coveredBlog.title, handle: coveredBlog.handle, status: coveredBlog.status, url: coveredBlog.url } : null
           });
         });
 
@@ -3255,8 +3947,880 @@ ${pool.map((p, i) => (i + 1) + '. ' + p.keyword).join('\n')}`;
           await writeJsonFile('data/blog-fusion-pending.json', [...pending, ...newGroups], `Fusion: +${newGroups.length} pending group(s)`);
         }
 
+        // SINGLES = pool keywords that landed in NO group (not covered, not grouped). They feed the
+        // Duplicate check "Singles" sub-tab, where Mae groups them by hand. Ranked ones carry their page
+        // so the UI can offer "optimise in MPD". The saved file is replaced each run.
+        const singlesOut = tagged.filter(t => !nowGroupedLc.has(t.p.keyword.toLowerCase())).map(t => {
+          const lc = t.p.keyword.toLowerCase(); const met = metricsLc[lc]; const gsc = gscLc[lc];
+          return { keyword: t.p.keyword, title: t.p.title || '', source: t.p.source || 'towrite', style: t.tag.style, room: t.tag.room, pageUrl: t.p.pageUrl || null, urlFree: !!t.p.urlFree, lockedToKeyword: t.p.lockedToKeyword || null, volume: met ? met.volume : null, difficulty: met ? met.seo_difficulty : null, impressions: (met && met.impressions) || t.p.impressions || (gsc ? gsc.impressions : null), position: gsc ? gsc.position : null };
+        });
+        try { await writeJsonFile('data/blog-fusion-singles.json', singlesOut, `Fusion: ${singlesOut.length} single(s)`); } catch (e) {}
+
         const survivedNote = (aiProposedCount && aiProposedCount !== newGroups.length) ? ` (AI proposed ${aiProposedCount}, ${newGroups.length} valid — see data/blog-fusion-last-raw.json if that gap looks wrong)` : '';
-        return res.status(200).json({ success: true, newGroups, checkedCount: pool.length, aiProposedCount, message: `Checked ${pool.length} topics — found ${newGroups.length} new group${newGroups.length === 1 ? '' : 's'}.${survivedNote}` });
+        return res.status(200).json({ success: true, newGroups, singles: singlesOut, checkedCount: pool.length, aiProposedCount, message: `Checked ${pool.length} topics — found ${newGroups.length} new group${newGroups.length === 1 ? '' : 's'} + ${singlesOut.length} single${singlesOut.length === 1 ? '' : 's'}.${survivedNote}` });
+      }
+
+      // ── ACTION: fusion-manual-group ── Mae ticked several SINGLES and grouped them by hand. Match an
+      // existing published/scheduled blog by TITLE ONLY; if one shares the keywords → a 'covered' pending
+      // group (add angle); else a 'merge' pending group (new blog). The chosen keywords leave the singles
+      // list and are marked grouped so they don't resurface. Apply/remove/add-angle then do the CSV work.
+      if (req.body.action === 'fusion-manual-group') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const kws = (Array.isArray(req.body.keywords) ? req.body.keywords : []).map(k => String(k || '').trim()).filter(Boolean);
+        if (kws.length < 2) return res.status(400).json({ error: 'Pick at least 2 keywords to group.' });
+        const singles = await readJsonFileSafe('data/blog-fusion-singles.json', []);
+        const byLc = new Map((Array.isArray(singles) ? singles : []).map(s => [String(s.keyword || '').toLowerCase(), s]));
+        const members = kws.map(k => byLc.get(k.toLowerCase())).filter(Boolean);
+        if (members.length < 2) return res.status(400).json({ error: 'Those keywords are no longer in the singles list — re-run the check.' });
+
+        // TITLE-only match against LIVE Shopify blogs — SAME 4-step cascade as the automatic check
+        // (principal pair → synonym pair → principal single → synonym single).
+        let existingBlogs = [];
+        try { existingBlogs = await fetchBlogsPubAndSched(); } catch (e) { existingBlogs = []; }
+        const memberTags = members.map(m => topicTagBoth(m.keyword + ' ' + (m.title || '')));
+        const blogTags = existingBlogs.map((b) => ({ b, ...topicTagBoth(b.title || '') }));
+        let matchedBlog = null;
+        for (const match of TOPIC_PHASES) {
+          for (const mt of memberTags) {
+            const hit = blogTags.find(bt => match(mt, bt));
+            if (hit) { matchedBlog = hit.b; break; }
+          }
+          if (matchedBlog) break;
+        }
+
+        // Lead keyword priority: already-ranks + metrics first.
+        const metricScore = (s) => (s.volume != null ? s.volume : (s.impressions != null ? s.impressions : 0));
+        const ordered = members.slice().sort((a, b) => ((b.source === 'rank') - (a.source === 'rank')) || (metricScore(b) - metricScore(a)));
+        const winner = ordered[0];
+        const secondary = ordered.slice(1).map(s => ({ keyword: s.keyword, title: s.title || '', source: s.source || 'towrite', pageUrl: s.pageUrl || null, urlFree: !!s.urlFree, lockedToKeyword: s.lockedToKeyword || null, volume: s.volume == null ? null : s.volume, difficulty: s.difficulty == null ? null : s.difficulty, impressions: s.impressions == null ? null : s.impressions }));
+        const group = {
+          id: `grp_${Date.now()}_manual`, bucketSig: null, type: matchedBlog ? 'covered' : 'merge',
+          winnerKeyword: winner.keyword, winnerTitle: winner.title || '', winnerSource: winner.source || 'towrite',
+          winnerPageUrl: winner.pageUrl || null, winnerUrlFree: !!winner.urlFree, winnerLockedTo: winner.lockedToKeyword || null,
+          reason: 'Grouped by hand', signals: 'manual', secondary,
+          coveredBlog: matchedBlog ? { id: matchedBlog.id, title: matchedBlog.title, handle: matchedBlog.handle, status: matchedBlog.status, url: matchedBlog.url } : null
+        };
+        const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+        await writeJsonFile('data/blog-fusion-pending.json', [...pending, group], `Fusion: manual group (${matchedBlog ? 'covered' : 'merge'})`);
+        const groupedLc = new Set(members.map(m => m.keyword.toLowerCase()));
+        const remaining = (Array.isArray(singles) ? singles : []).filter(s => !groupedLc.has(String(s.keyword || '').toLowerCase()));
+        await writeJsonFile('data/blog-fusion-singles.json', remaining, `Fusion: -${members.length} single(s) grouped by hand`);
+        const checked = await readJsonFileSafe('data/blog-fusion-checked.json', { singletons: [], grouped: [] });
+        const grouped = new Set((checked.grouped || []).map(s => String(s).toLowerCase())); groupedLc.forEach(k => grouped.add(k));
+        const singletons = new Set((checked.singletons || []).map(s => String(s).toLowerCase())); groupedLc.forEach(k => singletons.delete(k));
+        await writeJsonFile('data/blog-fusion-checked.json', { singletons: [...singletons], grouped: [...grouped] }, 'Fusion: mark hand-grouped keywords');
+        return res.status(200).json({ success: true, group, matched: !!matchedBlog });
+      }
+
+      // ── ACTION: search-blogs-for-group ── Mae types a keyword; return LIVE published/scheduled blogs
+      // whose TITLE contains those words (plural + joined/split tolerant). Blogs ALREADY used as a covered
+      // target (pending covered groups + already-applied fused groups) are hidden so she never double-adds.
+      if (req.body.action === 'search-blogs-for-group') {
+        const q = topicNorm(req.body.query || '');
+        const qTokens = q.split(' ').filter(Boolean);
+        if (!qTokens.length) return res.status(200).json({ success: true, blogs: [] });
+        let existingBlogs = [];
+        try { existingBlogs = await fetchBlogsPubAndSched(); } catch (e) { existingBlogs = []; }
+        const usedHandles = new Set();
+        const pend = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+        (Array.isArray(pend) ? pend : []).forEach(g => { if (g && g.type === 'covered' && g.coveredBlog) usedHandles.add(String(g.coveredBlog.handle || g.coveredBlog.id || '').toLowerCase()); });
+        const fused = await readJsonFileSafe('data/blog-fused-groups.json', {});
+        Object.values(fused && typeof fused === 'object' ? fused : {}).forEach(g => { if (g && g.coveredBlog) usedHandles.add(String(g.coveredBlog.handle || g.coveredBlog.id || '').toLowerCase()); });
+        const qTag = topicTagBoth(q); // match by room/style cascade too, not only the literal words
+        const blogs = existingBlogs
+          .filter(b => {
+            const bt = topicNorm(b.title).split(' ').filter(Boolean);
+            const literal = qTokens.every(w => topicSynHit(bt, w));
+            const byTopic = (qTag.tagS.style || qTag.tagS.room) && TOPIC_PHASES.some(m => m(qTag, topicTagBoth(b.title)));
+            return literal || byTopic;
+          })
+          .map(b => ({ id: b.id, title: b.title, handle: b.handle, status: b.status, url: b.url, used: usedHandles.has(String(b.handle || b.id || '').toLowerCase()) }))
+          .sort((a, b) => (a.used ? 1 : 0) - (b.used ? 1 : 0)) // available first, already-used last
+          .slice(0, 40);
+        return res.status(200).json({ success: true, blogs, _blogCount: existingBlogs.length });
+      }
+
+      // ── ACTION: fusion-attach-blog ── Mae picked a blog from the search for a grouped (merge) card →
+      // turn that pending group into a 'covered' one for the chosen blog (it moves to Already covered).
+      if (req.body.action === 'fusion-attach-blog') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const groupId = String(req.body.groupId || '');
+        const blog = req.body.blog || null;
+        if (!groupId || !blog || !(blog.handle || blog.id)) return res.status(400).json({ error: 'Need a group and a blog.' });
+        const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+        const arr = Array.isArray(pending) ? pending : [];
+        const i = arr.findIndex(g => g && g.id === groupId);
+        if (i < 0) return res.status(404).json({ error: 'That group is no longer here — re-run the check.' });
+        arr[i] = { ...arr[i], type: 'covered', coveredBlog: { id: blog.id || null, title: blog.title || '', handle: blog.handle || '', status: blog.status || 'published', url: blog.url || '' } };
+        await writeJsonFile('data/blog-fusion-pending.json', arr, `Fusion: attached blog to group ${groupId}`);
+        return res.status(200).json({ success: true, group: arr[i] });
+      }
+
+      // ── ACTION: fusion-suggest-singles-for-group ── singles that fit a grouped (merge) card, by the SAME
+      // 4-step room/style cascade used everywhere else. Lets Mae pull leftover singles into an existing group.
+      if (req.body.action === 'fusion-suggest-singles-for-group') {
+        const groupId = String(req.body.groupId || '');
+        const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+        const g = (Array.isArray(pending) ? pending : []).find(x => x && x.id === groupId);
+        if (!g) return res.status(404).json({ error: 'That group is no longer here — re-run the check.' });
+        const singles = await readJsonFileSafe('data/blog-fusion-singles.json', []);
+        const memberKws = [g.winnerKeyword + ' ' + (g.winnerTitle || ''), ...((g.secondary || []).map(s => s.keyword || ''))];
+        const memberTags = memberKws.map(topicTagBoth);
+        const matches = (Array.isArray(singles) ? singles : []).filter(s => {
+          const st = topicTagBoth((s.keyword || '') + ' ' + (s.title || ''));
+          return TOPIC_PHASES.some(m => memberTags.some(mt => m(st, mt)));
+        });
+        return res.status(200).json({ success: true, singles: matches });
+      }
+
+      // ── ACTION: fusion-add-single-to-group ── move a single INTO an existing group's secondary list
+      // (suggested or found by manual search) and drop it from the singles list.
+      if (req.body.action === 'fusion-add-single-to-group') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const groupId = String(req.body.groupId || '');
+        const kw = String(req.body.keyword || '').trim();
+        if (!groupId || !kw) return res.status(400).json({ error: 'Need a group and a keyword.' });
+        const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+        const arr = Array.isArray(pending) ? pending : [];
+        const gi = arr.findIndex(x => x && x.id === groupId);
+        if (gi < 0) return res.status(404).json({ error: 'That group is no longer here — re-run the check.' });
+        const singles = await readJsonFileSafe('data/blog-fusion-singles.json', []);
+        const sArr = Array.isArray(singles) ? singles : [];
+        const s = sArr.find(x => String(x.keyword || '').toLowerCase() === kw.toLowerCase());
+        if (!s) return res.status(404).json({ error: 'That single is no longer in the list — re-run the check.' });
+        const sec = (arr[gi].secondary || []).slice();
+        if (!sec.some(x => String(x.keyword || '').toLowerCase() === kw.toLowerCase())) {
+          sec.push({ keyword: s.keyword, title: s.title || '', source: s.source || 'towrite', pageUrl: s.pageUrl || null, urlFree: !!s.urlFree, lockedToKeyword: s.lockedToKeyword || null, volume: s.volume == null ? null : s.volume, difficulty: s.difficulty == null ? null : s.difficulty, impressions: s.impressions == null ? null : s.impressions });
+        }
+        arr[gi] = { ...arr[gi], secondary: sec };
+        await writeJsonFile('data/blog-fusion-pending.json', arr, `Fusion: +single "${kw}" to group ${groupId}`);
+        const remaining = sArr.filter(x => String(x.keyword || '').toLowerCase() !== kw.toLowerCase());
+        await writeJsonFile('data/blog-fusion-singles.json', remaining, `Fusion: -single "${kw}" (added to group)`);
+        const checked = await readJsonFileSafe('data/blog-fusion-checked.json', { singletons: [], grouped: [] });
+        const grouped = new Set((checked.grouped || []).map(x => String(x).toLowerCase())); grouped.add(kw.toLowerCase());
+        const singletons = new Set((checked.singletons || []).map(x => String(x).toLowerCase())); singletons.delete(kw.toLowerCase());
+        await writeJsonFile('data/blog-fusion-checked.json', { singletons: [...singletons], grouped: [...grouped] }, 'Fusion: single added to group');
+        return res.status(200).json({ success: true, group: arr[gi] });
+      }
+
+      // ── ACTION: fusion-single-to-blog ── Mae picks a published/scheduled blog for a SINGLE → make it a
+      // 'covered' group for that blog (moves to Already covered, where she adds the angle paragraph).
+      if (req.body.action === 'fusion-single-to-blog') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const kw = String(req.body.keyword || '').trim();
+        const blog = req.body.blog || null;
+        if (!kw || !blog || !(blog.handle || blog.id)) return res.status(400).json({ error: 'Need a single and a blog.' });
+        const singles = await readJsonFileSafe('data/blog-fusion-singles.json', []);
+        const sArr = Array.isArray(singles) ? singles : [];
+        const s = sArr.find(x => String(x.keyword || '').toLowerCase() === kw.toLowerCase());
+        if (!s) return res.status(404).json({ error: 'That single is no longer in the list — re-run the check.' });
+        const group = {
+          id: `grp_${Date.now()}_single`, bucketSig: null, type: 'covered',
+          winnerKeyword: s.keyword, winnerTitle: s.title || '', winnerSource: s.source || 'towrite',
+          winnerPageUrl: s.pageUrl || null, winnerUrlFree: !!s.urlFree, winnerLockedTo: s.lockedToKeyword || null,
+          reason: 'Matched to a blog by hand', signals: 'manual', secondary: [],
+          coveredBlog: { id: blog.id || null, title: blog.title || '', handle: blog.handle || '', status: blog.status || 'published', url: blog.url || '' }
+        };
+        const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+        await writeJsonFile('data/blog-fusion-pending.json', [...(Array.isArray(pending) ? pending : []), group], `Fusion: single "${kw}" → covered`);
+        const remaining = sArr.filter(x => String(x.keyword || '').toLowerCase() !== kw.toLowerCase());
+        await writeJsonFile('data/blog-fusion-singles.json', remaining, `Fusion: -single "${kw}" (matched to blog)`);
+        const checked = await readJsonFileSafe('data/blog-fusion-checked.json', { singletons: [], grouped: [] });
+        const grouped = new Set((checked.grouped || []).map(x => String(x).toLowerCase())); grouped.add(kw.toLowerCase());
+        const singletons = new Set((checked.singletons || []).map(x => String(x).toLowerCase())); singletons.delete(kw.toLowerCase());
+        await writeJsonFile('data/blog-fusion-checked.json', { singletons: [...singletons], grouped: [...grouped] }, 'Fusion: single matched to blog');
+        return res.status(200).json({ success: true, group });
+      }
+
+      // ════════ DISCOVER TOPICS (Serper) ════════
+      // Find room+style gaps, search Serper for the questions people ask, keep only NEW ones (duplicate check),
+      // park them in a pool. Claude fills the main keyword (Ubersuggest) → promote to Blog Ideas.
+      const DISCOVER_TERMS = ['wall art', 'home decor']; // 2 terms per seed (2 credits each)
+      // Topics already IN PROGRESS (not written yet but on their way) — so Discover doesn't re-offer them:
+      // To Write / pending / sent / Blog Ideas / any with a month, plus Grouped winners+secondary and Singles.
+      const gatherPipelineTexts = async () => {
+        const texts = [];
+        try {
+          const f = await getGitHubFile('data/blog_ideas.csv');
+          f.content.split('\n').forEach((l, i) => { if (i === 0) return; const t = l.trim(); if (!t) return; const c = parseCSVLine(t.replace(/\r/g, '')); const st = (c[6] || '').trim().toUpperCase(); const hasMonth = !!(c[9] || '').trim(); if (c[0] && (['TO_WRITE', 'TO_WRITE_PENDING', 'TO_WRITE_SENT', ''].includes(st) || hasMonth)) texts.push((c[0] || '') + ' ' + (c[1] || '')); });
+        } catch (e) {}
+        try { const pend = await readJsonFileSafe('data/blog-fusion-pending.json', []); (Array.isArray(pend) ? pend : []).forEach(g => { if (g.winnerKeyword) texts.push(g.winnerKeyword + ' ' + (g.winnerTitle || '')); (g.secondary || []).forEach(s => { if (s.keyword) texts.push(s.keyword); }); }); } catch (e) {}
+        try { const sing = await readJsonFileSafe('data/blog-fusion-singles.json', []); (Array.isArray(sing) ? sing : []).forEach(s => { if (s.keyword) texts.push((s.keyword || '') + ' ' + (s.title || '')); }); } catch (e) {}
+        return texts;
+      };
+
+      // ── ACTION: discover-gaps ── per room: general blog count + which styles are covered (written), in the
+      // pipeline (being worked on), or already searched.
+      if (req.body.action === 'discover-gaps') {
+        let blogs = [];
+        try { blogs = await fetchBlogsPubAndSched(); } catch (e) { blogs = []; }
+        if (!blogs.length) { try { const bi = await getGitHubFile('data/blog-index.json'); const j = JSON.parse(bi.content); blogs = (j.articles || []).map(a => ({ title: a.title })); } catch (e) {} }
+        const publishedPairs = new Set(); const roomCount = {};
+        blogs.forEach(b => { const { style, room } = topicTag(b.title || '', false); if (room) roomCount[room] = (roomCount[room] || 0) + 1; if (style && room) publishedPairs.add(style + '|' + room); });
+        const pipePairs = new Set(); const pipeRoom = new Set();
+        (await gatherPipelineTexts()).forEach(t => { const { style, room } = topicTag(t, false); if (room) pipeRoom.add(room); if (style && room) pipePairs.add(style + '|' + room); });
+        const searched = await readJsonFileSafe('data/discover-searched.json', []);
+        const searchedSet = new Set((Array.isArray(searched) ? searched : []).map(x => String(x).toLowerCase()));
+        const styleList = TOPIC_STYLE_DICT.map(e => ({ name: e[0], term: e[1][0], synonyms: e[1].slice(1), isCustom: !BUILTIN_STYLE_NAMES.has(String(e[0]).toLowerCase()) }));
+        const rooms = TOPIC_ROOM_DICT.map(e => {
+          const room = e[0], roomTerm = e[1][0], roomSyn = e[1].slice(1);
+          const styles = styleList.map(s => ({
+            style: s.name, term: s.term, synonyms: s.synonyms, isCustom: s.isCustom,
+            covered: publishedPairs.has(s.name + '|' + room),
+            inPipeline: !publishedPairs.has(s.name + '|' + room) && pipePairs.has(s.name + '|' + room),
+            searched: searchedSet.has((s.term + ' ' + roomTerm).toLowerCase())
+          }));
+          return { room, roomTerm, roomSynonyms: roomSyn, isCustom: !BUILTIN_ROOM_NAMES.has(String(room).toLowerCase()), generalCount: roomCount[room] || 0, generalInPipeline: pipeRoom.has(room), generalSearched: searchedSet.has(roomTerm.toLowerCase()), styles };
+        });
+        return res.status(200).json({ success: true, rooms, terms: DISCOVER_TERMS });
+      }
+
+      // ── ACTIONS: discover-add-room / discover-add-style / discover-remove-room / discover-remove-style ──
+      // Mae adds or removes rooms/styles by hand from the Discover tab. Stored on GitHub; merged into the live
+      // taxonomy above (so they show in the cards AND are recognised by the duplicate check). Built-in names
+      // are protected — they can't be re-added or removed.
+      if (req.body.action === 'discover-add-room' || req.body.action === 'discover-add-style') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const isRoom = req.body.action === 'discover-add-room';
+        const file = isRoom ? 'data/discover-custom-rooms.json' : 'data/discover-custom-styles.json';
+        const builtin = isRoom ? BUILTIN_ROOM_NAMES : BUILTIN_STYLE_NAMES;
+        const name = String(req.body.name || '').trim();
+        if (!name) return res.status(200).json({ success: false, error: 'Name is required' });
+        const nameLc = name.toLowerCase();
+        if (builtin.has(nameLc)) return res.status(200).json({ success: false, error: `"${name}" is already a built-in ${isRoom ? 'room' : 'style'}.` });
+        const syns = Array.isArray(req.body.synonyms)
+          ? req.body.synonyms.map(s => String(s).trim()).filter(Boolean)
+          : String(req.body.synonyms || '').split(',').map(s => s.trim()).filter(Boolean);
+        let list = await readJsonFileSafe(file, []); if (!Array.isArray(list)) list = [];
+        if (list.some(e => String(e.name || '').toLowerCase() === nameLc)) return res.status(200).json({ success: false, error: `"${name}" is already added.` });
+        list.push({ name, synonyms: syns, addedAt: new Date().toISOString() });
+        await writeJsonFile(file, list, `Discover: add ${isRoom ? 'room' : 'style'} "${name}"`);
+        return res.status(200).json({ success: true, list });
+      }
+      if (req.body.action === 'discover-remove-room' || req.body.action === 'discover-remove-style') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const isRoom = req.body.action === 'discover-remove-room';
+        const file = isRoom ? 'data/discover-custom-rooms.json' : 'data/discover-custom-styles.json';
+        const name = String(req.body.name || '').trim();
+        const nameLc = name.toLowerCase();
+        if (!nameLc) return res.status(200).json({ success: false, error: 'Name is required' });
+        let list = await readJsonFileSafe(file, []); if (!Array.isArray(list)) list = [];
+        const next = list.filter(e => String(e.name || '').toLowerCase() !== nameLc);
+        await writeJsonFile(file, next, `Discover: remove ${isRoom ? 'room' : 'style'} "${name}"`);
+        return res.status(200).json({ success: true, list: next });
+      }
+
+      // ── ACTION: gsc-blog-gaps ── (the improved "Priority from GSC" panel source) a BROAD live pull of the last
+      // 12 months of Search Console queries, kept to informational / blog-worthy ones that NO blog already covers,
+      // above an editable impressions floor. Each is flagged if a live blog shares its room and/or style (so Mae
+      // can tell a fresh angle from cannibalisation). Sorted by searches (impressions), top 300.
+      if (req.body.action === 'gsc-blog-gaps' || req.query.action === 'gsc-blog-gaps') {
+        const body = req.body || {};
+        const minImpr = Math.max(0, parseInt(body.minImpr != null ? body.minImpr : ((req.query && req.query.minImpr) || 20), 10) || 20);
+        const host = req.headers['x-forwarded-host'] || req.headers.host;
+        const proto = String(req.headers['x-forwarded-proto'] || 'https').split(',')[0];
+        const endD = new Date().toISOString().slice(0, 10);
+        const sD = new Date(); sD.setFullYear(sD.getFullYear() - 1); const startD = sD.toISOString().slice(0, 10);
+        let rows = [];
+        try {
+          const gr = await fetch(`${proto}://${host}/api/gsc?action=queries&startDate=${startD}&endDate=${endD}&limit=25000`);
+          if (gr.ok) { const gj = await gr.json(); const rr = (gj && gj.data && gj.data.rows) || []; rows = rr.map(r => ({ keyword: String((r.keys && r.keys[0]) || '').trim(), impressions: Math.round(r.impressions || 0), clicks: Math.round(r.clicks || 0), position: Math.round((r.position || 0) * 10) / 10 })); }
+        } catch (e) { /* fall through → empty */ }
+        if (!rows.length) return res.status(200).json({ success: true, options: [], total: 0, floor: minImpr, note: 'No live GSC data came back.' });
+        const BRAND_RE = /about\s*wall\s*art|aboutwallart/i;
+        const INFO_RE = /\b(idea|ideas|how|what|why|when|where|which|who|guide|guides|tip|tips|best|top|example|examples|inspiration|inspo|decorate|decorating|decor|design|designs|style|styles|theme|themes|meaning|vs|diy|trend|trends|20\d\d|should|can|make|choose|hang|hanging|arrange|arranging|layout|colour|color|palette)\b/i;
+        const PRODUCT_RE = /\b(buy|price|prices|cheap|sale|discount|for sale|near me|shop|store|order|delivery|coupon|voucher|print|prints|poster|posters|canvas|framed|frame|cushion|rug|mug|sticker)\b/i;
+        let intentCache = {};
+        try { const ic = await readJsonFileSafe('data/gsc-keyword-intent-cache.json', {}); intentCache = ic && typeof ic === 'object' ? ic : {}; } catch (e) {}
+        // Registry: EXACT-locked keywords (locked to a page/blog, or a blog source) → filtered out; SIMILAR ones → only flagged.
+        // Separate BLOG-locked (same search intent → cannibalises) from OTHER-page-locked (product / money page /
+        // collection = different intent → a blog can reuse the term and link to it). Only EXACT BLOG matches are hidden.
+        const lockedList = []; const hideSet = new Set();
+        try {
+          const rc = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/keyword-locker-registry.csv?t=${Date.now()}`);
+          if (rc.ok) { const txt = await rc.text(); txt.split('\n').forEach((line, i) => { if (i === 0 || !line.trim()) return; const c = parseCSVLine(line.replace(/\r/g, '')); const kw = (c[0] || '').trim().toLowerCase(); const url = (c[1] || '').trim(); const isLocked = (c[2] || '').trim().toUpperCase() === 'LOCKED'; const src = (c[9] || '').trim(); if (!kw) return; const isBlog = (src === 'Published Blog' || src === 'To_Write_Blog'); if ((isLocked && url) || isBlog) { lockedList.push({ kw, url: url || '', source: src, isBlog }); if (isBlog) hideSet.add(kw); } }); }
+        } catch (e) {}
+        let dismissed = [];
+        try { const df = await getGitHubFile('data/gsc-blog-dismissed.json'); dismissed = (JSON.parse(df.content) || []).map(x => String(x).toLowerCase()); } catch (e) { dismissed = []; }
+        const dismSet = new Set(dismissed);
+        // Corpus for the mechanical overlap flag: published + scheduled blogs + pipeline (To Write + grouped + singles).
+        let existingBlogs = [];
+        try { existingBlogs = await fetchBlogsPubAndSched(); } catch (e) { existingBlogs = []; }
+        if (!existingBlogs.length) { try { const bi = await getGitHubFile('data/blog-index.json'); const j = JSON.parse(bi.content); existingBlogs = (j.articles || []).map(a => ({ title: a.title })); } catch (e) {} }
+        let pipeTexts = []; try { pipeTexts = await gatherPipelineTexts(); } catch (e) { pipeTexts = []; }
+        const STOP = new Set(['wall','art','home','decor','prints','print','canvas','ideas','idea','guide','best','with','from','your','this','that','have','into','about','and','the','for','are','you','interior','design','style','room','living','how','what','why','when','does','uk']);
+        const wordsOf = s => [...new Set((String(s || '').toLowerCase().match(/[a-z]+/g) || []).filter(w => w.length > 3 && !STOP.has(w)))];
+        const corpus = existingBlogs.map(b => { const label = b.title || ''; const t = topicTag(label, false); return { label, style: t.style, room: t.room, words: wordsOf(label), pipeline: false, url: b.url || '' }; })
+          .concat((Array.isArray(pipeTexts) ? pipeTexts : []).map(x => { const label = String(x || '').trim(); const t = topicTag(label, false); return { label, style: t.style, room: t.room, words: wordsOf(label), pipeline: true, url: '' }; }));
+        // Mechanical flag, strongest first: both axes (cannibalise) → 2+ distinctive shared words (similar topic) → single room/style (new angle).
+        const overlapFor = (kw) => {
+          const t = topicTag(kw, false); const qS = t.style, qR = t.room; const qw = wordsOf(kw);
+          if (qS && qR) { const b = corpus.find(c => c.style === qS && c.room === qR); if (b) return { style: qS, room: qR, type: 'both', title: b.label, pipeline: b.pipeline, url: b.url }; }
+          let best = null, bestN = 0; for (const c of corpus) { const n = c.words.filter(w => qw.includes(w)).length; if (n > bestN) { bestN = n; best = c; } }
+          if (best && bestN >= 2) return { style: qS, room: qR, type: 'topic', title: best.label, pipeline: best.pipeline, url: best.url, shared: bestN };
+          if (qR) { const b = corpus.find(c => c.room === qR); if (b) return { style: qS, room: qR, type: 'room', title: b.label, pipeline: b.pipeline, url: b.url }; }
+          if (qS) { const b = corpus.find(c => c.style === qS); if (b) return { style: qS, room: qR, type: 'style', title: b.label, pipeline: b.pipeline, url: b.url }; }
+          return { style: qS, room: qR, type: null, title: '' };
+        };
+        // Flag the locked keyword that matches (prefer exact), carrying WHERE it's locked (blog vs other page) so the UI
+        // can tell cannibalisation apart from a reusable term. Exact BLOG matches never reach here (they're hidden).
+        const lockedFlagFor = (lc) => {
+          let exact = null, sim = null;
+          for (const L of lockedList) { if (L.kw === lc) { exact = L; break; } if (!sim && Math.min(lc.length, L.kw.length) >= 5 && (lc.includes(L.kw) || L.kw.includes(lc))) sim = L; }
+          const L = exact || sim; if (!L) return null;
+          return { keyword: L.kw, url: L.url, source: L.source, isBlog: !!L.isBlog, exact: !!exact };
+        };
+        const seen = new Set();
+        const options = rows
+          .filter(r => {
+            const kw = r.keyword; const lc = kw.toLowerCase();
+            if (!kw || seen.has(lc)) return false;
+            if (r.impressions < minImpr) return false;
+            if (BRAND_RE.test(kw)) return false;
+            if (dismSet.has(lc)) return false;
+            if (hideSet.has(lc)) return false; // EXACT keyword locked to a BLOG (same intent) → hidden; other-page / similar ones are only flagged
+            const cached = String(intentCache[kw] || intentCache[lc] || '').toLowerCase();
+            if (cached === 'product') return false;
+            const info = cached === 'blog' || (INFO_RE.test(kw) && !PRODUCT_RE.test(kw));
+            if (!info) return false;
+            seen.add(lc); return true;
+          })
+          .sort((a, b) => b.impressions - a.impressions)
+          .slice(0, 300)
+          .map(r => { const ov = overlapFor(r.keyword); const lk = lockedFlagFor(r.keyword.toLowerCase()); return { keyword: r.keyword, impressions: r.impressions, clicks: r.clicks, position: r.position, style: ov.style || '', room: ov.room || '', overlap: ov.type ? { type: ov.type, title: ov.title, pipeline: !!ov.pipeline, url: ov.url || '' } : null, locked: lk }; });
+        return res.status(200).json({ success: true, options, total: options.length, floor: minImpr });
+      }
+
+      // ── ACTION: gsc-ai-check ── reasoned overlap: given queries, ask the AI whether each one already overlaps one
+      // of Mae's blogs (written + scheduled + To Write + grouped) in SEARCH INTENT — catching synonyms/paraphrases the
+      // mechanical word check misses. Verdict: cannibalise | angle | new, with a one-line reason. Cached per query;
+      // the per-row "Ask AI" button sends fresh:true to bypass the cache (for a doubt or after writing something new).
+      if (req.body.action === 'gsc-ai-check') {
+        const queries = Array.isArray(req.body.queries) ? req.body.queries.map(q => String(q || '').trim()).filter(Boolean) : [];
+        const fresh = req.body.fresh === true;
+        if (!queries.length) return res.status(200).json({ success: true, results: {} });
+        const CACHE = 'data/gsc-topic-overlap-cache.json';
+        let cache = {}; try { const c = await readJsonFileSafe(CACHE, {}); cache = (c && typeof c === 'object') ? c : {}; } catch (e) {}
+        const results = {}; const todo = [];
+        queries.forEach(q => { const k = q.toLowerCase(); if (!fresh && cache[k]) results[q] = cache[k]; else todo.push(q); });
+        if (todo.length) {
+          let eb = []; try { eb = await fetchBlogsPubAndSched(); } catch (e) {}
+          if (!eb.length) { try { const bi = await getGitHubFile('data/blog-index.json'); const j = JSON.parse(bi.content); eb = (j.articles || []).map(a => ({ title: a.title })); } catch (e) {} }
+          let pipe = []; try { pipe = await gatherPipelineTexts(); } catch (e) {}
+          const corpus = [...new Set(eb.map(b => b.title || '').concat(Array.isArray(pipe) ? pipe : []).map(s => String(s || '').trim()).filter(Boolean))];
+          const prompt = `You are an SEO editor for About Wall Art (a UK wall-art & home-decor blog). Here is the FULL list of blog topics I already have — written, scheduled, or planned (To Write / grouped):\n\n${corpus.map(t => '- ' + t).join('\n')}\n\nFor EACH candidate Google search query below, decide whether writing a NEW blog for it would overlap one of my existing topics IN SEARCH INTENT. Reason about meaning and intent, not just shared words — catch synonyms and paraphrases.\n\nCandidate queries:\n${todo.map(q => '- ' + q).join('\n')}\n\nFor each query return an object with:\n- "query": the query verbatim.\n- "verdict": "cannibalise" (same search intent as an existing topic — a new blog would compete), "angle" (related to an existing topic but a genuinely different, non-competing angle worth writing), or "new" (no real overlap).\n- "blog": the existing topic it overlaps, verbatim from my list, or "" if new.\n- "reason": ONE short sentence, max ~15 words.\nReturn ONLY a JSON array, one object per query. No prose, no markdown.`;
+          let arr = [];
+          try { const raw = await callClaudeText(prompt, 3500); const m = raw.match(/\[[\s\S]*\]/); arr = m ? JSON.parse(m[0]) : []; } catch (e) { arr = []; }
+          const byQ = {}; (Array.isArray(arr) ? arr : []).forEach((o, i) => { if (o && o.query) byQ[String(o.query).toLowerCase()] = o; });
+          todo.forEach((q, i) => {
+            const o = byQ[q.toLowerCase()] || (Array.isArray(arr) ? arr[i] : null) || {};
+            const v = { verdict: ['cannibalise', 'angle', 'new'].includes(String(o.verdict || '').toLowerCase()) ? String(o.verdict).toLowerCase() : 'new', blog: String(o.blog || ''), reason: String(o.reason || '') };
+            results[q] = v; cache[q.toLowerCase()] = v;
+          });
+          try { await writeJsonFile(CACHE, cache, `GSC AI overlap: +${todo.length} checked`); } catch (e) {}
+        }
+        return res.status(200).json({ success: true, results });
+      }
+
+      // ── ACTION: discover-search ── search each seed phrase × each term on Serper, collect the questions,
+      // drop ones already covered by a blog / already an idea / already in the pool, save the rest to the pool.
+      if (req.body.action === 'discover-search') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        if (!process.env.SERPER_KEY) return res.status(500).json({ error: 'SERPER_KEY not set in Vercel.' });
+        const seeds = (Array.isArray(req.body.seeds) ? req.body.seeds : []).map(s => String(s || '').trim()).filter(Boolean);
+        if (!seeds.length) return res.status(400).json({ error: 'No seeds selected.' });
+        const TERMS = (Array.isArray(req.body.terms) && req.body.terms.length) ? req.body.terms.map(t => String(t).trim()).filter(Boolean) : DISCOVER_TERMS;
+        let blogs = []; try { blogs = await fetchBlogsPubAndSched(); } catch (e) { blogs = []; }
+        const blogTags = blogs.map(b => ({ title: b.title || '', t: topicTagBoth(b.title || '') }));
+        const pipeTags = (await gatherPipelineTexts()).map(x => ({ text: x, t: topicTagBoth(x) })); // in-progress topics too
+        const ideaKw = new Set();
+        try { const f = await getGitHubFile('data/blog_ideas.csv'); f.content.split('\n').forEach((l, i) => { if (i === 0) return; const c = parseCSVLine(l.replace(/\r/g, '')); if (c[0]) ideaKw.add((c[0] || '').trim().toLowerCase()); }); } catch (e) {}
+        const pool = await readJsonFileSafe('data/discover-pool.json', []);
+        const poolArr = Array.isArray(pool) ? pool : [];
+        const poolQ = new Set(poolArr.map(p => String(p.question || '').toLowerCase()));
+        const discardedArr = await readJsonFileSafe('data/discover-discarded.json', []);
+        const discardedSet = new Set((Array.isArray(discardedArr) ? discardedArr : []).map(x => String(x).toLowerCase()));
+        const seenRun = new Set();
+        let creditsUsed = 0, creditsRemaining = null, failed = 0;
+        // "Maybe already covered" = ONLY when the EXACT style AND the EXACT room (or their synonyms) are BOTH present
+        // in another blog/pipeline topic — never a single axis. This is a SUGGESTION, not a filter: every question is
+        // returned and Mae decides which to keep. (Do NOT reuse TOPIC_PHASES here — its single-axis matchers over-drop.)
+        const bothAxes = (t, b) => (!!(t.tagP.style && t.tagP.room && b.tagP.style === t.tagP.style && b.tagP.room === t.tagP.room))
+                                 || (!!(t.tagS.style && t.tagS.room && b.tagS.style === t.tagS.style && b.tagS.room === t.tagS.room));
+        const newCandidates = [];
+        for (const seed of seeds) {
+          for (const term of TERMS) {
+            const q = (seed + ' ' + term).trim();
+            try {
+              const r = await fetch('https://google.serper.dev/search', { method: 'POST', headers: { 'X-API-KEY': process.env.SERPER_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ q, gl: 'uk', hl: 'en' }) });
+              if (!r.ok) { failed++; continue; }
+              const data = await r.json();
+              creditsUsed += (typeof data.credits === 'number' ? data.credits : 1);
+              if (data.credits_remaining != null) creditsRemaining = data.credits_remaining;
+              const qs = [];
+              (data.peopleAlsoAsk || []).forEach(p => { if (p && p.question) qs.push(p.question); });
+              (data.relatedSearches || []).forEach(rs => { if (rs && rs.query) qs.push(rs.query); });
+              qs.forEach(question => {
+                const lc = String(question).toLowerCase().trim();
+                if (!lc || seenRun.has(lc) || poolQ.has(lc) || ideaKw.has(lc) || discardedSet.has(lc)) return; // skip exact dupes + forever-discarded
+                const qt = topicTagBoth(question);
+                let maybeCovered = false, coveredReason = '';
+                if ((qt.tagS.style && qt.tagS.room) || (qt.tagP.style && qt.tagP.room)) {
+                  const bHit = blogTags.find(bt => bothAxes(qt, bt.t));
+                  const pHit = !bHit && pipeTags.find(pt => bothAxes(qt, pt.t));
+                  if (bHit) { maybeCovered = true; coveredReason = 'may overlap blog: "' + bHit.title + '"'; }
+                  else if (pHit) { maybeCovered = true; coveredReason = 'may overlap pipeline: "' + String(pHit.text).trim() + '"'; }
+                }
+                seenRun.add(lc);
+                newCandidates.push({ id: `disc_${Date.now()}_${newCandidates.length}`, question, seed, term, maybeCovered, coveredReason, mainKeyword: '', title: '', status: 'needs_keyword', createdAt: new Date().toISOString() });
+              });
+            } catch (e) { failed++; }
+          }
+        }
+        // Do NOT auto-save to the pool — the tool only SUGGESTS. Mae ticks which to keep; discover-add-questions saves them.
+        const searched = await readJsonFileSafe('data/discover-searched.json', []);
+        const sSet = new Set((Array.isArray(searched) ? searched : []).map(x => String(x).toLowerCase()));
+        seeds.forEach(s => sSet.add(s.toLowerCase()));
+        await writeJsonFile('data/discover-searched.json', [...sSet], `Discover: searched ${seeds.length} seed(s)`);
+        const maybeN = newCandidates.filter(c => c.maybeCovered).length;
+        return res.status(200).json({ success: true, creditsUsed, creditsRemaining, failed, found: newCandidates.length, maybeCovered: maybeN, candidates: newCandidates });
+      }
+
+      // ── ACTION: discover-add-questions ── save the questions Mae ticked (from discover-search) into the pool.
+      // The tool only suggests; nothing enters the pool until she picks it here. Skips exact duplicates.
+      if (req.body.action === 'discover-add-questions') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const items = Array.isArray(req.body.questions) ? req.body.questions : [];
+        if (!items.length) return res.status(200).json({ success: true, added: 0 });
+        const pool = await readJsonFileSafe('data/discover-pool.json', []);
+        const poolArr = Array.isArray(pool) ? pool : [];
+        const have = new Set(poolArr.map(p => String(p.question || '').toLowerCase()));
+        const toAdd = [];
+        items.forEach(it => {
+          const question = String((it && it.question) || '').trim();
+          const lc = question.toLowerCase();
+          if (!question || have.has(lc)) return;
+          have.add(lc);
+          toAdd.push({ id: `disc_${Date.now()}_${toAdd.length}`, question, seed: String((it && it.seed) || ''), term: String((it && it.term) || ''), mainKeyword: '', title: '', status: 'needs_keyword', createdAt: new Date().toISOString() });
+        });
+        if (toAdd.length) await writeJsonFile('data/discover-pool.json', [...poolArr, ...toAdd], `Discover: +${toAdd.length} picked topic(s)`);
+        return res.status(200).json({ success: true, added: toAdd.length });
+      }
+
+      // ── ACTION: discover-discard ── "Discard forever": remember these questions so discover-search never shows
+      // them again. Stored as a flat list of lowercased question texts in data/discover-discarded.json.
+      if (req.body.action === 'discover-discard') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const items = Array.isArray(req.body.questions) ? req.body.questions : [];
+        if (!items.length) return res.status(200).json({ success: true, discarded: 0 });
+        const cur = await readJsonFileSafe('data/discover-discarded.json', []);
+        const set = new Set((Array.isArray(cur) ? cur : []).map(x => String(x).toLowerCase()));
+        let added = 0;
+        items.forEach(it => {
+          const q = String((it && it.question) || it || '').trim().toLowerCase();
+          if (q && !set.has(q)) { set.add(q); added++; }
+        });
+        if (added) await writeJsonFile('data/discover-discarded.json', [...set], `Discover: discarded ${added} topic(s) forever`);
+        return res.status(200).json({ success: true, discarded: added });
+      }
+
+      // ── ACTION: discover-compare ── Mae types TWO keywords; return the LIVE blogs (published + scheduled) that
+      // relate to BOTH — so she can check by hand whether anything already overlaps the two. Nothing is saved.
+      if (req.body.action === 'discover-compare') {
+        const kw1 = String(req.body.kw1 || '').trim();
+        const kw2 = String(req.body.kw2 || '').trim();
+        if (!kw1 || !kw2) return res.status(400).json({ error: 'Type two keywords to compare.' });
+        let blogs = []; try { blogs = await fetchBlogsPubAndSched(); } catch (e) { blogs = []; }
+        const STOP = new Set(['wall','art','home','decor','prints','print','canvas','ideas','idea','guide','best','with','from','your','this','that','have','into','about','and','the','for','are','you','interior','design','style','room','living','how','what','why','when','does']);
+        const words = s => [...new Set((String(s || '').toLowerCase().match(/[a-z]+/g) || []).filter(w => w.length > 3 && !STOP.has(w)))];
+        const w1 = words(kw1), w2 = words(kw2);
+        const t1 = topicTagBoth(kw1), t2 = topicTagBoth(kw2);
+        const bothAxes = (t, b) => (!!(t.tagP.style && t.tagP.room && b.tagP.style === t.tagP.style && b.tagP.room === t.tagP.room))
+                                 || (!!(t.tagS.style && t.tagS.room && b.tagS.style === t.tagS.style && b.tagS.room === t.tagS.room));
+        const matches = [];
+        blogs.forEach(b => {
+          const title = b.title || '';
+          const hay = (title + ' ' + ((b.tags || []).join(' '))).toLowerCase();
+          const bt = topicTagBoth(title);
+          const hit1 = w1.some(w => hay.includes(w)) || bothAxes(t1, bt);
+          const hit2 = w2.some(w => hay.includes(w)) || bothAxes(t2, bt);
+          if (hit1 && hit2) matches.push({ title, handle: b.handle || '' });
+        });
+        return res.status(200).json({ success: true, kw1, kw2, matches });
+      }
+
+      // ── ACTION: discover-group-to-write ── Mae picked the keyword (from Ubersuggest) for a group of discovered
+      // topics. Check it isn't LOCKED to another URL; if free, create ONE approved blog in To Write that covers the
+      // whole group (the other topics become "also covers"), save its volume/difficulty, and clear them from the pool.
+      if (req.body.action === 'discover-group-to-write') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const keyword = String(req.body.keyword || '').trim();
+        const title = String(req.body.title || '').trim() || keyword;
+        const questions = Array.isArray(req.body.questions) ? req.body.questions.map(q => String((q && q.question) || q || '').trim()).filter(Boolean) : [];
+        const volume = (req.body.volume != null && String(req.body.volume).trim() !== '') ? Number(req.body.volume) : null;
+        const difficulty = (req.body.difficulty != null && String(req.body.difficulty).trim() !== '') ? Number(req.body.difficulty) : null;
+        if (!keyword) return res.status(400).json({ error: 'A chosen keyword is required.' });
+        const kwLc = keyword.toLowerCase();
+
+        // 1) LOCKED check — read the registry FRESH (contents API, no CDN lag).
+        //    Locked to a BLOG (source Published Blog / To_Write_Blog) = SAME intent → BLOCK (would cannibalise).
+        //    Locked to a PRODUCT / other page = DIFFERENT intent → ALLOW, and remember the URL so we link the blog to it.
+        let reuseLink = null;
+        try {
+          const reg = await getGitHubFile('data/keyword-locker-registry.csv');
+          const rl = (reg.content || '').split('\n');
+          for (let i = 1; i < rl.length; i++) {
+            const line = rl[i]; if (!line || !line.trim()) continue;
+            const c = parseCSVLine(line.replace(/\r/g, ''));
+            const rkw = (c[0] || '').trim().toLowerCase();
+            const rurl = (c[1] || '').trim();
+            const rlk = (c[2] || '').trim().toUpperCase();
+            const rsrc = (c[9] || '').trim();
+            if (rkw === kwLc && rlk === 'LOCKED' && rurl && rurl !== 'N/A') {
+              const isBlogLock = (rsrc === 'Published Blog' || rsrc === 'To_Write_Blog');
+              if (isBlogLock) {
+                return res.status(200).json({ success: false, locked: true, lockedUrl: rurl, error: 'That keyword is locked to another BLOG (' + rurl + ') — same intent, it would cannibalise. Pick a different keyword.' });
+              }
+              reuseLink = { keyword: keyword, url: rurl }; // product / other page → reuse + link
+              break;
+            }
+          }
+        } catch (e) { /* if the registry can't be read, don't silently approve a maybe-locked keyword */ return res.status(200).json({ success: false, error: 'Could not read the keyword registry to check locks — try again.' }); }
+
+        // 2) Add (or update) the blog idea row as TO_WRITE.
+        const esc = (c) => { const v = String(c == null ? '' : c); return (v.includes(',') || v.includes('"') || v.includes('\n')) ? `"${v.replace(/"/g, '""')}"` : v; };
+        const ideasFile = await getGitHubFile('data/blog_ideas.csv');
+        const lines = ideasFile.content.split('\n');
+        while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
+        let updated = false;
+        for (let li = 1; li < lines.length; li++) {
+          const t = lines[li].trim(); if (!t) continue;
+          const c = parseCSVLine(t.replace(/\r/g, ''));
+          if ((c[0] || '').trim().toLowerCase() === kwLc) { while (c.length < 10) c.push(''); c[1] = c[1] || title; c[6] = 'TO_WRITE'; lines[li] = c.map(esc).join(','); updated = true; break; }
+        }
+        if (!updated) lines.push([keyword, title, '', 'NO CONFLICT', '', '', 'TO_WRITE', '', '', ''].map(esc).join(','));
+        await updateGitHubFile('data/blog_ideas.csv', lines.join('\n') + '\n', ideasFile.sha, `Discover group → To Write: ${keyword}`);
+
+        // 3) Mark approved (so it shows in To Write, no second filter).
+        try { const ap = await readJsonFileSafe('data/blog-approved.json', []); const set = new Set((Array.isArray(ap) ? ap : []).map(x => String(x).toLowerCase())); set.add(kwLc); await writeJsonFile('data/blog-approved.json', [...set], `Approved: ${keyword}`); } catch (e) {}
+
+        // 4) Save the keyword metrics Mae typed in (so the backlog can rank it and we never re-fetch).
+        if (volume != null || difficulty != null) {
+          try { const km = await readJsonFileSafe('data/keyword-metrics.json', {}); const map = (km && typeof km === 'object') ? km : {}; map[kwLc] = { ...(map[kwLc] || {}), volume: (volume != null ? volume : (map[kwLc] || {}).volume), difficulty: (difficulty != null ? difficulty : (map[kwLc] || {}).difficulty), source: 'ubersuggest-manual', at: new Date().toISOString() }; await writeJsonFile('data/keyword-metrics.json', map, `Metrics: ${keyword}`); } catch (e) {}
+        }
+
+        // 5) The OTHER grouped topics become this blog's "also covers" (used as sections when it's written).
+        const secondary = questions.filter(q => q.toLowerCase() !== kwLc).map(q => ({ keyword: q, title: '', source: 'discover' }));
+        if (secondary.length) {
+          try { const fused = await readJsonFileSafe('data/blog-fused-groups.json', {}); const fmap = (fused && typeof fused === 'object') ? fused : {}; fmap[kwLc] = { winnerKeyword: keyword, winnerTitle: title, secondary, reason: 'Discover — grouped topics', appliedAt: new Date().toISOString() }; await writeJsonFile('data/blog-fused-groups.json', fmap, `Discover group for ${keyword}`); } catch (e) {}
+        }
+
+        // 6) Clear the used questions from the pool (if they were parked there).
+        try {
+          const pool = await readJsonFileSafe('data/discover-pool.json', []);
+          const arr = Array.isArray(pool) ? pool : [];
+          const qset = new Set(questions.map(q => q.toLowerCase()));
+          let touched = false;
+          arr.forEach(p => { if (qset.has(String(p.question || '').toLowerCase()) && p.status !== 'added') { p.status = 'added'; touched = true; } });
+          if (touched) await writeJsonFile('data/discover-pool.json', arr, `Discover: grouped ${secondary.length + 1} topic(s) into ${keyword}`);
+        } catch (e) {}
+
+        // 7) Save the PRODUCT / other-page link target(s) for this blog → data/blog-link-targets.json, keyed by the blog
+        //    keyword. When the blog is written, finish-blog adds ONE clean contextual in-body link to the (primary)
+        //    target, and publish-blog puts the product(s) in the blog's related-products metafield (custom.blog_products_list).
+        //    Merges the main keyword's reuse link (if it was locked to a product) with any grouped secondary queries that
+        //    were locked to a product/page (req.body.lockedTargets). Blog-locked targets never reach here.
+        let linkedTargets = 0;
+        try {
+          const incoming = [];
+          if (reuseLink && reuseLink.url) incoming.push({ keyword: reuseLink.keyword, url: reuseLink.url });
+          (Array.isArray(req.body.lockedTargets) ? req.body.lockedTargets : []).forEach(t => {
+            const k = String((t && t.keyword) || '').trim(); const u = String((t && t.url) || '').trim();
+            if (k && u) incoming.push({ keyword: k, url: u });
+          });
+          if (incoming.length) {
+            const map = await readJsonFileSafe('data/blog-link-targets.json', {});
+            const m = (map && typeof map === 'object' && !Array.isArray(map)) ? map : {};
+            const bucket = (m[kwLc] && Array.isArray(m[kwLc].links)) ? m[kwLc].links : [];
+            const seen = new Set(bucket.map(x => String((x && x.url) || '').toLowerCase()));
+            incoming.forEach(t => { const key = t.url.toLowerCase(); if (!seen.has(key)) { bucket.push({ keyword: t.keyword, url: t.url }); seen.add(key); linkedTargets++; } });
+            m[kwLc] = { blogKeyword: keyword, links: bucket, updatedAt: new Date().toISOString() };
+            await writeJsonFile('data/blog-link-targets.json', m, `Blog link targets for ${keyword}`);
+          }
+        } catch (e) {}
+
+        return res.status(200).json({ success: true, keyword, covers: secondary.length, linkedTargets });
+      }
+
+      // ── ACTION: discover-probe ── test one seed: return EVERY question Google brings, with kept/dropped + why.
+      // Nothing is saved — this is only for checking whether the filter is right or too strict.
+      if (req.body.action === 'discover-probe') {
+        if (!process.env.SERPER_KEY) return res.status(500).json({ error: 'SERPER_KEY not set.' });
+        const seed = String(req.body.seed || '').trim();
+        if (!seed) return res.status(400).json({ error: 'seed required' });
+        let blogs = []; try { blogs = await fetchBlogsPubAndSched(); } catch (e) { blogs = []; }
+        const blogTags = blogs.map(b => ({ title: b.title, t: topicTagBoth(b.title || '') }));
+        const pipeTags = (await gatherPipelineTexts()).map(x => ({ text: x, t: topicTagBoth(x) }));
+        const ideaKw = new Set();
+        try { const f = await getGitHubFile('data/blog_ideas.csv'); f.content.split('\n').forEach((l, i) => { if (i === 0) return; const c = parseCSVLine(l.replace(/\r/g, '')); if (c[0]) ideaKw.add((c[0] || '').trim().toLowerCase()); }); } catch (e) {}
+        const pool = await readJsonFileSafe('data/discover-pool.json', []);
+        const poolQ = new Set((Array.isArray(pool) ? pool : []).map(p => String(p.question || '').toLowerCase()));
+        const out = [];
+        for (const term of DISCOVER_TERMS) {
+          const q = (seed + ' ' + term).trim();
+          let data = {};
+          try { const r = await fetch('https://google.serper.dev/search', { method: 'POST', headers: { 'X-API-KEY': process.env.SERPER_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ q, gl: 'uk', hl: 'en' }) }); if (r.ok) data = await r.json(); } catch (e) {}
+          const qs = [];
+          (data.peopleAlsoAsk || []).forEach(p => { if (p && p.question) qs.push(p.question); });
+          (data.relatedSearches || []).forEach(rs => { if (rs && rs.query) qs.push(rs.query); });
+          qs.forEach(question => {
+            const lc = String(question).toLowerCase().trim();
+            let kept = true, reason = 'new';
+            if (poolQ.has(lc)) { kept = false; reason = 'already in the discovery pool'; }
+            else if (ideaKw.has(lc)) { kept = false; reason = 'already one of your ideas'; }
+            else {
+              const qt = topicTagBoth(question);
+              if (qt.tagS.style || qt.tagS.room) {
+                const bHit = blogTags.find(bt => TOPIC_PHASES.some(m => m(qt, bt.t)));
+                const pHit = !bHit && pipeTags.find(pt => TOPIC_PHASES.some(m => m(qt, pt.t)));
+                if (bHit) { kept = false; reason = 'already covered by blog: "' + bHit.title + '"'; }
+                else if (pHit) { kept = false; reason = 'already in your pipeline: "' + String(pHit.text).trim() + '"'; }
+              }
+            }
+            out.push({ term, question, kept, reason });
+          });
+        }
+        return res.status(200).json({ success: true, seed, results: out });
+      }
+
+      // ── ACTION: mark-idea-towrite ── the Blog Ideas "Mark for Writing" button: persist the row as TO_WRITE
+      // AND approve the keyword, so it actually shows in To Write (before, it set TO_WRITE without approving and
+      // vanished). Updates the existing row; never duplicates.
+      if (req.body.action === 'mark-idea-towrite') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const kw = String(req.body.keyword || '').trim();
+        if (!kw) return res.status(400).json({ error: 'keyword required' });
+        const kwLc = kw.toLowerCase();
+        const esc = (c) => { const v = String(c == null ? '' : c); return (v.includes(',') || v.includes('"') || v.includes('\n')) ? `"${v.replace(/"/g, '""')}"` : v; };
+        const ideasFile = await getGitHubFile('data/blog_ideas.csv');
+        const lines = ideasFile.content.split('\n');
+        let found = false;
+        for (let i = 1; i < lines.length; i++) {
+          const t = lines[i].trim(); if (!t) continue;
+          const c = parseCSVLine(t.replace(/\r/g, ''));
+          if ((c[0] || '').trim().toLowerCase() === kwLc) { while (c.length < 10) c.push(''); c[6] = 'TO_WRITE'; lines[i] = c.map(esc).join(','); found = true; break; }
+        }
+        if (!found) return res.status(404).json({ error: 'That idea is no longer in the list — reload.' });
+        await updateGitHubFile('data/blog_ideas.csv', lines.join('\n'), ideasFile.sha, `Mark for writing: ${kw}`);
+        try { const ap = await readJsonFileSafe('data/blog-approved.json', []); const set = new Set((Array.isArray(ap) ? ap : []).map(x => String(x).toLowerCase())); set.add(kwLc); await writeJsonFile('data/blog-approved.json', [...set], `Approved: ${kw}`); } catch (e) {}
+        return res.status(200).json({ success: true });
+      }
+
+      // ── ACTION: discover-list-pool ── the current discovery pool (candidates needing a keyword / ready / added).
+      if (req.body.action === 'discover-list-pool') {
+        const pool = await readJsonFileSafe('data/discover-pool.json', []);
+        return res.status(200).json({ success: true, pool: Array.isArray(pool) ? pool : [] });
+      }
+
+      // ── ACTION: discover-set-keyword ── Claude fills the main keyword + title for a pool item (from Ubersuggest).
+      if (req.body.action === 'discover-set-keyword') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const id = String(req.body.id || '');
+        const mainKeyword = String(req.body.mainKeyword || '').trim();
+        const title = String(req.body.title || '').trim();
+        if (!id || !mainKeyword) return res.status(400).json({ error: 'id and mainKeyword required' });
+        const pool = await readJsonFileSafe('data/discover-pool.json', []);
+        const arr = Array.isArray(pool) ? pool : [];
+        const i = arr.findIndex(p => p.id === id);
+        if (i < 0) return res.status(404).json({ error: 'pool item not found' });
+        arr[i] = { ...arr[i], mainKeyword, title: title || arr[i].title || mainKeyword, volume: req.body.volume != null ? req.body.volume : (arr[i].volume ?? null), difficulty: req.body.difficulty != null ? req.body.difficulty : (arr[i].difficulty ?? null), status: 'ready' };
+        await writeJsonFile('data/discover-pool.json', arr, `Discover: keyword for ${id}`);
+        return res.status(200).json({ success: true, item: arr[i] });
+      }
+
+      // ── ACTION: discover-promote ── Discover already kept only NOT-written combos, so an approved topic goes
+      // STRAIGHT TO TO WRITE (no re-triage): set the row TO_WRITE + add the keyword to blog-approved.json so it
+      // shows. If a row for that keyword already exists it's updated (no duplicate). The other pool topics from
+      // the SAME seed are its angles → they're cleared too.
+      if (req.body.action === 'discover-promote') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const id = String(req.body.id || '');
+        if (!id) return res.status(400).json({ error: 'id required' });
+        const pool = await readJsonFileSafe('data/discover-pool.json', []);
+        const arr = Array.isArray(pool) ? pool : [];
+        const item = arr.find(p => p.id === id);
+        if (!item) return res.status(404).json({ error: 'pool item not found' });
+        if (!item.mainKeyword) return res.status(400).json({ error: 'This topic has no main keyword yet.' });
+        const kwLc = item.mainKeyword.toLowerCase();
+        const esc = (c) => { const v = String(c == null ? '' : c); return (v.includes(',') || v.includes('"') || v.includes('\n')) ? `"${v.replace(/"/g, '""')}"` : v; };
+        const ideasFile = await getGitHubFile('data/blog_ideas.csv');
+        const lines = ideasFile.content.split('\n');
+        while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
+        let updated = false;
+        for (let li = 1; li < lines.length; li++) {
+          const t = lines[li].trim(); if (!t) continue;
+          const c = parseCSVLine(t.replace(/\r/g, ''));
+          if ((c[0] || '').trim().toLowerCase() === kwLc) { while (c.length < 10) c.push(''); c[6] = 'TO_WRITE'; lines[li] = c.map(esc).join(','); updated = true; break; }
+        }
+        if (!updated) lines.push([item.mainKeyword, item.title || item.mainKeyword, '', 'NO CONFLICT', '', '', 'TO_WRITE', '', '', ''].map(esc).join(','));
+        await updateGitHubFile('data/blog_ideas.csv', lines.join('\n') + '\n', ideasFile.sha, `Discover → To Write: ${item.mainKeyword}`);
+        try { const ap = await readJsonFileSafe('data/blog-approved.json', []); const set = new Set((Array.isArray(ap) ? ap : []).map(x => String(x).toLowerCase())); set.add(kwLc); await writeJsonFile('data/blog-approved.json', [...set], `Approved: ${item.mainKeyword}`); } catch (e) {}
+        // The other search results from the SAME seed are the angles of THIS blog — save them so they show as
+        // "+ also covers" in To Write and get used as sections when the blog is written (via blog-fused-groups).
+        const seedLc = String(item.seed || '').toLowerCase();
+        const angleItems = arr.filter(p => seedLc && String(p.seed || '').toLowerCase() === seedLc && p.status !== 'added');
+        const angles = angleItems.map(p => ({ keyword: p.question, title: '', source: 'discover' }));
+        if (angles.length) {
+          try {
+            const fused = await readJsonFileSafe('data/blog-fused-groups.json', {});
+            fused[kwLc] = { winnerKeyword: item.mainKeyword, winnerTitle: item.title || '', secondary: angles, reason: 'Discover — angles from search', appliedAt: new Date().toISOString() };
+            await writeJsonFile('data/blog-fused-groups.json', fused, `Discover angles for ${item.mainKeyword}`);
+          } catch (e) {}
+        }
+        // Now clear this item + its same-seed siblings from the pool (they're attached to the blog now).
+        arr.forEach(p => { if (p.id === id || (seedLc && String(p.seed || '').toLowerCase() === seedLc && p.status !== 'added')) p.status = 'added'; });
+        await writeJsonFile('data/discover-pool.json', arr, `Discover: promoted ${item.mainKeyword} (+ ${angles.length} angles)`);
+        return res.status(200).json({ success: true, angles: angles.length });
+      }
+
+      // ── ACTION: delete-blog-row ── remove ONE matching row (keyword [+ title]) straight from blog_ideas.csv.
+      // First match only, so a duplicate pair loses exactly one row.
+      if (req.body.action === 'delete-blog-row') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const kw = String(req.body.keyword || '').trim().toLowerCase();
+        const title = String(req.body.title || '').trim().toLowerCase();
+        if (!kw) return res.status(400).json({ error: 'keyword required' });
+        const ideasFile = await getGitHubFile('data/blog_ideas.csv');
+        const lines = ideasFile.content.split('\n');
+        let removed = false; const out = [];
+        for (let i = 0; i < lines.length; i++) {
+          const t = lines[i].trim();
+          if (i === 0 || !t) { out.push(lines[i]); continue; }
+          if (!removed) {
+            const c = parseCSVLine(t.replace(/\r/g, ''));
+            if ((c[0] || '').trim().toLowerCase() === kw && (!title || (c[1] || '').trim().toLowerCase() === title)) { removed = true; continue; }
+          }
+          out.push(lines[i]);
+        }
+        if (!removed) return res.status(404).json({ error: 'Row not found — reload and try again.' });
+        let txt = out.join('\n'); if (!txt.endsWith('\n')) txt += '\n';
+        await updateGitHubFile('data/blog_ideas.csv', txt, ideasFile.sha, `Delete row: ${req.body.keyword}`);
+        return res.status(200).json({ success: true });
+      }
+
+      // ── ACTION: gsc-approve-dedup ── approve GSC topics THROUGH the duplicate check: each one is matched
+      // against existing blogs — if covered → a 'covered' group (Already covered); if not → a Single for Mae to
+      // place. Nothing lands in limbo.
+      if (req.body.action === 'gsc-approve-dedup') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const kws = (Array.isArray(req.body.keywords) ? req.body.keywords : []).map(k => String(k || '').trim()).filter(Boolean);
+        if (!kws.length) return res.status(400).json({ error: 'keywords required' });
+        let blogs = []; try { blogs = await fetchBlogsPubAndSched(); } catch (e) { blogs = []; }
+        const blogTags = blogs.map(b => ({ b, ...topicTagBoth(b.title || '') }));
+        const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+        const pArr = Array.isArray(pending) ? pending : [];
+        const singles = await readJsonFileSafe('data/blog-fusion-singles.json', []);
+        const sArr = Array.isArray(singles) ? singles : [];
+        const singHave = new Set(sArr.map(s => String(s.keyword || '').toLowerCase()));
+        const checked = await readJsonFileSafe('data/blog-fusion-checked.json', { singletons: [], grouped: [] });
+        const groupedSet = new Set((checked.grouped || []).map(x => String(x).toLowerCase()));
+        const singletonsSet = new Set((checked.singletons || []).map(x => String(x).toLowerCase()));
+        let coveredN = 0, singleN = 0;
+        kws.forEach((kw, ix) => {
+          const kt = topicTagBoth(kw);
+          let matchedBlog = null;
+          if (kt.tagS.style || kt.tagS.room) { for (const bt of blogTags) { if (TOPIC_PHASES.some(m => m(kt, bt))) { matchedBlog = bt.b; break; } } }
+          const lc = kw.toLowerCase();
+          if (matchedBlog) {
+            pArr.push({ id: `grp_${Date.now()}_gsc${ix}`, bucketSig: null, type: 'covered', winnerKeyword: kw, winnerTitle: '', winnerSource: 'rank', winnerPageUrl: null, winnerUrlFree: false, winnerLockedTo: null, reason: 'GSC approve — already covered', signals: 'gsc', secondary: [], coveredBlog: { id: matchedBlog.id, title: matchedBlog.title, handle: matchedBlog.handle, status: matchedBlog.status, url: matchedBlog.url } });
+            groupedSet.add(lc); singletonsSet.delete(lc); coveredN++;
+          } else {
+            if (!singHave.has(lc)) { const t = topicTag(kw, false); sArr.push({ keyword: kw, title: '', source: 'rank', style: t.style, room: t.room, pageUrl: null, urlFree: false, lockedToKeyword: null, volume: null, difficulty: null, impressions: null, position: null }); singHave.add(lc); singleN++; }
+            singletonsSet.add(lc); groupedSet.delete(lc);
+          }
+        });
+        if (coveredN) await writeJsonFile('data/blog-fusion-pending.json', pArr, `GSC approve: +${coveredN} covered`);
+        if (singleN) await writeJsonFile('data/blog-fusion-singles.json', sArr, `GSC approve: +${singleN} single(s)`);
+        await writeJsonFile('data/blog-fusion-checked.json', { singletons: [...singletonsSet], grouped: [...groupedSet] }, 'GSC approve: mark checked');
+        return res.status(200).json({ success: true, covered: coveredN, singles: singleN });
+      }
+
+      // ── ACTION: fusion-single-to-write ── a lone SINGLE Mae wants as its own blog. A 'rank' keyword isn't
+      // in blog_ideas.csv yet → append a TO_WRITE row + hide it from the performing panel; a 'towrite' one is
+      // already there → just drop it from the singles list.
+      if (req.body.action === 'fusion-single-to-write') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const kw = String(req.body.keyword || '').trim();
+        if (!kw) return res.status(400).json({ error: 'keyword required' });
+        const singles = await readJsonFileSafe('data/blog-fusion-singles.json', []);
+        const s = (Array.isArray(singles) ? singles : []).find(x => String(x.keyword || '').toLowerCase() === kw.toLowerCase());
+        if (!s || s.source === 'rank') {
+          const esc = (c) => { const v = String(c == null ? '' : c); return (v.includes(',') || v.includes('"') || v.includes('\n')) ? `"${v.replace(/"/g, '""')}"` : v; };
+          const ideasFile = await getGitHubFile('data/blog_ideas.csv');
+          const lines = ideasFile.content.split('\n');
+          while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
+          const title = (s && s.title) ? s.title : kw;
+          lines.push([kw, title, '', 'NO CONFLICT', '', '', 'TO_WRITE', ''].map(esc).join(','));
+          await updateGitHubFile('data/blog_ideas.csv', lines.join('\n') + '\n', ideasFile.sha, `To Write: single "${kw}"`);
+          try { const pd = await readJsonFileSafe('data/gsc-performing-dismissed.json', []); const set = new Set((Array.isArray(pd) ? pd : []).map(x => String(x).toLowerCase())); set.add(kw.toLowerCase()); await writeJsonFile('data/gsc-performing-dismissed.json', [...set], 'Single→To Write: hide ranked keyword'); } catch (e) {}
+        }
+        const remaining = (Array.isArray(singles) ? singles : []).filter(x => String(x.keyword || '').toLowerCase() !== kw.toLowerCase());
+        await writeJsonFile('data/blog-fusion-singles.json', remaining, `Fusion: single "${kw}" → To Write`);
+        const checked = await readJsonFileSafe('data/blog-fusion-checked.json', { singletons: [], grouped: [] });
+        const grouped = new Set((checked.grouped || []).map(x => String(x).toLowerCase())); grouped.add(kw.toLowerCase());
+        const singletons = new Set((checked.singletons || []).map(x => String(x).toLowerCase())); singletons.delete(kw.toLowerCase());
+        await writeJsonFile('data/blog-fusion-checked.json', { singletons: [...singletons], grouped: [...grouped] }, 'Fusion: single to To Write');
+        try { const ap = await readJsonFileSafe('data/blog-approved.json', []); const set = new Set((Array.isArray(ap) ? ap : []).map(x => String(x).toLowerCase())); set.add(kw.toLowerCase()); await writeJsonFile('data/blog-approved.json', [...set], `Approved: ${kw}`); } catch (e) {}
+        return res.status(200).json({ success: true, keyword: kw });
+      }
+
+      // ── ACTION: fusion-drop-single ── remove a single from the list without writing a blog (used after
+      // "Optimise that page (MPD)"): drop from singles, mark grouped, and hide it from the performing panel.
+      if (req.body.action === 'fusion-drop-single') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const kw = String(req.body.keyword || '').trim();
+        if (!kw) return res.status(400).json({ error: 'keyword required' });
+        const singles = await readJsonFileSafe('data/blog-fusion-singles.json', []);
+        const remaining = (Array.isArray(singles) ? singles : []).filter(x => String(x.keyword || '').toLowerCase() !== kw.toLowerCase());
+        await writeJsonFile('data/blog-fusion-singles.json', remaining, `Fusion: drop single "${kw}"`);
+        const checked = await readJsonFileSafe('data/blog-fusion-checked.json', { singletons: [], grouped: [] });
+        const grouped = new Set((checked.grouped || []).map(x => String(x).toLowerCase())); grouped.add(kw.toLowerCase());
+        const singletons = new Set((checked.singletons || []).map(x => String(x).toLowerCase())); singletons.delete(kw.toLowerCase());
+        await writeJsonFile('data/blog-fusion-checked.json', { singletons: [...singletons], grouped: [...grouped] }, 'Fusion: drop single');
+        try { const pd = await readJsonFileSafe('data/gsc-performing-dismissed.json', []); const set = new Set((Array.isArray(pd) ? pd : []).map(x => String(x).toLowerCase())); set.add(kw.toLowerCase()); await writeJsonFile('data/gsc-performing-dismissed.json', [...set], 'Drop single: hide ranked keyword'); } catch (e) {}
+        return res.status(200).json({ success: true, keyword: kw });
+      }
+
+      // ── ACTION: fusion-ignore-single ── Mae doesn't want this single → mark it IGNORED in blog_ideas.csv
+      // (it moves to the Ignored tab) and remove it from Singles so it never resurfaces.
+      if (req.body.action === 'fusion-ignore-single') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const kw = String(req.body.keyword || '').trim();
+        if (!kw) return res.status(400).json({ error: 'keyword required' });
+        const kwLc = kw.toLowerCase();
+        const escCsv = (c) => { const s = String(c == null ? '' : c); return (s.includes(',') || s.includes('"') || s.includes('\n')) ? `"${s.replace(/"/g, '""')}"` : s; };
+        const ideasFile = await getGitHubFile('data/blog_ideas.csv');
+        const lines = ideasFile.content.split('\n');
+        const colCount = Math.max(parseCSVLine((lines[0] || '').replace(/\r/g, '')).length, 10);
+        let found = false;
+        const updated = lines.map((line, i) => {
+          if (i === 0) return line;
+          const trimmed = line.trim().replace(/\r/g, '');
+          if (!trimmed) return line;
+          const cols = parseCSVLine(trimmed);
+          if ((cols[0] || '').trim().toLowerCase() === kwLc) { while (cols.length < 10) cols.push(''); cols[6] = 'IGNORED'; found = true; return cols.map(escCsv).join(','); }
+          return line;
+        });
+        if (!found) { const row = new Array(colCount).fill(''); row[0] = kw; row[6] = 'IGNORED'; updated.push(row.map(escCsv).join(',')); }
+        await updateGitHubFile('data/blog_ideas.csv', updated.join('\n'), ideasFile.sha, `Ignore single: ${kw}`);
+        const singles = await readJsonFileSafe('data/blog-fusion-singles.json', []);
+        await writeJsonFile('data/blog-fusion-singles.json', (Array.isArray(singles) ? singles : []).filter(x => String(x.keyword || '').toLowerCase() !== kwLc), `Fusion: ignore single "${kw}"`);
+        const checked = await readJsonFileSafe('data/blog-fusion-checked.json', { singletons: [], grouped: [] });
+        const grouped = new Set((checked.grouped || []).map(x => String(x).toLowerCase())); grouped.add(kwLc);
+        const singletons = new Set((checked.singletons || []).map(x => String(x).toLowerCase())); singletons.delete(kwLc);
+        await writeJsonFile('data/blog-fusion-checked.json', { singletons: [...singletons], grouped: [...grouped] }, 'Fusion: ignore single');
+        try { const pd = await readJsonFileSafe('data/gsc-performing-dismissed.json', []); const set = new Set((Array.isArray(pd) ? pd : []).map(x => String(x).toLowerCase())); set.add(kwLc); await writeJsonFile('data/gsc-performing-dismissed.json', [...set], 'Ignore single: hide ranked keyword'); } catch (e) {}
+        return res.status(200).json({ success: true, keyword: kw });
       }
 
       // ── ACTION: apply-fusion-group ── Mae approved a proposed group: secondary keywords' rows go
@@ -3276,13 +4840,16 @@ ${pool.map((p, i) => (i + 1) + '. ' + p.keyword).join('\n')}`;
         const secLc = new Set(group.secondary.map(s => s.keyword.toLowerCase()));
         const ideasFile = await getGitHubFile('data/blog_ideas.csv');
         const lines = ideasFile.content.split('\n');
+        const colCount = Math.max(parseCSVLine((lines[0] || '').replace(/\r/g, '')).length, 10);
         let touched = 0;
+        let winnerRowExists = false;
         const updated = lines.map((line, i) => {
           if (i === 0) return line;
           const trimmed = line.trim().replace(/\r/g, '');
           if (!trimmed) return line;
           const cols = parseCSVLine(trimmed);
           const kw = (cols[0] || '').trim().toLowerCase();
+          if (kw === winnerLc) winnerRowExists = true;
           if (secLc.has(kw)) {
             while (cols.length < 10) cols.push('');
             cols[3] = 'FUSED';               // CANNIBALIZATION
@@ -3293,7 +4860,29 @@ ${pool.map((p, i) => (i + 1) + '. ' + p.keyword).join('\n')}`;
           }
           return line;
         });
+        // If the winner is a "You already rank" keyword (not in the write list yet), add it as a TO_WRITE
+        // row so it becomes the blog that will own this search (same intent as "Use in a blog").
+        if (group.winnerSource === 'rank' && !winnerRowExists) {
+          const row = new Array(colCount).fill('');
+          row[0] = group.winnerKeyword;                        // Keyword
+          row[1] = group.winnerTitle || group.winnerKeyword;   // Blog Post Title
+          row[6] = 'TO_WRITE';                                 // STATUS
+          updated.push(row.map(esc).join(','));
+        }
         await updateGitHubFile('data/blog_ideas.csv', updated.join('\n'), ideasFile.sha, `Fuse ${touched} keyword(s) into: ${group.winnerKeyword}`);
+
+        // Any "You already rank" members folded in → hide them from that panel so they don't reappear.
+        const rankToHide = [];
+        if (group.winnerSource === 'rank') rankToHide.push(group.winnerKeyword.toLowerCase());
+        (group.secondary || []).forEach(s => { if (s.source === 'rank') rankToHide.push((s.keyword || '').toLowerCase()); });
+        if (rankToHide.length) {
+          try {
+            const pd = await readJsonFileSafe('data/gsc-performing-dismissed.json', []);
+            const set = new Set((Array.isArray(pd) ? pd : []).map(s => String(s).toLowerCase()));
+            rankToHide.forEach(k => set.add(k));
+            await writeJsonFile('data/gsc-performing-dismissed.json', [...set], `Fusion: hide ${rankToHide.length} ranked keyword(s) folded into ${group.winnerKeyword}`);
+          } catch (e) { /* non-blocking */ }
+        }
 
         const fused = await readJsonFileSafe('data/blog-fused-groups.json', {});
         fused[winnerLc] = { winnerKeyword: group.winnerKeyword, winnerTitle: group.winnerTitle, secondary: group.secondary, reason: group.reason, appliedAt: new Date().toISOString() };
@@ -3301,6 +4890,9 @@ ${pool.map((p, i) => (i + 1) + '. ' + p.keyword).join('\n')}`;
 
         pending.splice(idx, 1);
         await writeJsonFile('data/blog-fusion-pending.json', pending, `Fusion applied — removed from pending: ${group.winnerKeyword}`);
+
+        // Approved → the winner is now a real blog to write, so it moves to the To Write tab.
+        try { const ap = await readJsonFileSafe('data/blog-approved.json', []); const set = new Set((Array.isArray(ap) ? ap : []).map(x => String(x).toLowerCase())); set.add(winnerLc); await writeJsonFile('data/blog-approved.json', [...set], `Approved: ${group.winnerKeyword}`); } catch (e) {}
 
         return res.status(200).json({ success: true, winnerKeyword: group.winnerKeyword, winnerTitle: group.winnerTitle, secondary: group.secondary, reason: group.reason, touched });
       }
@@ -3326,6 +4918,368 @@ ${pool.map((p, i) => (i + 1) + '. ' + p.keyword).join('\n')}`;
         memberLc.forEach(k => singletonsSet.add(k));
         await writeJsonFile('data/blog-fusion-checked.json', { singletons: [...singletonsSet], grouped: [...groupedSet] }, `Fusion discarded — unlocked: ${group.winnerKeyword}`);
 
+        return res.status(200).json({ success: true });
+      }
+
+      // ── ACTION: reject-fusion-keyword ── Mae removes ONE keyword from a pending group (she doesn't think
+      // it belongs). That keyword is FREED (moved grouped→singletons) so a future run can place it in a
+      // different group. The rest of the group stays. If a merge drops below 2 members it dissolves (its
+      // remaining members are freed too); a covered group keeps its blog link even with one member left.
+      if (req.body.action === 'reject-fusion-keyword') {
+        const winnerKeyword = String(req.body.winnerKeyword || '').trim();
+        const rejectKeyword = String(req.body.keyword || '').trim();
+        if (!winnerKeyword || !rejectKeyword) return res.status(400).json({ error: 'winnerKeyword and keyword required' });
+        const winnerLc = winnerKeyword.toLowerCase();
+        const rejectLc = rejectKeyword.toLowerCase();
+        const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+        const idx = pending.findIndex(g => (g.winnerKeyword || '').toLowerCase() === winnerLc);
+        if (idx === -1) return res.status(404).json({ error: 'That group is no longer pending.' });
+        const group = pending[idx];
+        const previousGroup = JSON.parse(JSON.stringify(group)); // snapshot for the session "put back" undo
+
+        // Record the rejection so a future run never re-forms this same grouping for this keyword. The
+        // bucket signature came from find-fusion-groups ('S:'/'R:'/'SP:'/'COV:'). Covered groups fall back
+        // to the covering blog's handle/id.
+        const sig = group.bucketSig || (group.type === 'covered' && group.coveredBlog ? ('COV:' + (group.coveredBlog.handle || group.coveredBlog.id || '')) : null);
+        if (sig) {
+          try {
+            const rej = await readJsonFileSafe('data/blog-fusion-rejections.json', {});
+            const arr = new Set(Array.isArray(rej[rejectLc]) ? rej[rejectLc] : []);
+            arr.add(sig);
+            rej[rejectLc] = [...arr];
+            await writeJsonFile('data/blog-fusion-rejections.json', rej, `Fusion: reject "${rejectKeyword}" from ${sig}`);
+          } catch (e) { /* non-blocking — worst case it can regroup next run */ }
+        }
+
+        // Rebuild the full member list (winner first) so we can drop one and re-pick a winner.
+        const winnerMember = {
+          keyword: group.winnerKeyword, title: group.winnerTitle || '', source: group.winnerSource || 'towrite',
+          pageUrl: group.winnerPageUrl || null, urlFree: !!group.winnerUrlFree, lockedToKeyword: group.winnerLockedTo || null,
+          volume: null, difficulty: null, impressions: null
+        };
+        const allMembers = [winnerMember, ...(group.secondary || [])];
+        const kept = allMembers.filter(m => (m.keyword || '').toLowerCase() !== rejectLc);
+        if (kept.length === allMembers.length) return res.status(404).json({ error: 'That keyword is not in this group.' });
+
+        // Free a keyword: move it out of "grouped" and into "singletons" so the next run reconsiders it.
+        const free = async (keywordsLc, note) => {
+          const checked = await readJsonFileSafe('data/blog-fusion-checked.json', { singletons: [], grouped: [] });
+          const groupedSet = new Set((checked.grouped || []).map(s => String(s).toLowerCase()));
+          const singletonsSet = new Set((checked.singletons || []).map(s => String(s).toLowerCase()));
+          keywordsLc.forEach(k => { groupedSet.delete(k); singletonsSet.add(k); });
+          await writeJsonFile('data/blog-fusion-checked.json', { singletons: [...singletonsSet], grouped: [...groupedSet] }, note);
+        };
+
+        const isCovered = group.type === 'covered' && group.coveredBlog;
+        // A merge needs ≥2 members; a covered group is fine with 1 (or even 0 → gone).
+        const dissolve = (!isCovered && kept.length < 2) || kept.length < 1;
+
+        // Put the rejected keyword straight back into the Singles list (so Mae can re-group it or send it to a
+        // blog right away, without re-running the whole check). If the group dissolves, its kept members go too.
+        try {
+          const rejectedMember = allMembers.find(m => (m.keyword || '').toLowerCase() === rejectLc) || { keyword: rejectKeyword, title: '', source: 'towrite' };
+          const freedMembers = dissolve ? [rejectedMember, ...kept] : [rejectedMember];
+          const toSingle = (m) => { const t = topicTag((m.keyword || '') + ' ' + (m.title || ''), false); return { keyword: m.keyword, title: m.title || '', source: m.source || 'towrite', style: t.style, room: t.room, pageUrl: m.pageUrl || null, urlFree: !!m.urlFree, lockedToKeyword: m.lockedToKeyword || null, volume: m.volume == null ? null : m.volume, difficulty: m.difficulty == null ? null : m.difficulty, impressions: m.impressions == null ? null : m.impressions, position: m.position == null ? null : m.position }; };
+          const singlesNow = await readJsonFileSafe('data/blog-fusion-singles.json', []);
+          const sArr = Array.isArray(singlesNow) ? singlesNow : [];
+          const haveLc = new Set(sArr.map(s => String(s.keyword || '').toLowerCase()));
+          let added = 0;
+          freedMembers.forEach(m => { const lc = (m.keyword || '').toLowerCase(); if (lc && !haveLc.has(lc)) { sArr.push(toSingle(m)); haveLc.add(lc); added++; } });
+          if (added) await writeJsonFile('data/blog-fusion-singles.json', sArr, `Fusion: ${added} rejected keyword(s) → Singles`);
+        } catch (e) { /* non-blocking — worst case it comes back on the next check run */ }
+
+        if (dissolve) {
+          pending.splice(idx, 1);
+          await writeJsonFile('data/blog-fusion-pending.json', pending, `Fusion: dissolved group after rejecting "${rejectKeyword}"`);
+          await free([rejectLc, ...kept.map(m => (m.keyword || '').toLowerCase())], `Fusion: freed ${kept.length + 1} keyword(s) from a dissolved group`);
+          return res.status(200).json({ success: true, removed: true, previousGroup, sig, rejectedKeyword: rejectKeyword });
+        }
+
+        // Re-pick the winner among the kept members: highest volume, else highest impressions, else first.
+        let winner = kept.slice().filter(m => m.volume != null).sort((a, b) => (b.volume - a.volume) || ((a.difficulty ?? 99) - (b.difficulty ?? 99)))[0];
+        if (!winner) winner = kept.slice().filter(m => m.impressions != null).sort((a, b) => b.impressions - a.impressions)[0];
+        if (!winner) winner = kept[0];
+        const secondary = kept.filter(m => (m.keyword || '').toLowerCase() !== (winner.keyword || '').toLowerCase());
+
+        group.winnerKeyword = winner.keyword;
+        group.winnerTitle = winner.title || '';
+        group.winnerSource = winner.source || 'towrite';
+        group.winnerPageUrl = winner.pageUrl || null;
+        group.winnerUrlFree = !!winner.urlFree;
+        group.winnerLockedTo = winner.lockedToKeyword || null;
+        group.secondary = secondary;
+        pending[idx] = group;
+        await writeJsonFile('data/blog-fusion-pending.json', pending, `Fusion: rejected "${rejectKeyword}" from ${group.winnerKeyword}`);
+        await free([rejectLc], `Fusion: freed "${rejectKeyword}" to rejoin a future group`);
+
+        return res.status(200).json({ success: true, group, previousGroup, sig, rejectedKeyword: rejectKeyword });
+      }
+
+      // ── ACTION: restore-fusion-rejection ── the session-only "put back" undo. Re-adds a rejected keyword
+      // to its original group (restores the snapshot taken when it was rejected), clears that keyword's
+      // rejection record, and re-locks the group's members so the next run won't re-pool them.
+      if (req.body.action === 'restore-fusion-rejection') {
+        const prev = req.body.previousGroup;
+        const rejectKeyword = String(req.body.keyword || '').trim();
+        const sig = req.body.sig || null;
+        if (!prev || !prev.winnerKeyword) return res.status(400).json({ error: 'previousGroup required' });
+        const rejectLc = rejectKeyword.toLowerCase();
+
+        // Members of the restored group (winner + secondary).
+        const memberLc = [String(prev.winnerKeyword || '').toLowerCase(), ...((prev.secondary || []).map(s => (s.keyword || '').toLowerCase()))].filter(Boolean);
+
+        // Remove any current pending entry that overlaps these members (the mutated/dissolved version), then
+        // put the original group back.
+        const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+        const overlaps = (g) => {
+          const gm = [String(g.winnerKeyword || '').toLowerCase(), ...((g.secondary || []).map(s => (s.keyword || '').toLowerCase()))];
+          return gm.some(k => memberLc.includes(k));
+        };
+        const kept = pending.filter(g => !overlaps(g));
+        kept.push(prev);
+        await writeJsonFile('data/blog-fusion-pending.json', kept, `Fusion: put "${rejectKeyword}" back into ${prev.winnerKeyword}`);
+
+        // Clear this keyword's rejection of that bucket.
+        if (sig) {
+          try {
+            const rej = await readJsonFileSafe('data/blog-fusion-rejections.json', {});
+            if (Array.isArray(rej[rejectLc])) { rej[rejectLc] = rej[rejectLc].filter(s => s !== sig); if (!rej[rejectLc].length) delete rej[rejectLc]; }
+            await writeJsonFile('data/blog-fusion-rejections.json', rej, `Fusion: undo reject of "${rejectKeyword}" (${sig})`);
+          } catch (e) { /* non-blocking */ }
+        }
+
+        // Re-lock all members as grouped (out of singletons) so a run doesn't re-pool them.
+        try {
+          const checked = await readJsonFileSafe('data/blog-fusion-checked.json', { singletons: [], grouped: [] });
+          const groupedSet = new Set((checked.grouped || []).map(s => String(s).toLowerCase()));
+          const singletonsSet = new Set((checked.singletons || []).map(s => String(s).toLowerCase()));
+          memberLc.forEach(k => { groupedSet.add(k); singletonsSet.delete(k); });
+          await writeJsonFile('data/blog-fusion-checked.json', { singletons: [...singletonsSet], grouped: [...groupedSet] }, `Fusion: re-lock ${memberLc.length} member(s) after put-back`);
+        } catch (e) { /* non-blocking */ }
+
+        return res.status(200).json({ success: true, group: prev });
+      }
+
+      // ── ACTION: remove-covered ── a group is already covered by a published/scheduled blog and Mae
+      // chose "Remove" (don't write it). To Write members → IGNORED (COVERED); ranked members → hidden.
+      if (req.body.action === 'remove-covered') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const winnerKeyword = String(req.body.winnerKeyword || '').trim();
+        if (!winnerKeyword) return res.status(400).json({ error: 'winnerKeyword required' });
+        const winnerLc = winnerKeyword.toLowerCase();
+        const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+        const idx = pending.findIndex(g => (g.winnerKeyword || '').toLowerCase() === winnerLc);
+        if (idx === -1) return res.status(404).json({ error: 'That group is no longer pending.' });
+        const group = pending[idx];
+        const members = [{ keyword: group.winnerKeyword, source: group.winnerSource }, ...(group.secondary || []).map(s => ({ keyword: s.keyword, source: s.source }))];
+        const towriteLc = new Set(members.filter(m => m.source !== 'rank').map(m => (m.keyword || '').toLowerCase()));
+        const rankLc = members.filter(m => m.source === 'rank').map(m => (m.keyword || '').toLowerCase());
+        if (towriteLc.size) {
+          const esc = (c) => { const s = String(c == null ? '' : c); return (s.includes(',') || s.includes('"') || s.includes('\n')) ? `"${s.replace(/"/g, '""')}"` : s; };
+          const ideasFile = await getGitHubFile('data/blog_ideas.csv');
+          const lines = ideasFile.content.split('\n');
+          const updated = lines.map((line, i) => {
+            if (i === 0) return line;
+            const t = line.trim().replace(/\r/g, ''); if (!t) return line;
+            const cols = parseCSVLine(t);
+            const kw = (cols[0] || '').trim().toLowerCase();
+            if (towriteLc.has(kw)) { while (cols.length < 10) cols.push(''); cols[3] = 'COVERED'; cols[4] = (group.coveredBlog && group.coveredBlog.title) || ''; cols[6] = 'IGNORED'; return cols.map(esc).join(','); }
+            return line;
+          });
+          await updateGitHubFile('data/blog_ideas.csv', updated.join('\n'), ideasFile.sha, `Covered — ignore ${towriteLc.size} topic(s) already in a blog`);
+        }
+        if (rankLc.length) { try { const pd = await readJsonFileSafe('data/gsc-performing-dismissed.json', []); const set = new Set((Array.isArray(pd) ? pd : []).map(s => String(s).toLowerCase())); rankLc.forEach(k => set.add(k)); await writeJsonFile('data/gsc-performing-dismissed.json', [...set], 'Covered — hide ranked keyword(s) already in a blog'); } catch (e) { } }
+        pending.splice(idx, 1);
+        await writeJsonFile('data/blog-fusion-pending.json', pending, `Covered removed: ${group.winnerKeyword}`);
+        return res.status(200).json({ success: true });
+      }
+
+      // ── ACTION: add-angle-preview ── propose a light edit to an EXISTING blog so it naturally includes
+      // the keyword(s). Returns before/after for Mae to approve. NOTHING is written to Shopify here.
+      if (req.body.action === 'add-angle-preview') {
+        let articleId = String(req.body.articleId || '').trim();
+        const keywords = Array.isArray(req.body.keywords) ? req.body.keywords.map(k => String(k || '').trim()).filter(Boolean) : [];
+        if (!keywords.length) return res.status(400).json({ error: 'keywords required' });
+        if (!articleId && req.body.blogUrl) {
+          const h = String(req.body.blogUrl).split('?')[0].replace(/\/+$/, '').split('/').pop().toLowerCase();
+          try { const q = await shopifyGraphQL(`query($q:String!){ articles(first:1, query:$q){ nodes{ id } } }`, { q: 'handle:' + h }); articleId = (q && q.articles && q.articles.nodes && q.articles.nodes[0] && q.articles.nodes[0].id) || ''; } catch (e) {}
+        }
+        if (!articleId) return res.status(404).json({ error: 'Could not find that blog.' });
+        const data = await shopifyGraphQL(`query($id:ID!){ node(id:$id){ ... on Article { id title handle body } } }`, { id: articleId });
+        const art = data && data.node;
+        if (!art || art.body == null) return res.status(404).json({ error: 'Could not read that blog.' });
+        const body = String(art.body || '');
+        const escHtmlA = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const artUrl = 'https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/' + (art.handle || '');
+
+        // GROUP (2+ searches merged into this blog) → add ONE new section that covers the MAIN topic AND
+        // naturally works in EVERY grouped search. (The old logic rewrote one paragraph with ONE phrase, so
+        // it dropped most of the group and sometimes skipped the main topic — this covers them all.)
+        if (keywords.length > 1) {
+          const ayCur = new Date().getFullYear(), ayNext = ayCur + 1;
+          const mainKw = keywords[0];
+          const others = keywords.slice(1);
+          const ctx = body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 3500);
+          const gPrompt = `You are a UK wall-art & home-decor blog editor for About Wall Art. Add ONE new short section to the blog below.
+The section's MAIN topic is "${mainKw}" — the section must clearly be about it, and the phrase "${mainKw}" must appear naturally.
+It must ALSO naturally work in EACH of these related searches at least once (keep each one recognisable; light rewording is fine; NO keyword-stuffing): ${others.map(k => '"' + k + '"').join(', ')}.
+Rules: warm first-person (I/we), genuinely useful and specific, UK spelling ("colour","decor" no accent), exactly 2 short paragraphs (2-3 sentences each). Do NOT repeat what the blog already says. NEVER use the words "elevate", "delve" or "showcase". AVOID a year unless genuinely necessary; if needed, use ${ayNext}, never an earlier year than ${ayCur}.
+Return ONLY compact JSON: {"h2":"short SEO heading about ${mainKw}","paragraphs":["paragraph one","paragraph two"]}.
+EXISTING BLOG (for context — do NOT repeat it):
+"""${ctx}"""`;
+          // The AI occasionally returns malformed JSON — retry up to 3 times before giving up (fixes the
+          // intermittent "The AI did not return the section." error).
+          let gh2 = '', gParas = [];
+          for (let gAttempt = 0; gAttempt < 3 && !gParas.length; gAttempt++) {
+            let gRaw = '';
+            try { gRaw = await callClaudeText(gPrompt, 1800); } catch (e) { continue; }
+            gRaw = gRaw.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+            const gm = gRaw.match(/\{[\s\S]*\}/); let go = {}; try { go = gm ? JSON.parse(gm[0]) : {}; } catch (e) { go = {}; }
+            gh2 = String(go.h2 || '').trim();
+            gParas = Array.isArray(go.paragraphs) ? go.paragraphs.map(p => String(p || '').trim()).filter(Boolean) : (go.paragraph ? [String(go.paragraph).trim()] : []);
+          }
+          if (!gParas.length) return res.status(500).json({ error: 'The AI did not return the section — please try again.' });
+          const sectionHtml = (gh2 ? '<h2>' + escHtmlA(gh2) + '</h2>' : '') + gParas.map(p => '<p>' + escHtmlA(p) + '</p>').join('');
+          const gNewBody = body + '\n' + sectionHtml;
+          const gPreview = (gh2 ? gh2 + '\n\n' : '') + gParas.join('\n\n');
+          return res.status(200).json({ success: true, mode: 'add', articleId, title: art.title, url: artUrl, originalParagraph: '', newParagraph: gPreview, newBody: gNewBody });
+        }
+
+        const pRe = /<p\b[^>]*>([\s\S]*?)<\/p>/gi;
+        const paras = []; let mm;
+        while ((mm = pRe.exec(body)) !== null) { paras.push({ full: mm[0], text: mm[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() }); }
+        const textParas = paras.filter(p => p.text.length > 40);
+        const numbered = textParas.map((p, i) => (i + 1) + '. ' + p.text).slice(0, 40).join('\n');
+        const kwList = keywords.join('", "');
+        const prompt = `You are a UK wall-art & home-decor blog editor for About Wall Art. The blog below should naturally include the search phrase(s): "${kwList}". Pick the ONE existing paragraph that fits best and rewrite it so the exact phrase appears once, naturally — UK spelling ("colour","decor" no accent), same meaning, similar length, NO keyword-stuffing, NEVER the words "elevate/delve/showcase". AVOID a year unless genuinely necessary; if needed, use ${new Date().getFullYear() + 1} (never an earlier year). If NO paragraph fits, instead write ONE new short paragraph (2-3 sentences).
+Return ONLY compact JSON: {"mode":"rewrite","index":N,"paragraph":"full rewritten paragraph as PLAIN text"} OR {"mode":"add","h2":"optional short heading","paragraph":"the new paragraph as PLAIN text"}.
+PARAGRAPHS (numbered):
+${numbered || '(no suitable paragraphs — use mode add)'}`;
+        let aiText = ''; try { aiText = await callClaudeText(prompt, 1500); } catch (e) { return res.status(500).json({ error: 'AI failed: ' + e.message }); }
+        const raw = aiText.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+        const m = raw.match(/\{[\s\S]*\}/);
+        let o = {}; try { o = m ? JSON.parse(m[0]) : {}; } catch (e) { o = {}; }
+        const newPara = String(o.paragraph || '').trim();
+        if (!newPara) return res.status(500).json({ error: 'The AI did not return a paragraph.' });
+        const escHtml = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        let mode = o.mode === 'add' ? 'add' : 'rewrite', originalText = '', newBody;
+        if (mode === 'rewrite') {
+          const i2 = parseInt(o.index, 10);
+          const target = (Number.isInteger(i2) && i2 >= 1 && i2 <= textParas.length) ? textParas[i2 - 1] : null;
+          if (target) { originalText = target.text; newBody = body.replace(target.full, '<p>' + escHtml(newPara) + '</p>'); }
+          else { mode = 'add'; newBody = body + '\n<p>' + escHtml(newPara) + '</p>'; }
+        } else {
+          const h2 = String(o.h2 || '').trim();
+          newBody = body + (h2 ? ('\n<h2>' + escHtml(h2) + '</h2>') : '') + '\n<p>' + escHtml(newPara) + '</p>';
+        }
+        return res.status(200).json({ success: true, mode, articleId, title: art.title, url: ('https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/' + (art.handle || '')), originalParagraph: originalText, newParagraph: newPara, newBody });
+      }
+
+      // ── ACTION: add-angle-apply ── Mae approved the preview. Backs up the current body, then writes
+      // the new body to Shopify with articleUpdate. The folded keyword(s) are hidden from the rank panel.
+      if (req.body.action === 'add-angle-apply') {
+        const articleId = String(req.body.articleId || '').trim();
+        const newBody = typeof req.body.newBody === 'string' ? req.body.newBody : '';
+        const keywords = Array.isArray(req.body.keywords) ? req.body.keywords.map(k => String(k || '').trim()).filter(Boolean) : [];
+        const rankKeywords = Array.isArray(req.body.rankKeywords) ? req.body.rankKeywords.map(k => String(k || '').trim()).filter(Boolean) : [];
+        if (!articleId || !newBody) return res.status(400).json({ error: 'articleId and newBody required' });
+        const data = await shopifyGraphQL(`query($id:ID!){ node(id:$id){ ... on Article { id title handle body blog { handle } } } }`, { id: articleId });
+        const art = data && data.node;
+        if (!art) return res.status(404).json({ error: 'Blog not found.' });
+        const backups = await readJsonFileSafe('data/blog-angle-backups.json', {});
+        backups[articleId] = { title: art.title, handle: art.handle, originalBody: String(art.body || ''), keywords, at: new Date().toISOString() };
+        await writeJsonFile('data/blog-angle-backups.json', backups, `Angle backup: ${art.title}`);
+        const up = await shopifyGraphQL(`mutation($id:ID!,$article:ArticleUpdateInput!){ articleUpdate(id:$id, article:$article){ article{ id } userErrors{ field message } } }`, { id: articleId, article: { body: newBody } });
+        const ue = (up && up.articleUpdate && up.articleUpdate.userErrors) || [];
+        if (ue.length) return res.status(500).json({ error: ue.map(e => e.message).join('; ') });
+        if (keywords.length) { try { const pd = await readJsonFileSafe('data/gsc-performing-dismissed.json', []); const set = new Set((Array.isArray(pd) ? pd : []).map(s => String(s).toLowerCase())); keywords.forEach(k => set.add(k.toLowerCase())); await writeJsonFile('data/gsc-performing-dismissed.json', [...set], 'Angle added — hide folded keyword(s)'); } catch (e) { } }
+        // AUTO-PLACE the internal link on the OLD ranking page (no manual MPD step). BLOG → append a short
+        // link paragraph (body backed up, undo-able). PRODUCT → add this blog to custom.linked_blogs (prev
+        // value saved). Anything that fails falls back to the MPD "Add the link" queue so it is never lost.
+        const blogUrl = String(req.body.blogUrl || '').trim() || ('https://aboutwallart.com/blogs/' + ((art.blog && art.blog.handle) || 'news-articles-home-decor-inspiration') + '/' + art.handle);
+        const targetGid = articleId;
+        const handleFromUrl = (u) => { try { return String(u || '').split('?')[0].replace(/\/+$/, '').split('/').pop().toLowerCase(); } catch (e) { return ''; } };
+        let rankPages = Array.isArray(req.body.rankPages) ? req.body.rankPages : [];
+        if (!rankPages.length && rankKeywords.length) rankPages = rankKeywords.map(k => ({ keyword: k, pageUrl: '' }));
+        const origin = 'https://' + (req.headers['x-forwarded-host'] || req.headers.host || 'tools.aboutwallart.com');
+        const linkedBlogs = [], linkedProducts = [], queued = [];
+        const queueInMpd = async (kw) => { try { const r = await fetch(origin + '/api/keywords', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'claim-to-registry', keyword: kw, url: blogUrl, intent: 'INFORMATIONAL' }) }); if (r.ok) queued.push(kw); } catch (e) {} };
+        const escLink = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        // Place ONE in-body contextual link: pick the most relevant paragraph on the ranking page and link a
+        // natural phrase (the keyword, or a close variant) to the target blog. Better SEO than a "Related
+        // reading" line at the bottom. Returns the new body, or null if no good spot (caller falls back).
+        async function placeContextLink(oldBody, kw, url) {
+          const pRe = /<p\b[^>]*>([\s\S]*?)<\/p>/gi; const paras = []; let mm;
+          while ((mm = pRe.exec(oldBody)) !== null) { paras.push({ full: mm[0], text: mm[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() }); }
+          const textParas = paras.filter(p => p.text.length > 40 && !/<a\b/i.test(p.full)); // skip paragraphs that already have a link
+          if (!textParas.length) return null;
+          const numbered = textParas.map((p, i) => (i + 1) + '. ' + p.text).slice(0, 40).join('\n');
+          const prompt = `You are adding ONE internal link inside a UK home-decor blog. The target page covers the search "${kw}". Pick the ONE paragraph below most relevant to it and rewrite it so a NATURAL phrase that includes "${kw}" (or a close natural variant) becomes the link anchor — it must read naturally, never forced, and there must be exactly ONE link. Keep the paragraph's meaning, length and UK spelling ("colour","decor" no accent). Wrap ONLY the anchor words in <<a>> and <</a>> (do not write any URL). If no paragraph is genuinely relevant, return {"mode":"none"}.
+Return ONLY JSON: {"mode":"rewrite","index":N,"paragraph":"full rewritten paragraph as PLAIN text with <<a>>anchor<</a>> around the anchor words"} or {"mode":"none"}.
+PARAGRAPHS (numbered):
+${numbered}`;
+          let raw = ''; try { raw = await callClaudeText(prompt, 1200); } catch (e) { return null; }
+          raw = raw.replace(/```json\n?/g, '').replace(/```\n?/g, ''); const m = raw.match(/\{[\s\S]*\}/); let o = {}; try { o = m ? JSON.parse(m[0]) : {}; } catch (e) { return null; }
+          if (o.mode !== 'rewrite') return null;
+          const i2 = parseInt(o.index, 10); const target = (Number.isInteger(i2) && i2 >= 1 && i2 <= textParas.length) ? textParas[i2 - 1] : null;
+          if (!target) return null;
+          const pt = String(o.paragraph || ''); if (!/<<a>>[\s\S]+<<\/a>>/.test(pt)) return null;
+          const htmlPara = '<p>' + escLink(pt).replace(/&lt;&lt;a&gt;&gt;([\s\S]*?)&lt;&lt;\/a&gt;&gt;/, '<a href="' + url + '">$1</a>') + '</p>';
+          if (htmlPara.indexOf('<a href=') === -1) return null;
+          return oldBody.replace(target.full, htmlPara);
+        }
+        for (const rp of rankPages) {
+          const kw = String(rp && rp.keyword || '').trim(); const pageUrl = String(rp && rp.pageUrl || '').trim();
+          if (!kw) continue;
+          if (!pageUrl) { await queueInMpd(kw); continue; }
+          const handle = handleFromUrl(pageUrl);
+          try {
+            if (pageUrl.includes('/products/')) {
+              const pd = await shopifyGraphQL(`query($q:String!){ products(first:1, query:$q){ nodes{ id metafield(namespace:"custom", key:"linked_blogs"){ value } } } }`, { q: 'handle:' + handle });
+              const prod = pd && pd.products && pd.products.nodes && pd.products.nodes[0];
+              if (!prod) { await queueInMpd(kw); continue; }
+              let list = []; try { list = JSON.parse((prod.metafield && prod.metafield.value) || '[]'); } catch (e) { list = []; }
+              if (!Array.isArray(list)) list = [];
+              if (!list.includes(targetGid)) {
+                try { const lb = await readJsonFileSafe('data/linked-blogs-backups.json', {}); lb[prod.id] = { prev: (prod.metafield && prod.metafield.value) || '[]', at: new Date().toISOString() }; await writeJsonFile('data/linked-blogs-backups.json', lb, 'linked_blogs backup: ' + handle); } catch (e) {}
+                const ms = await shopifyGraphQL(`mutation($mf:[MetafieldsSetInput!]!){ metafieldsSet(metafields:$mf){ userErrors{ field message } } }`, { mf: [{ ownerId: prod.id, namespace: 'custom', key: 'linked_blogs', type: 'list.article_reference', value: JSON.stringify([...list, targetGid]) }] });
+                const mue = (ms && ms.metafieldsSet && ms.metafieldsSet.userErrors) || [];
+                if (mue.length) { await queueInMpd(kw); continue; }
+              }
+              linkedProducts.push(kw);
+            } else if (pageUrl.includes('/blogs/')) {
+              const adq = await shopifyGraphQL(`query($q:String!){ articles(first:1, query:$q){ nodes{ id title body } } }`, { q: 'handle:' + handle });
+              const old = adq && adq.articles && adq.articles.nodes && adq.articles.nodes[0];
+              if (!old) { await queueInMpd(kw); continue; }
+              const oldBody = String(old.body || '');
+              if (oldBody.includes(blogUrl)) { linkedBlogs.push(kw); continue; }
+              try { const bk = await readJsonFileSafe('data/blog-angle-backups.json', {}); if (!bk[old.id]) bk[old.id] = { title: old.title, handle, originalBody: oldBody, keywords: [kw], at: new Date().toISOString() }; await writeJsonFile('data/blog-angle-backups.json', bk, 'Old-page link backup: ' + handle); } catch (e) {}
+              // In-body contextual link (keyword as natural anchor). Fall back to a short natural sentence only if no paragraph fits.
+              let newOldBody = await placeContextLink(oldBody, kw, blogUrl);
+              if (!newOldBody) newOldBody = oldBody + '\n<p>For more on <a href="' + blogUrl + '">' + escLink(kw) + '</a>, see our full guide.</p>';
+              const up2 = await shopifyGraphQL(`mutation($id:ID!,$article:ArticleUpdateInput!){ articleUpdate(id:$id, article:$article){ article{ id } userErrors{ field message } } }`, { id: old.id, article: { body: newOldBody } });
+              const u2e = (up2 && up2.articleUpdate && up2.articleUpdate.userErrors) || [];
+              if (u2e.length) { await queueInMpd(kw); continue; }
+              linkedBlogs.push(kw);
+            } else { await queueInMpd(kw); }
+          } catch (e) { await queueInMpd(kw); }
+        }
+        return res.status(200).json({ success: true, articleId, title: art.title, linkedBlogs, linkedProducts, queued });
+      }
+
+      // ── ACTION: add-angle-undo ── restore a blog's body from the backup taken before the angle edit.
+      if (req.body.action === 'add-angle-undo') {
+        const articleId = String(req.body.articleId || '').trim();
+        if (!articleId) return res.status(400).json({ error: 'articleId required' });
+        const backups = await readJsonFileSafe('data/blog-angle-backups.json', {});
+        const b = backups[articleId];
+        if (!b) return res.status(404).json({ error: 'No backup for that blog.' });
+        const up = await shopifyGraphQL(`mutation($id:ID!,$article:ArticleUpdateInput!){ articleUpdate(id:$id, article:$article){ userErrors{ message } } }`, { id: articleId, article: { body: b.originalBody } });
+        const ue = (up && up.articleUpdate && up.articleUpdate.userErrors) || [];
+        if (ue.length) return res.status(500).json({ error: ue.map(e => e.message).join('; ') });
+        delete backups[articleId];
+        await writeJsonFile('data/blog-angle-backups.json', backups, `Angle undo: ${b.title || articleId}`);
+        if (b.keywords && b.keywords.length) { try { const pd = await readJsonFileSafe('data/gsc-performing-dismissed.json', []); const set = new Set((Array.isArray(pd) ? pd : []).map(s => String(s).toLowerCase())); b.keywords.forEach(k => set.delete(String(k).toLowerCase())); await writeJsonFile('data/gsc-performing-dismissed.json', [...set], 'Angle undo — restore keyword(s)'); } catch (e) { } }
         return res.status(200).json({ success: true });
       }
 
@@ -3858,7 +5812,7 @@ Return ONLY a JSON array, one object per section IN ORDER, each: {"show":"...","
         if (!draft || !draft.bodyHtml) return res.status(200).json({ success: false, error: 'No written blog found for "' + fbT + '". Write the blog first (step 2).' });
         // Unique per-blog tag so a reused image name never grabs an OLD blog's image. Empty for older blogs
         // (their images were saved with plain names), so those keep working exactly as before.
-        const blogCode = String(draft.blogCode || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        const blogCode = await stableBlogCode(fbKwIn || draft.keyword || '', draft.blogCode);
         const codeSuf = blogCode ? '-' + blogCode : '';
         let prodMap = {};
         try { const f = await getGitHubFile('data/blog-products.json'); prodMap = JSON.parse(f.content || '{}'); } catch (e) { prodMap = {}; }
@@ -3940,6 +5894,10 @@ Return ONLY a JSON array, one object per section IN ORDER, each: {"show":"...","
 
         // Always start from the ORIGINAL body (markers intact) so this step can be run again safely.
         let body = String(draft.bodyHtml);
+        // Missing-images gate: if an image (cover or body) isn't generated yet, STOP and ask Mae (Generate /
+        // Cancel) instead of finishing with a dead placeholder. dropMissingImages = she chose "cancel those".
+        const dropMissingImages = req.body.dropMissingImages === true;
+        const missingImages = [];
 
         // ---- ALT TEXT — real descriptions of what's in each image, with the keyword woven in naturally ----
         // One small AI pass writes every image's alt at once. If the AI is unavailable (e.g. out of credits),
@@ -3958,7 +5916,10 @@ Return ONLY a JSON array, one object per section IN ORDER, each: {"show":"...","
         let featuredUrl = '';
         if (featuredBase) {
           featuredUrl = await findImage(featuredBase + codeSuf + '-featured', true);
-          if (!featuredUrl) report.push({ ok: false, label: 'Featured image not found', fix: 'Save your favourite featured photo in Shopify with a name starting "' + featuredBase + codeSuf + '-featured-option", then press again.' });
+          if (!featuredUrl) {
+            report.push({ ok: false, label: 'Featured image not found', fix: 'Save your favourite featured photo in Shopify with a name starting "' + featuredBase + codeSuf + '-featured-option", then press again.' });
+            missingImages.push({ type: 'featured', section: 'Featured (cover) image', name: featuredBase + codeSuf + '-featured-option', prompt: draft.heroPrompt || '' });
+          }
         } else {
           report.push({ ok: false, label: 'This blog has no featured name yet', fix: 'Re-write the blog (step 2) so it has a featured name, then press again.' });
         }
@@ -4023,6 +5984,8 @@ Return ONLY a JSON object mapping each id to its alt line, and nothing else.`;
             sceneOk++;
           } else {
             report.push({ ok: false, label: 'Photo not saved yet: ' + lookup, fix: 'Save that image in Shopify with the exact name "' + lookup + '", then press again.' });
+            missingImages.push({ type: 'scene', section: im.section || '', name: lookup, prompt: im.prompt || '' });
+            if (dropMissingImages) body = body.split(im.full).join(''); // she cancelled this image → drop the dead placeholder
           }
         }
         if (sceneOk) report.push({ ok: true, label: sceneOk + ' scene photo' + (sceneOk === 1 ? '' : 's') + ' placed with alt text' });
@@ -4106,6 +6069,56 @@ Return ONLY a JSON object mapping each id to its alt line, and nothing else.`;
           if (r.ok) body = insertIntoBestH2(body, r.html, p);
         }
 
+        // ---- REUSED-KEYWORD LINK — if this blog reused a keyword locked to a PRODUCT / other page, add ONE clean
+        //      contextual in-body link to it (passes SEO to that page). Safe: the AI only picks a paragraph and a
+        //      verbatim phrase to turn into the anchor — we build the <a> ourselves. No fit → no link (no-op).
+        //      Body is rebuilt from bodyHtml each run, so this never corrupts the source; re-running is safe.
+        try {
+          const ltMap = await readJsonFileSafe('data/blog-link-targets.json', {});
+          const ltEntry = (ltMap && typeof ltMap === 'object') ? ltMap[(fbKw || '').toLowerCase()] : null;
+          const primary = (ltEntry && Array.isArray(ltEntry.links) && ltEntry.links[0]) ? ltEntry.links[0] : null;
+          const linkUrl = primary && String(primary.url || '').trim();
+          if (linkUrl) {
+            // Collect candidate paragraphs that have no existing link and enough text.
+            const pRe = /<p\b[^>]*>([\s\S]*?)<\/p>/gi; const cands = []; let pm;
+            while ((pm = pRe.exec(body)) !== null) {
+              const inner = pm[1]; const text = inner.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+              if (text.length > 60 && !/<a\b/i.test(inner)) cands.push({ full: pm[0], inner, text });
+            }
+            if (cands.length) {
+              const numbered = cands.map((c, i) => (i + 1) + '. ' + c.text).slice(0, 30).join('\n');
+              const prompt = `You are a UK wall-art blog editor for About Wall Art. One of the paragraphs below should link to this product page: ${linkUrl}
+Pick the ONE paragraph where a link to that product reads most naturally and helpfully. Return the paragraph number and an "anchor" = a SHORT phrase (2 to 5 words) copied EXACTLY (verbatim, same case) from that paragraph, which will become the clickable link text. The anchor must be natural link text (describe wall art / the room / the style), never a whole sentence and never generic words like "click here". If NO paragraph is a genuinely natural fit, return skip.
+Return ONLY compact JSON: {"index":N,"anchor":"exact phrase from that paragraph"} OR {"skip":true}.
+PARAGRAPHS (numbered):
+${numbered}`;
+              let raw = ''; try { raw = await callClaudeText(prompt, 400); } catch (e) { raw = ''; }
+              const mm = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').match(/\{[\s\S]*\}/);
+              let o = {}; try { o = mm ? JSON.parse(mm[0]) : {}; } catch (e) { o = {}; }
+              const idx = parseInt(o.index, 10); const anchor = String(o.anchor || '').trim();
+              const target = (!o.skip && Number.isInteger(idx) && idx >= 1 && idx <= cands.length) ? cands[idx - 1] : null;
+              if (target && anchor && target.inner.indexOf(anchor) !== -1) {
+                const aTag = '<a href="' + linkUrl + '">' + anchor + '</a>';
+                const newInner = target.inner.replace(anchor, aTag); // first occurrence only
+                const newFull = target.full.replace(target.inner, newInner);
+                body = body.replace(target.full, newFull);
+                report.push({ ok: true, label: 'Added a contextual link to the reused product page' });
+              } else {
+                report.push({ ok: true, label: 'Reused product page: no natural in-body link spot — added to related products only' });
+              }
+            }
+          }
+        } catch (e) { /* linking is best-effort — never block finishing the blog */ }
+
+        // ---- MISSING-IMAGES GATE — never finish (or later publish) with a dead placeholder ----
+        // If any image is still missing and she hasn't chosen to drop them, STOP here and return the list so the
+        // tool can ask her: Generate (she gets the prompt + exact save-name) or Cancel. Nothing is saved.
+        if (missingImages.length && !dropMissingImages) {
+          return res.status(200).json({ success: false, needsImageDecision: true, title: fbT, missingImages, report });
+        }
+        // She cancelled the missing ones → make sure no leftover [[IMG|...]] placeholder survives into the body.
+        if (dropMissingImages) body = body.replace(/\[\[IMG\|[^\]]*\]\]/g, '').replace(/\n{3,}/g, '\n\n');
+
         // ---- SAVE the finished body next to the draft (bodyHtml stays untouched so this can be re-run) ----
         draftsMap[fbT.toLowerCase()] = { ...draft, finishedBody: body, featuredUrl, featuredAlt, finished: true, finishedAt: new Date().toISOString() };
         try { await updateGitHubFile('data/blog-drafts.json', JSON.stringify(draftsMap, null, 2), draftsSha, `Finish blog body: ${fbT}`); }
@@ -4129,6 +6142,8 @@ Return ONLY a JSON object mapping each id to its alt line, and nothing else.`;
         const ORIGIN = 'https://aboutwallart.com';
         const slugify = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
         const norm = (s) => String(s || '').trim().toLowerCase();
+        const curYear = new Date().getFullYear();
+        const nextYear = curYear + 1;
 
         // 1) load the finished blog + the saved product picks
         let draftsMap = {}, draftsSha;
@@ -4144,7 +6159,28 @@ Return ONLY a JSON object mapping each id to its alt line, and nothing else.`;
         prods.selected = prods.selected || {};
 
         const keyword = pbKwIn || prods.keyword || draft.keyword || '';
-        const body = String(draft.finishedBody);
+        let body = String(draft.finishedBody);
+
+        // ---- MISSING-CONTENT GATE (runs FIRST, before any costly SEO/AI calls) ----
+        // Never publish with a dead [[IMG|...]] image or [[PRODUCT|topic]] product placeholder. If any marker is
+        // still unresolved and Mae hasn't chosen to drop them, STOP and return the list so the tool asks her:
+        // fix them (generate the image / pick a product then re-finish) or Cancel (drop them, publish clean).
+        const dropMissingImages = req.body.dropMissingImages === true;
+        const pbBlogCode = await stableBlogCode(keyword, draft.blogCode);
+        const pbCodeSuf = pbBlogCode ? '-' + pbBlogCode : '';
+        {
+          const missingImages = [];
+          const imgReP = /\[\[IMG\|([^|]*)\|([^|]*)\|([^|]*)\|([\s\S]*?)\]\]/g;
+          let mp;
+          while ((mp = imgReP.exec(body)) !== null) missingImages.push({ type: 'scene', section: '', name: (mp[1] || '').trim() + pbCodeSuf, prompt: (mp[4] || '').trim() });
+          const prodReP = /\[\[PRODUCT\|([^\]]*)\]\]/g;
+          while ((mp = prodReP.exec(body)) !== null) missingImages.push({ type: 'product', section: (mp[1] || '').trim(), name: '', prompt: '' });
+          if (missingImages.length && !dropMissingImages) {
+            return res.status(200).json({ success: false, needsImageDecision: true, title: pbTitle, missingImages, report });
+          }
+          if (dropMissingImages) body = body.replace(/\[\[IMG\|[\s\S]*?\]\]/g, '').replace(/\[\[PRODUCT\|[^\]]*\]\]/g, '').replace(/\n{3,}/g, '\n\n');
+        }
+
         const bodyText = body.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 6000);
         let handle = slugify(pbTitle).slice(0, 110) || slugify(keyword);
         const featuredUrl = draft.featuredUrl || '';
@@ -4160,8 +6196,11 @@ Blog title: "${pbTitle}"
 Main keyword: "${keyword}"
 Blog text (for context): """${bodyText}"""
 
+YEARS — CRITICAL: AVOID using a year in ANY field below unless genuinely necessary (prefer no year). If one is truly needed, use ${nextYear}; only use ${curYear} if strictly factually required, and NEVER an earlier year such as ${curYear - 1}.
+
 Return ONE valid JSON object, no code fences, exactly these keys:
 {
+"blogTitle": "A compelling, click-worthy H1 blog title for a real reader — specific and benefit- or curiosity-driven, Title Case, UK spelling, includes the topic naturally, 40 to 70 characters, NO year unless genuinely useful. NOT the bare keyword, NOT clickbait, NOT ALL CAPS.",
 "seoTitle": "SEO page title, 60 characters or fewer, includes the keyword naturally",
 "metaDescription": "Google meta description, 155 characters or fewer, keyword near the start, one or two clean sentences. NO shipping line. No quotes.",
 "excerpt": "2 to 3 sentence plain-text summary, no HTML, keyword once, warm and specific",
@@ -4188,6 +6227,14 @@ Return only the JSON.`;
         const seoTitle = deEnt(boxes.seoTitle || pbTitle).slice(0, 70);
         const metaDescription = deEnt(boxes.metaDescription || '').slice(0, 160);
         const excerpt = deEnt(boxes.excerpt || '');
+
+        // ---- Article title: if the saved title is just the raw keyword (all lowercase, or equal to the keyword),
+        //      swap it for the click-worthy one the SEO pass wrote. A title that is already proper (has capitals)
+        //      is kept untouched. pbTitle stays the key for drafts/CSV lookups; only Shopify gets the nice title. ----
+        const rawTitleLike = norm(pbTitle) === norm(keyword) || !/[A-Z]/.test(pbTitle);
+        const blogTitleGen = deEnt(draft.h1Title || boxes.blogTitle || '').trim(); // prefer the H1 Mae already saw at the write step
+        const articleTitle = (rawTitleLike && blogTitleGen) ? blogTitleGen : pbTitle;
+        if (articleTitle !== pbTitle) { handle = slugify(articleTitle).slice(0, 110) || slugify(keyword); report.push({ ok: true, label: 'Title made click-worthy: "' + articleTitle + '"' }); }
         // How-To schema — Money Page Doctor's exact format (JSON-LD in a script tag), only for real how-tos
         let howToSchema = '';
         if (boxes.isHowTo && Array.isArray(boxes.howToSteps) && boxes.howToSteps.length) {
@@ -4231,22 +6278,24 @@ Return only the JSON.`;
           linkedTrends = pages.map(p => { const ws = (p.title || '').toLowerCase().match(/[a-z]+/g) || []; let sc = 0; ws.forEach(w => { if (w.length > 3 && !LINK_STOP.has(w) && hay.includes(w)) sc++; }); return { gid: p.id, sc }; }).filter(t => t.sc > 0).sort((a, b) => b.sc - a.sc).slice(0, 2).map(t => t.gid);
         } catch (e) {}
         try {
-          const idxFile = await getGitHubFile('data/blog-index.json');
-          const idx = JSON.parse(idxFile.content || '{}');
-          const all = Array.isArray(idx.articles) ? idx.articles : [];
           const hay = new Set(((keyword + ' ' + pbTitle + ' ' + tags.join(' ')).toLowerCase().match(/[a-z]+/g) || []).filter(w => w.length > 3 && !LINK_STOP.has(w)));
-          // Inbound-link count per blog (how many blogs already link to it) → spread link equity: fewest first.
-          const inbound = {};
-          try {
-            let cursor = null, pg = 0;
-            while (pg < 6) { pg++;
-              const q = await shopifyGraphQL(`query($c:String){ articles(first:250, after:$c, query:"blog_id:93572858142"){ pageInfo{ hasNextPage endCursor } edges{ node{ metafield(namespace:"custom", key:"linked_blogs"){ value } } } } }`, { c: cursor });
-              const conn = q && q.articles; if (!conn) break;
-              for (const e of conn.edges) { let v = []; try { v = JSON.parse((e.node.metafield && e.node.metafield.value) || '[]'); } catch (e2) {} (Array.isArray(v) ? v : []).forEach(g => { inbound[g] = (inbound[g] || 0) + 1; }); }
-              if (!conn.pageInfo.hasNextPage) break; cursor = conn.pageInfo.endCursor;
+          // Related blogs are chosen from LIVE Shopify (NEVER a saved list that may still name deleted blogs —
+          // that is what made Shopify reject the whole publish). One pass gets every live article
+          // (id/title/handle/tags) AND the inbound-link count per blog (to spread link equity: fewest first).
+          const live = []; const inbound = {};
+          let cursor = null, pg = 0;
+          while (pg < 8) { pg++;
+            const q = await shopifyGraphQL(`query($c:String){ articles(first:250, after:$c, query:"blog_id:93572858142"){ pageInfo{ hasNextPage endCursor } edges{ node{ id title handle tags metafield(namespace:"custom", key:"linked_blogs"){ value } } } } }`, { c: cursor });
+            const conn = q && q.articles; if (!conn) break;
+            for (const e of conn.edges) {
+              const n = e.node; if (!n || !n.id) continue;
+              live.push({ gid: n.id, title: n.title || '', handle: n.handle || '', tags: n.tags || [] });
+              let v = []; try { v = JSON.parse((n.metafield && n.metafield.value) || '[]'); } catch (e2) {}
+              (Array.isArray(v) ? v : []).forEach(g => { inbound[g] = (inbound[g] || 0) + 1; });
             }
-          } catch (e) {}
-          const candidates = all.filter(a => a.gid && norm(a.handle) !== norm(handle) && norm(a.title) !== norm(pbTitle))
+            if (!conn.pageInfo.hasNextPage) break; cursor = conn.pageInfo.endCursor;
+          }
+          const candidates = live.filter(a => a.gid && norm(a.handle) !== norm(handle) && norm(a.title) !== norm(pbTitle))
             .map(a => { const ws = ((a.title || '') + ' ' + (a.tags || []).join(' ')).toLowerCase().match(/[a-z]+/g) || []; let sc = 0; const seen = new Set(); ws.forEach(w => { if (hay.has(w) && !seen.has(w)) { sc++; seen.add(w); } }); return { gid: a.gid, handle: a.handle, sc, inb: inbound[a.gid] || 0 }; })
             .filter(a => a.sc > 0);
           // topic-relevant only, then among them prefer the ones with the FEWEST inbound links (spread evenly).
@@ -4289,7 +6338,22 @@ Return only the JSON.`;
         //      picks a gallery from the report, its 2 get added (set-blog-gallery). Separate from the body products.
         const awaGids = (prods.awa || []).filter(p => p && p.gid).sort((a, b) => (b.price || 0) - (a.price || 0)).map(p => p.gid).slice(0, 2);
         const galleryGids = bestGallery ? galleryProductGids(bestGallery, awaGids) : [];
-        const productGids = [...awaGids, ...galleryGids].slice(0, 4);
+        // Reused-keyword product(s): if this blog reused a keyword locked to a PRODUCT, add that product to the
+        // related-products list (resolve its /products/<handle> URL → product GID). Put it FIRST so the 4-item cap
+        // never drops it. Non-product URLs (pages/collections) are skipped here — the in-body link already covers them.
+        let reusedGids = [];
+        try {
+          const ltMap = await readJsonFileSafe('data/blog-link-targets.json', {});
+          const ltEntry = (ltMap && typeof ltMap === 'object') ? ltMap[(keyword || '').toLowerCase()] : null;
+          const links = (ltEntry && Array.isArray(ltEntry.links)) ? ltEntry.links : [];
+          for (const lk of links) {
+            const mh = String((lk && lk.url) || '').match(/\/products\/([^\/?#]+)/i);
+            if (!mh) continue;
+            const handle = decodeURIComponent(mh[1]).toLowerCase();
+            try { const d = await shopifyGraphQL(`query($q:String!){ products(first:1, query:$q){ edges{ node{ id } } } }`, { q: 'handle:' + handle }); const g = d && d.products && d.products.edges[0] && d.products.edges[0].node && d.products.edges[0].node.id; if (g && !reusedGids.includes(g)) reusedGids.push(g); } catch (e) {}
+          }
+        } catch (e) {}
+        const productGids = [...reusedGids, ...awaGids, ...galleryGids].filter((g, i, a) => g && a.indexOf(g) === i).slice(0, 4);
 
         // ---- 7) Schedule — the first free day; today → 19:00 UK, any future day → 10:00 UK, EVERY OTHER DAY (1 on, 1 off) ----
         function londonOffsetMin(date) { const u = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' })); const l = new Date(date.toLocaleString('en-US', { timeZone: 'Europe/London' })); return Math.round((l - u) / 60000); }
@@ -4319,6 +6383,10 @@ Return only the JSON.`;
           publishIso = ukIso(nowUk.getFullYear(), nowUk.getMonth(), nowUk.getDate(), 19);
         }
 
+        // Safety net: strip any leftover [[IMG|...]] or [[PRODUCT|...]] placeholder so a dead marker can never
+        // reach Shopify (the gate above already stops this; this is a final belt-and-braces for any edge case).
+        body = body.replace(/\[\[IMG\|[\s\S]*?\]\]/g, '').replace(/\[\[PRODUCT\|[^\]]*\]\]/g, '').replace(/\n{3,}/g, '\n\n');
+
         // ---- 8) Create the blog on Shopify (Hidden until its date, right template + author) ----
         const mf = [];
         const addMf = (ns, key, type, value) => { if (value === '' || value == null) return; mf.push({ namespace: ns, key, type, value: String(value) }); };
@@ -4340,7 +6408,7 @@ Return only the JSON.`;
 
         const articleInput = {
           blogId: NEWS_BLOG_GID,
-          title: pbTitle,
+          title: articleTitle,
           handle,
           body,
           summary: excerpt || undefined,
@@ -4396,7 +6464,7 @@ Return only the JSON.`;
           const idx = JSON.parse(f.content || '{}');
           idx.articles = Array.isArray(idx.articles) ? idx.articles : [];
           if (!idx.articles.some(a => norm(a.handle) === norm(finalHandle))) {
-            idx.articles.unshift({ gid: articleGid, handle: finalHandle, title: pbTitle, tags, blogHandle: 'news-articles-home-decor-inspiration', publishedAt: publishIso });
+            idx.articles.unshift({ gid: articleGid, handle: finalHandle, title: articleTitle, tags, blogHandle: 'news-articles-home-decor-inspiration', publishedAt: publishIso });
             idx.count = idx.articles.length; idx.updatedAt = new Date().toISOString();
             await updateGitHubFile('data/blog-index.json', JSON.stringify(idx, null, 2), f.sha, 'Register new blog: ' + pbTitle);
           }
@@ -4469,7 +6537,8 @@ Return only the JSON.`;
               while (cols.length < 10) cols.push('');
               month = cols[9] || '';
               cols[5] = 'PUBLISHED';
-              cols[9] = '';
+              // Keep the month tag (do NOT clear it) so a published blog stays visible in "Month in progress" until
+              // Mae explicitly marks it done. It only leaves that tab via its own "Mark as done" (data/blog-done.json).
               return cols.map(esc).join(',');
             }
             return line;
@@ -4660,7 +6729,69 @@ Return only the JSON.`;
           ? `A real YouTube video was found. Write the WATCH section as: <p><strong>WATCH:</strong> <a href="${sources.youtubeLink}" target="_blank" rel="noopener">${(sources.youtubeTitle || 'watch the video').replace(/"/g, '')}</a></p> then on the next line put the marker [[VIDEO|${sources.youtubeLink}]] where the video embed should go.`
           : `No video was found — SKIP the WATCH section entirely (do not invent a video).`;
 
+        const curYear = new Date().getFullYear();
+        const nextYear = curYear + 1;
+
+        // ── AlsoAsked tree (optional) ── Mae can drop an AlsoAsked CSV export before writing. It carries a
+        //    People-Also-Ask question tree where the hierarchy lives in "tier 1 position" / "tier 2 position"
+        //    (tier1 = branch; tier1>0 + tier2=0 = the branch's parent question; tier2>0 = its sub-questions).
+        //    We use ONLY the questions + structure (answers are blank/locked on the free plan). Parsed here so a
+        //    multi-line quoted CSV never breaks. Fed to the writer as section structure — irrelevant PAA drift ignored.
+        function parseCsvRecords(text) {
+          const rows = []; let row = [], field = '', inQ = false;
+          const s = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+          for (let i = 0; i < s.length; i++) {
+            const ch = s[i];
+            if (inQ) {
+              if (ch === '"') { if (s[i + 1] === '"') { field += '"'; i++; } else { inQ = false; } }
+              else field += ch;
+            } else if (ch === '"') { inQ = true; }
+            else if (ch === ',') { row.push(field); field = ''; }
+            else if (ch === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+            else field += ch;
+          }
+          if (field.length || row.length) { row.push(field); rows.push(row); }
+          return rows;
+        }
+        function buildAlsoAskedOutline(csv) {
+          const rows = parseCsvRecords(csv);
+          if (rows.length < 2) return '';
+          const header = rows[0].map(h => String(h || '').trim().toLowerCase());
+          const qi = header.indexOf('question'), t1i = header.indexOf('tier 1 position'), t2i = header.indexOf('tier 2 position');
+          if (qi === -1 || t1i === -1 || t2i === -1) return '';
+          const branches = {};
+          for (let r = 1; r < rows.length; r++) {
+            const rec = rows[r]; if (!rec || !rec.length) continue;
+            const q = String(rec[qi] || '').trim(); if (!q) continue;
+            const t1 = parseInt(rec[t1i], 10), t2 = parseInt(rec[t2i], 10);
+            if (!Number.isInteger(t1) || t1 <= 0) continue; // skip the seed row (tier1=0)
+            if (!branches[t1]) branches[t1] = { parent: '', children: [] };
+            if (t2 === 0) branches[t1].parent = q;
+            else if (Number.isInteger(t2)) branches[t1].children.push(q);
+          }
+          const lines = [];
+          Object.keys(branches).map(n => parseInt(n, 10)).sort((a, b) => a - b).forEach(k => {
+            const b = branches[k]; const parent = b.parent || b.children[0] || ''; if (!parent) return;
+            const seen = new Set([parent.toLowerCase()]);
+            const kids = b.children.filter(c => { const lc = c.toLowerCase(); if (seen.has(lc)) return false; seen.add(lc); return true; });
+            lines.push('- ' + parent + (kids.length ? '\n' + kids.map(c => '   · ' + c).join('\n') : ''));
+          });
+          return lines.join('\n');
+        }
+        let alsoAskedBlock = '';
+        try {
+          if (req.body.alsoAskedCsv) {
+            const outline = buildAlsoAskedOutline(String(req.body.alsoAskedCsv));
+            if (outline) alsoAskedBlock = `
+RESEARCH QUESTION TREE (from AlsoAsked / Google "People Also Ask") — use this to SHAPE the blog. Turn the branches that genuinely FIT this blog into H2 sections, and make sure the blog naturally answers the relevant sub-questions within those sections. This is raw People-Also-Ask data, so some questions are OFF-TOPIC for wall art / this blog (unrelated feng-shui, house-price or sleep questions, etc.) — IGNORE anything that does not fit; never force an irrelevant question in. Do NOT keyword-stuff; cover naturally in Mae's voice.
+${outline}
+`;
+          }
+        } catch (e) { alsoAskedBlock = ''; }
+
         const bodyPrompt = `You are Mae Osz, a friendly UK home-decor advisor writing a blog for aboutwallart.com (wall art + home decor). Write the FULL blog body as clean HTML.
+
+YEARS — CRITICAL: AVOID putting a year anywhere unless it is genuinely necessary — most of the time the blog reads better with no year at all, so leave it out. When a year is truly needed, use ${nextYear} (we are near the end of ${curYear}); only use ${curYear} if it is strictly factually required, and NEVER an earlier year such as ${curYear - 1}.
 
 BLOG TITLE (use as the reader's main question): "${wbTitle}"
 MAIN KEYWORD: "${wbKeyword}"
@@ -4669,7 +6800,7 @@ TARGET LENGTH: at least ${wordTarget} words IN THE BODY (this already leaves ~50
 ${mustCover.length ? `MUST COVER these topics as H2 sections: ${mustCover.join('; ')}.` : ''}
 ${gaps.length ? `WIN ON these gaps the top pages miss (add as extra H2 sections): ${gaps.join('; ')}.` : ''}
 ${secondaryAngles.length ? `FUSED SEARCH TERMS — this post merges several near-duplicate searches into ONE blog so they stop competing with each other: cover EACH of these as its own H2 section, using its exact phrase naturally in that section's heading and text (no keyword-stuffing): ${secondaryAngles.map(s => `"${s}"`).join('; ')}.` : ''}
-
+${alsoAskedBlock}
 VOICE (this is what makes it sound human, not AI):
 - First person (I / we), a warm, friendly personal decorator advisor talking directly to the reader — like a friend who styles homes for a living.
 - Write with real PERSONALITY. In several sections, include a short personal anecdote or a real problem-and-fix — "I once helped a client whose...", "the mistake I always see is...", "here's what happened when I tried...". You MAY invent these anecdotes naturally (a client, a room, a mistake) — keep them realistic and grounded. NEVER invent hard facts, brands, prices, stats or URLs.
@@ -4716,7 +6847,9 @@ IMAGE RULES — YOU write the full prompt for every image; the generator only dr
 - INFOGRAPHIC — use kind "infographic" ONLY when the section is genuinely a COMPARISON, before/after, proportion, measurement, steps, or a stats/checklist. NEVER for a plain tip list or a room scene. When it is, the FULL PROMPT must be: "Clean minimal educational infographic, plain WHITE background, photoreal, all text solid BLACK. A short centred title near the top, then a clear VISUAL comparison (two labelled photos side by side, or simple labelled icons/steps), minimal words, generous white space, nothing near the edges. No people, no watermarks." THEN name the exact comparison/steps to show.
 - Aim for about 3 infographics WHERE THEY GENUINELY FIT; if fewer sections truly suit one, that is fine — never mislabel a room scene as an infographic.
 
-HERO IMAGE — at the VERY END, after the closing paragraph, output ONE line exactly: [[HERO|FULL PROMPT]] — one strong square featured scene for this blog (the reader's main situation/room, editorial look as above, NO framed wall art but other wall decor welcome, the keyword idea reflected in the setting). DESCRIBE THE ROOM/SCENE ONLY — do NOT put a specific person in it, and do NOT say how many people; leave the person completely open (the 5 featured options each add a different person). This is the ONLY place you describe the hero; it becomes 5 variations later.`;
+HERO IMAGE — at the VERY END, after the closing paragraph, output ONE line exactly: [[HERO|FULL PROMPT]] — one strong square featured scene for this blog (the reader's main situation/room, editorial look as above, NO framed wall art but other wall decor welcome, the keyword idea reflected in the setting). DESCRIBE THE ROOM/SCENE ONLY — do NOT put a specific person in it, and do NOT say how many people; leave the person completely open (the 5 featured options each add a different person). This is the ONLY place you describe the hero; it becomes 5 variations later.
+
+TITLE — also at the VERY END, output ONE line exactly: [[TITLE|the blog's H1]] where the H1 is a compelling, click-worthy blog title for a real reader: specific and benefit- or curiosity-driven, Title Case, UK spelling, includes the topic naturally, 40-70 characters, NO year unless genuinely useful, NOT the bare keyword, NOT clickbait, NOT ALL CAPS, no quotes. This is the blog's real H1 title.`;
 
         // Bigger ceiling so a long body (every section imaged, a table, 6 products) always finishes.
         let bodyHtml = await callClaudeText(bodyPrompt, 16000);
@@ -4724,6 +6857,9 @@ HERO IMAGE — at the VERY END, after the closing paragraph, output ONE line exa
         // Pull the hero (featured) image prompt out of the body — it's not part of the body.
         let heroPrompt = '';
         bodyHtml = bodyHtml.replace(/\[\[HERO\|([\s\S]*?)\]\]/, (m, p) => { heroPrompt = (p || '').trim(); return ''; }).trim();
+        // Pull the H1 title the SAME write call produced (one call — no extra AI request): shown on the card + reused at publish.
+        let h1Title = '';
+        bodyHtml = bodyHtml.replace(/\[\[TITLE\|([\s\S]*?)\]\]/, (m, p) => { h1Title = (p || '').trim().replace(/^["'\s]+|["'\s]+$/g, '').replace(/\s+/g, ' '); return ''; }).trim();
         // Inject the real trend links into the Visual-Inspiration marker.
         if (trendsHtml) bodyHtml = bodyHtml.replace(/\[\[TRENDS\]\]/g, trendsHtml);
         else bodyHtml = bodyHtml.replace(/\[\[TRENDS\]\]/g, '');
@@ -4734,14 +6870,24 @@ HERO IMAGE — at the VERY END, after the closing paragraph, output ONE line exa
           return id ? `<div style="position:relative;width:100%;padding-bottom:56.25%;margin:16px 0;"><iframe src="https://www.youtube.com/embed/${id}" style="position:absolute;top:0;left:0;width:100%;height:100%;border:0;" allowfullscreen loading="lazy"></iframe></div>` : '';
         });
 
+        const blogCode = await stableBlogCode(wbKeyword, null); // permanent code for this blog's images
         return res.status(200).json({
           success: true,
           bodyHtml,
           featuredBase,
           heroPrompt,
+          blogCode,
+          h1Title,
           authority: { title: sources.authorityTitle, url: sources.authorityUrl },
           youtube: { title: sources.youtubeTitle, link: sources.youtubeLink }
         });
+      }
+
+      // ── ACTION: get-blog-code ── the permanent per-blog image code (data/blog-codes.json). Used by the image-prompts
+      // step so a blog's images are ALWAYS named with the same code the finish/publish steps look them up by.
+      if (req.body.action === 'get-blog-code') {
+        const code = await stableBlogCode(String(req.body.keyword || ''), String(req.body.fallback || ''));
+        return res.status(200).json({ success: true, code });
       }
 
       const { keyword, url, title, perspective, galleryCode, collectionUrl, writeToSheet } = req.body;
