@@ -1,4 +1,8 @@
-// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images + Compliance + Edit Descriptions + SKU map)  ·  v0.65
+// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images + Compliance + Edit Descriptions + SKU map)  ·  v0.66
+// v0.66 (2026-11-26): sku-map-csv now returns each row's Etsy featured image + Shopify featured image, and for every
+//   NO-MATCH row a "closest Shopify SKU" suggestion (ignores spacing/case, typos, NEWSEO, a BED prefix/suffix, a trailing
+//   date, abbreviations like OFFICE/OFF). NEW actions sku-fix-authorize / sku-fix-unauthorize store the correct Shopify
+//   SKU per listing in data/etsy-sku-fixes.json (the "fix in Etsy" list). shopifySkuTitleMap now carries featuredImage.
 // v0.65 (2026-11-26): sku-map-csv now also returns per-listing review_count (one pass over shop reviews), diff_format
 //   (Etsy raw SKU is not the clean base -> won't auto-match), etsy_sku_raw, and backendVersion. Powers the 3 new filters
 //   in etsy-review-matcher (state / with reviews / different SKU format). Review endpoint needs no extra scope (api_key only).
@@ -211,7 +215,8 @@ const ED_DONE_PATH   = 'data/etsy-ed-done.json';    // the ones already applied 
 const ED_BACKUP_PATH = 'data/etsy-ed-backup.json';  // original descriptions, backed up before each edit
 const RM_OVERRIDE_PATH = 'data/etsy-review-overrides.json'; // Judge.me matcher: { "<listing_id>": "<correct SKU>" } manual fixes
 const RM_DONE_PATH = 'data/etsy-review-done.json';          // Judge.me matcher: { ids: ["<listing_id>", ...] } rows marked done
-const RM_BACKEND_VERSION = '0.65';                          // bumped when sku-map-csv response shape changes (the matcher page checks this)
+const RM_FIX_PATH = 'data/etsy-sku-fixes.json';             // Judge.me matcher: { "<listing_id>": { sku, etsy_sku_raw, etsy_title } } — correct Shopify SKU to fix on Etsy
+const RM_BACKEND_VERSION = '0.66';                          // bumped when sku-map-csv response shape changes (the matcher page checks this)
 function ghHeaders() { return { 'Authorization': 'token ' + process.env.GITHUB_TOKEN, 'Accept': 'application/vnd.github+json', 'User-Agent': 'awa-etsy' }; }
 async function ghGet(path) {
   const r = await fetch('https://api.github.com/repos/' + REPO + '/contents/' + path + '?ref=main&t=' + Date.now(), { headers: ghHeaders() });
@@ -254,6 +259,32 @@ async function writeShopPending(p) { await ghPut(RI_SHOP_PENDING_PATH, JSON.stri
 // Etsy variant SKUs look like "{BASE}- {size}{frame} {paper}" (the base can contain spaces, e.g. "CYANOTYPE BROWN").
 // The video filename gives the BASE, so group by the base code.
 function baseSkuEtsy(s) { return String(s || '').split(/\s*-\s/)[0].trim().toUpperCase(); }
+// --- Judge.me matcher: "closest Shopify SKU" suggestion for Etsy SKUs that don't match exactly ---
+// Normalise a SKU for comparison: uppercase, drop NEWSEO, a BED prefix/suffix, a trailing date, and all spaces/punctuation,
+// leaving the real product code so near-duplicates (typos, spacing, extra words, abbreviations) collapse together.
+function normSkuCmp(s) {
+  let x = String(s || '').toUpperCase();
+  x = x.replace(/NEWSEO/g, '');
+  x = x.replace(/[^A-Z0-9]+/g, '');          // strip spaces / dashes / punctuation
+  x = x.replace(/\d{6,8}$/, '');             // trailing date block (e.g. 20240115)
+  x = x.replace(/^BED/, '').replace(/BED$/, '');
+  return x;
+}
+function levDist(a, b) {
+  const m = a.length, n = b.length;
+  if (!m) return n; if (!n) return m;
+  const dp = new Array(n + 1);
+  for (let j = 0; j <= n; j++) dp[j] = j;
+  for (let i = 1; i <= m; i++) {
+    let prev = dp[0]; dp[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const tmp = dp[j];
+      dp[j] = Math.min(dp[j] + 1, dp[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return dp[n];
+}
 // Download a video straight from the shared Drive folder (same source as the Shopify video tool).
 async function driveDownloadEtsy(fileId) {
   const r = await fetch('https://drive.google.com/uc?export=download&id=' + fileId, { redirect: 'follow' });
@@ -773,8 +804,8 @@ async function findGidBySku(sku) {
 async function shopifySkuTitleMap() {
   const map = new Map(); let after = null;
   for (let p = 0; p < 40; p++) {
-    const d = await shopGQL('query($after:String){ products(first:250, after:$after){ pageInfo{ hasNextPage endCursor } nodes{ title handle skuMf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } }', { after });
-    (d.products.nodes || []).forEach(n => { const v = n.skuMf && n.skuMf.value; if (v) { const k = String(v).trim().toLowerCase(); if (!map.has(k)) map.set(k, { title: n.title || '', handle: n.handle || '' }); } });
+    const d = await shopGQL('query($after:String){ products(first:250, after:$after){ pageInfo{ hasNextPage endCursor } nodes{ title handle featuredImage{ url } skuMf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } }', { after });
+    (d.products.nodes || []).forEach(n => { const v = n.skuMf && n.skuMf.value; if (v) { const k = String(v).trim().toLowerCase(); if (!map.has(k)) map.set(k, { title: n.title || '', handle: n.handle || '', image: (n.featuredImage && n.featuredImage.url) || '' }); } });
     if (!d.products.pageInfo.hasNextPage) break;
     after = d.products.pageInfo.endCursor;
   }
@@ -1460,12 +1491,41 @@ module.exports = async (req, res) => {
     // ===== SKU MAP CSV — for Judge.me manual review matching (read-only; no writes) =====
     // One row per Etsy listing: Etsy SKU, Etsy title, Shopify title, Shopify handle, state, status.
     if (q.action === 'sku-map-csv') {
-      // 1) Shopify SKU -> { title, handle }
+      // 1) Shopify SKU -> { title, handle, image }
       const shopMap = await shopifySkuTitleMap();
-      // 2) Manual fixes (listing_id -> correct SKU) + rows already done
-      let overrides = {}, doneIds = new Set();
+      // 1b) Candidate pool for the "closest SKU" suggestion (NO-MATCH rows)
+      const cand = [], normExact = new Map(), bucket = new Map();
+      for (const [k, v] of shopMap.entries()) {
+        const c = { sku: k, norm: normSkuCmp(k), title: v.title, handle: v.handle, image: v.image || '' };
+        cand.push(c);
+        if (c.norm && !normExact.has(c.norm)) normExact.set(c.norm, c);
+        const bk = c.norm.slice(0, 3); if (bk) { if (!bucket.has(bk)) bucket.set(bk, []); bucket.get(bk).push(c); }
+      }
+      function suggestFor(etsyBase) {
+        const a = normSkuCmp(etsyBase); if (!a) return null;
+        const ex = normExact.get(a);
+        if (ex) return { sku: ex.sku, title: ex.title, handle: ex.handle, image: ex.image, reason: 'spacing/case', score: 100 };
+        const pool = new Set();
+        (bucket.get(a.slice(0, 3)) || []).forEach(c => pool.add(c));
+        const tail = a.slice(-4);
+        if (tail) cand.forEach(c => { if (c.norm.slice(-4) === tail) pool.add(c); });
+        let best = null, bestScore = -1, bestReason = '';
+        pool.forEach(c => {
+          const b = c.norm; if (!b) return;
+          const d = levDist(a, b), maxLen = Math.max(a.length, b.length) || 1;
+          const sim = 1 - d / maxLen, contain = (a.includes(b) || b.includes(a)) ? 1 : 0;
+          let p = 0; while (p < a.length && p < b.length && a[p] === b[p]) p++;
+          const score = Math.round(100 * (0.6 * sim + 0.2 * contain + 0.2 * (p / maxLen)));
+          if (score > bestScore) { bestScore = score; best = c; bestReason = d <= 1 ? 'typo' : (contain ? 'extra text' : 'closest'); }
+        });
+        if (!best || bestScore < 40) return null;
+        return { sku: best.sku, title: best.title, handle: best.handle, image: best.image, reason: bestReason, score: bestScore };
+      }
+      // 2) Manual fixes (listing_id -> correct SKU) + rows already done + authorised Etsy-SKU fixes
+      let overrides = {}, doneIds = new Set(), fixAuth = {};
       try { const f = await ghGet(RM_OVERRIDE_PATH); if (f.content) overrides = JSON.parse(f.content) || {}; } catch (e) {}
       try { const f = await ghGet(RM_DONE_PATH); if (f.content) { const j = JSON.parse(f.content); (Array.isArray(j) ? j : (j.ids || [])).forEach(id => doneIds.add(String(id))); } } catch (e) {}
+      try { const f = await ghGet(RM_FIX_PATH); if (f.content) fixAuth = JSON.parse(f.content) || {}; } catch (e) {}
       // 2b) Review counts per Etsy listing — one pass over the shop's reviews (each review carries its listing_id).
       const reviewCounts = {};
       {
@@ -1486,7 +1546,7 @@ module.exports = async (req, res) => {
       for (const state of ['active', 'inactive', 'draft', 'expired', 'sold_out']) {
         let offset = 0, total = Infinity;
         for (let page = 0; page < 400 && offset < total; page++) {
-          const lr = await call('/shops/' + SHOP_ID + '/listings?state=' + state + '&limit=100&offset=' + offset + '&includes=Inventory');
+          const lr = await call('/shops/' + SHOP_ID + '/listings?state=' + state + '&limit=100&offset=' + offset + '&includes=Inventory,Images');
           if (lr.status >= 300) break;   // some states may be unsupported for this shop — skip, don't fail
           const j = lr.json || {};
           total = (typeof j.count === 'number') ? j.count : 0;
@@ -1501,6 +1561,11 @@ module.exports = async (req, res) => {
             const fixSku = overrides[lid] ? baseSkuEtsy(overrides[lid]) : '';   // manual fix for this listing
             const useSku = fixSku || etsySku;
             const hit = useSku ? shopMap.get(useSku.toLowerCase()) : null;
+            const status = hit ? 'matched' : (useSku ? 'NO MATCH' : 'NO SKU');
+            const im = (l.images && l.images[0]) || {};
+            const etsyImage = im.url_570xN || im.url_fullxfull || im.url_300x300 || '';
+            const sug = (status === 'NO MATCH') ? suggestFor(etsySku) : null;   // closest Shopify SKU for rows with no exact match
+            const auth = fixAuth[lid] || null;                                   // authorised "fix in Etsy" target
             rows.push({
               listing_id: lid,
               etsy_sku: etsySku,
@@ -1510,11 +1575,21 @@ module.exports = async (req, res) => {
               used_sku: useSku,
               fixed: !!fixSku,
               etsy_title: l.title || '',
+              etsy_image: etsyImage,
               shopify_title: hit ? hit.title : '',
               shopify_handle: hit ? hit.handle : '',
+              shopify_image: hit ? (hit.image || '') : '',
+              suggest_sku: sug ? sug.sku : '',
+              suggest_title: sug ? sug.title : '',
+              suggest_handle: sug ? sug.handle : '',
+              suggest_image: sug ? sug.image : '',
+              suggest_reason: sug ? sug.reason : '',
+              suggest_score: sug ? sug.score : 0,
+              fix_authorized: !!auth,
+              fix_sku: auth ? auth.sku : '',
               state: state,
               done: doneIds.has(lid),
-              status: hit ? 'matched' : (useSku ? 'NO MATCH' : 'NO SKU')
+              status: status
             });
           });
           offset += 100;
@@ -1526,7 +1601,8 @@ module.exports = async (req, res) => {
       const doneCount = rows.filter(r => r.done).length;
       const withReviews = rows.filter(r => r.review_count > 0).length;
       const diffFormatCount = rows.filter(r => r.diff_format).length;
-      finish(200, { ok: true, backendVersion: RM_BACKEND_VERSION, rows, total: rows.length, matched, noMatch: rows.length - matched - noSku, noSku, doneCount, withReviews, diffFormatCount, shopifyProducts: shopMap.size });
+      const authorizedCount = rows.filter(r => r.fix_authorized).length;
+      finish(200, { ok: true, backendVersion: RM_BACKEND_VERSION, rows, total: rows.length, matched, noMatch: rows.length - matched - noSku, noSku, doneCount, withReviews, diffFormatCount, authorizedCount, shopifyProducts: shopMap.size });
       return;
     }
 
@@ -1562,6 +1638,40 @@ module.exports = async (req, res) => {
         if (done) set.add(lid); else set.delete(lid);
         await ghPut(RM_DONE_PATH, JSON.stringify({ ids: Array.from(set) }, null, 2), f.sha, 'review matcher: done ' + (done ? '+' : '-') + lid);
         finish(200, { ok: true, listing_id: lid, done, doneCount: set.size });
+      } catch (e) { finish(500, { ok: false, error: 'Could not save: ' + String(e && e.message || e) }); return; }
+      return;
+    }
+
+    // Authorise an Etsy-SKU fix: record the CORRECT Shopify SKU for a listing (to be fixed on Etsy). Verifies it exists first.
+    if (q.action === 'sku-fix-authorize' && req.method === 'POST') {
+      const b = req.body || {};
+      const lid = String(b.listing_id || '').trim();
+      const sku = baseSkuEtsy(String(b.shopify_sku || ''));
+      if (!lid || !sku) { finish(400, { ok: false, error: 'Missing listing_id or shopify_sku' }); return; }
+      const shopMap = await shopifySkuTitleMap();
+      const hit = shopMap.get(sku.toLowerCase());
+      if (!hit) { finish(200, { ok: false, notFound: true, error: 'SKU "' + sku + '" was not found on any Shopify product.' }); return; }
+      try {
+        const f = await ghGet(RM_FIX_PATH);
+        const data = f.content ? (JSON.parse(f.content) || {}) : {};
+        data[lid] = { sku: sku, etsy_sku_raw: String(b.etsy_sku_raw || ''), etsy_title: String(b.etsy_title || '') };
+        await ghPut(RM_FIX_PATH, JSON.stringify(data, null, 2), f.sha, 'review matcher: authorise etsy fix ' + lid + ' -> ' + sku);
+      } catch (e) { finish(500, { ok: false, error: 'Could not save: ' + String(e && e.message || e) }); return; }
+      finish(200, { ok: true, listing_id: lid, shopify_sku: sku, shopify_title: hit.title, shopify_handle: hit.handle, shopify_image: hit.image || '' });
+      return;
+    }
+
+    // Remove an authorised Etsy-SKU fix.
+    if (q.action === 'sku-fix-unauthorize' && req.method === 'POST') {
+      const b = req.body || {};
+      const lid = String(b.listing_id || '').trim();
+      if (!lid) { finish(400, { ok: false, error: 'Missing listing_id' }); return; }
+      try {
+        const f = await ghGet(RM_FIX_PATH);
+        const data = f.content ? (JSON.parse(f.content) || {}) : {};
+        delete data[lid];
+        await ghPut(RM_FIX_PATH, JSON.stringify(data, null, 2), f.sha, 'review matcher: unauthorise etsy fix ' + lid);
+        finish(200, { ok: true, listing_id: lid });
       } catch (e) { finish(500, { ok: false, error: 'Could not save: ' + String(e && e.message || e) }); return; }
       return;
     }
