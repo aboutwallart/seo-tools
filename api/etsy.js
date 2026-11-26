@@ -1,4 +1,7 @@
-// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images + Compliance + Edit Descriptions + SKU map)  ·  v0.64
+// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images + Compliance + Edit Descriptions + SKU map)  ·  v0.65
+// v0.65 (2026-11-26): sku-map-csv now also returns per-listing review_count (one pass over shop reviews), diff_format
+//   (Etsy raw SKU is not the clean base -> won't auto-match), etsy_sku_raw, and backendVersion. Powers the 3 new filters
+//   in etsy-review-matcher (state / with reviews / different SKU format). Review endpoint needs no extra scope (api_key only).
 // v0.64 (2026-11-23): SKU map — adds manual fixes + done tracking for the Judge.me matcher. sku-map-csv now returns
 //   listing_id + done flag, applies per-listing SKU overrides (data/etsy-review-overrides.json: listing_id -> correct SKU)
 //   and marks rows already done (data/etsy-review-done.json). NEW actions: sku-override (POST listing_id+sku: verify the
@@ -208,6 +211,7 @@ const ED_DONE_PATH   = 'data/etsy-ed-done.json';    // the ones already applied 
 const ED_BACKUP_PATH = 'data/etsy-ed-backup.json';  // original descriptions, backed up before each edit
 const RM_OVERRIDE_PATH = 'data/etsy-review-overrides.json'; // Judge.me matcher: { "<listing_id>": "<correct SKU>" } manual fixes
 const RM_DONE_PATH = 'data/etsy-review-done.json';          // Judge.me matcher: { ids: ["<listing_id>", ...] } rows marked done
+const RM_BACKEND_VERSION = '0.65';                          // bumped when sku-map-csv response shape changes (the matcher page checks this)
 function ghHeaders() { return { 'Authorization': 'token ' + process.env.GITHUB_TOKEN, 'Accept': 'application/vnd.github+json', 'User-Agent': 'awa-etsy' }; }
 async function ghGet(path) {
   const r = await fetch('https://api.github.com/repos/' + REPO + '/contents/' + path + '?ref=main&t=' + Date.now(), { headers: ghHeaders() });
@@ -1462,6 +1466,21 @@ module.exports = async (req, res) => {
       let overrides = {}, doneIds = new Set();
       try { const f = await ghGet(RM_OVERRIDE_PATH); if (f.content) overrides = JSON.parse(f.content) || {}; } catch (e) {}
       try { const f = await ghGet(RM_DONE_PATH); if (f.content) { const j = JSON.parse(f.content); (Array.isArray(j) ? j : (j.ids || [])).forEach(id => doneIds.add(String(id))); } } catch (e) {}
+      // 2b) Review counts per Etsy listing — one pass over the shop's reviews (each review carries its listing_id).
+      const reviewCounts = {};
+      {
+        let offset = 0, total = Infinity;
+        for (let page = 0; page < 500 && offset < total; page++) {
+          const rr = await call('/shops/' + SHOP_ID + '/reviews?limit=100&offset=' + offset);
+          if (rr.status >= 300) break;   // reviews unavailable — skip, don't fail the whole map
+          const rj = rr.json || {};
+          total = (typeof rj.count === 'number') ? rj.count : 0;
+          const items = rj.results || [];
+          if (!items.length) break;
+          items.forEach(rv => { const lid = String(rv.listing_id || ''); if (lid && lid !== 'null') reviewCounts[lid] = (reviewCounts[lid] || 0) + 1; });
+          offset += 100;
+        }
+      }
       // 3) Every Etsy listing (active + inactive + draft + expired + sold_out) -> base SKU + title (dedupe by listing_id)
       const seen = new Set(); const rows = [];
       for (const state of ['active', 'inactive', 'draft', 'expired', 'sold_out']) {
@@ -1476,13 +1495,18 @@ module.exports = async (req, res) => {
           results.forEach(l => {
             const lid = String(l.listing_id);
             if (seen.has(lid)) return; seen.add(lid);
-            const etsySku = baseSkuEtsy(([].concat(l.skus || [], ((l.inventory && l.inventory.products) || []).map(p => p.sku))).filter(Boolean)[0] || '');
+            const rawSku = (([].concat(l.skus || [], ((l.inventory && l.inventory.products) || []).map(p => p.sku))).filter(Boolean)[0] || '');
+            const etsySku = baseSkuEtsy(rawSku);
+            const diffFormat = !!rawSku && (rawSku.trim().toUpperCase() !== etsySku);   // Etsy SKU has a suffix/other format -> won't auto-match
             const fixSku = overrides[lid] ? baseSkuEtsy(overrides[lid]) : '';   // manual fix for this listing
             const useSku = fixSku || etsySku;
             const hit = useSku ? shopMap.get(useSku.toLowerCase()) : null;
             rows.push({
               listing_id: lid,
               etsy_sku: etsySku,
+              etsy_sku_raw: rawSku,
+              diff_format: diffFormat,
+              review_count: reviewCounts[lid] || 0,
               used_sku: useSku,
               fixed: !!fixSku,
               etsy_title: l.title || '',
@@ -1500,7 +1524,9 @@ module.exports = async (req, res) => {
       const matched = rows.filter(r => r.status === 'matched').length;
       const noSku = rows.filter(r => r.status === 'NO SKU').length;
       const doneCount = rows.filter(r => r.done).length;
-      finish(200, { ok: true, rows, total: rows.length, matched, noMatch: rows.length - matched - noSku, noSku, doneCount, shopifyProducts: shopMap.size });
+      const withReviews = rows.filter(r => r.review_count > 0).length;
+      const diffFormatCount = rows.filter(r => r.diff_format).length;
+      finish(200, { ok: true, backendVersion: RM_BACKEND_VERSION, rows, total: rows.length, matched, noMatch: rows.length - matched - noSku, noSku, doneCount, withReviews, diffFormatCount, shopifyProducts: shopMap.size });
       return;
     }
 
