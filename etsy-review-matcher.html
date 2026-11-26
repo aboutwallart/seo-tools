@@ -12,7 +12,7 @@
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
-  .wrap{max-width:1180px;margin:0 auto;padding:24px 16px 80px}
+  .wrap{max-width:1240px;margin:0 auto;padding:24px 16px 80px}
   h1{font-size:22px;margin:0 0 4px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
   .vbadge{font-size:13px;font-weight:700;color:var(--accent);background:var(--okbg);border:1px solid #bbf7d0;border-radius:999px;padding:2px 10px}
   .sub{color:var(--muted);margin:0 0 20px;font-size:14px}
@@ -24,7 +24,7 @@
   button.primary:hover{opacity:.92}
   button:disabled{opacity:.5;cursor:default}
   input[type=text]{font:inherit;padding:9px 12px;border:1px solid var(--line);border-radius:9px}
-  #search{width:360px;max-width:100%}
+  #search{width:340px;max-width:100%}
   label.chk{display:inline-flex;align-items:center;gap:6px;font-size:14px;color:var(--muted);cursor:pointer}
   .stats{display:flex;gap:18px;flex-wrap:wrap;margin-top:12px;font-size:14px}
   .stat b{font-size:18px}
@@ -32,6 +32,7 @@
   table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px}
   th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
   th{position:sticky;top:0;background:#fafbfc;font-weight:600;font-size:13px;color:var(--muted);cursor:pointer;user-select:none;white-space:nowrap}
+  th.nosort{cursor:default}
   th:hover{color:var(--ink)}
   th .arrow{font-size:11px;color:var(--accent)}
   td.sku{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap}
@@ -46,21 +47,35 @@
   .ver{color:#aab2bd;font-size:12px;margin-top:28px;text-align:center}
   .state{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
   .fixbox{display:flex;gap:6px;margin-top:6px;align-items:center}
-  .fixbox input{width:160px;padding:5px 8px;font-size:13px}
+  .fixbox input{width:150px;padding:5px 8px;font-size:13px}
   tr.doneRow{opacity:.5}
   .cell-actions{white-space:nowrap}
+  /* images between Etsy and Shopify */
+  .thumbs{display:flex;gap:6px;align-items:center}
+  .thumbs img{width:46px;height:46px;object-fit:cover;border-radius:6px;border:1px solid var(--line);background:#f3f4f6}
+  .thumbs .arr{color:var(--muted);font-size:13px}
+  .noimg{display:inline-block;width:46px;height:46px;border-radius:6px;border:1px dashed var(--line);background:#f8fafc}
+  /* suggestion + authorize */
+  .sug{font-size:13px}
+  .sug .reason{color:var(--muted);font-size:12px;margin-top:2px}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .authbox{display:flex;gap:6px;margin-top:6px;align-items:center}
+  .authbox input{width:160px;padding:5px 8px;font-size:13px;font-family:ui-monospace,Menlo,monospace}
+  button.authbtn{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .authok{color:var(--ok);font-weight:600;font-size:13px}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>Etsy → Shopify SKU Matcher <span class="vbadge">v1.4</span></h1>
-  <p class="sub">Match Etsy reviews to Shopify products in Judge.me. Search an Etsy title, copy the Shopify title, paste it into Judge.me, then mark it <b>Done</b>. Fix a wrong SKU once and it stays fixed. No AI tokens used.</p>
+  <h1>Etsy → Shopify SKU Matcher <span class="vbadge">v1.5</span></h1>
+  <p class="sub">Find Etsy SKUs that don't match Shopify, see both featured images side by side, set the correct Shopify SKU and <b>Authorize</b> it. Then <b>Copy Etsy fix list</b> to send the list of SKUs to fix on Etsy. No AI tokens used.</p>
 
   <div class="card">
     <div class="row">
       <button class="primary" id="gen">Generate list</button>
       <input type="text" id="search" placeholder="Search Etsy title or SKU…" disabled>
       <label class="chk"><input type="checkbox" id="showDone" disabled> Show done</label>
+      <button id="copyfix" disabled>Copy Etsy fix list</button>
       <button id="csv" disabled>Download CSV</button>
     </div>
     <div class="row" id="filters" style="display:none;margin-top:10px;border-top:1px solid var(--line);padding-top:10px">
@@ -70,6 +85,7 @@
       <span class="muted">·</span>
       <label class="chk"><input type="checkbox" id="fReviews"> With Etsy reviews only</label>
       <label class="chk"><input type="checkbox" id="fDiff"> Different SKU format only</label>
+      <label class="chk"><input type="checkbox" id="fNoMatch"> No Shopify match only</label>
     </div>
     <div class="stats" id="stats"></div>
     <div id="msg"></div>
@@ -84,25 +100,26 @@
     <table>
       <thead>
         <tr id="headRow">
-          <th data-k="etsy_sku" style="width:130px">Etsy SKU</th>
+          <th data-k="etsy_sku" style="width:120px">Etsy SKU</th>
           <th data-k="etsy_title">Etsy title</th>
-          <th data-k="shopify_title">Shopify title (copy &amp; paste)</th>
+          <th class="nosort" style="width:120px">Images</th>
+          <th data-k="shopify_title">Shopify match / suggestion</th>
           <th data-k="status" style="width:95px">Status</th>
-          <th data-k="review_count" style="width:80px">Reviews</th>
-          <th style="width:150px">Action</th>
+          <th data-k="review_count" style="width:70px">Reviews</th>
+          <th class="nosort" style="width:150px">Action</th>
         </tr>
       </thead>
       <tbody id="tbody"></tbody>
     </table>
   </div>
 
-  <div class="ver">v1.4</div>
+  <div class="ver">v1.5</div>
 </div>
 
 <script>
 let ROWS = [];
 let sortKey = 'etsy_title', sortDir = 1;   // 1 asc, -1 desc
-const REQ_BACKEND = '0.65';   // backend version this page needs (api/etsy.js); mismatch shows an upload banner
+const REQ_BACKEND = '0.66';   // backend version this page needs (api/etsy.js); mismatch shows an upload banner
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
@@ -117,18 +134,22 @@ function statusRank(s){ return s==='matched' ? 0 : (s==='NO MATCH' ? 1 : 2); }
 function visibleRows(){
   const showDone = document.getElementById('showDone').checked;
   const q = (document.getElementById('search').value||'').trim().toLowerCase();
-  const fActive = document.getElementById('fActive').checked;
-  const fOther  = document.getElementById('fOther').checked;
-  const fReviews= document.getElementById('fReviews').checked;
-  const fDiff   = document.getElementById('fDiff').checked;
+  const fActive  = document.getElementById('fActive').checked;
+  const fOther   = document.getElementById('fOther').checked;
+  const fReviews = document.getElementById('fReviews').checked;
+  const fDiff    = document.getElementById('fDiff').checked;
+  const fNoMatch = document.getElementById('fNoMatch').checked;
   let list = ROWS.filter(r => showDone ? true : !r.done);
   list = list.filter(r => (r.state==='active') ? fActive : fOther);
   if(fReviews) list = list.filter(r => (r.review_count||0) > 0);
   if(fDiff)    list = list.filter(r => r.diff_format);
+  if(fNoMatch) list = list.filter(r => r.status==='NO MATCH');
   if(q) list = list.filter(r =>
     (r.etsy_title||'').toLowerCase().includes(q) ||
     (r.etsy_sku||'').toLowerCase().includes(q) ||
-    (r.shopify_title||'').toLowerCase().includes(q)
+    (r.etsy_sku_raw||'').toLowerCase().includes(q) ||
+    (r.shopify_title||'').toLowerCase().includes(q) ||
+    (r.suggest_title||'').toLowerCase().includes(q)
   );
   list.sort((a,b) => {
     let av, bv;
@@ -140,23 +161,53 @@ function visibleRows(){
   return list;
 }
 
+function imgCell(r){
+  const sImg = r.shopify_image || r.suggest_image || '';
+  return '<div class="thumbs">'
+    + (r.etsy_image ? '<img src="'+esc(r.etsy_image)+'" loading="lazy" alt="Etsy">' : '<span class="noimg"></span>')
+    + '<span class="arr">&#8594;</span>'
+    + (sImg ? '<img src="'+esc(sImg)+'" loading="lazy" alt="Shopify">' : '<span class="noimg"></span>')
+    + '</div>';
+}
+
+function shopCell(r){
+  if(r.status==='matched'){
+    return '<div class="shoptitle"><span>'+esc(r.shopify_title)+(r.fixed?'<span class="tag-fixed">fixed</span>':'')+'</span><button class="copy" data-copy="'+esc(r.shopify_title)+'">Copy</button></div>'
+         + '<div class="muted" style="font-size:12px">'+esc(r.shopify_handle)+'</div>';
+  }
+  if(r.status==='NO SKU'){ return '<span class="muted">&mdash; no SKU on Etsy &mdash;</span>'; }
+  // NO MATCH
+  if(r.fix_authorized){
+    return '<div class="authok">&#10003; Fix in Etsy &#8594; <span class="mono">'+esc(r.fix_sku)+'</span></div>'
+         + (r.suggest_title ? '<div class="muted" style="font-size:12px">'+esc(r.suggest_title)+'</div>' : '')
+         + '<button class="act" data-unauth="'+esc(r.listing_id)+'" style="margin-top:4px">Undo</button>';
+  }
+  let s = '';
+  if(r.suggest_sku){
+    s += '<div class="sug"><b>Closest:</b> '+esc(r.suggest_title)
+       + ' <button class="copy" data-copy="'+esc(r.suggest_title)+'">Copy</button>'
+       + '<div class="reason"><span class="mono">'+esc(r.suggest_sku)+'</span> &middot; '+esc(r.suggest_reason)+' &middot; '+(r.suggest_score||0)+'%</div></div>';
+  } else {
+    s += '<div class="muted" style="font-size:12px">No close match &mdash; type the correct Shopify SKU</div>';
+  }
+  s += '<div class="authbox"><input type="text" data-authinput="'+esc(r.listing_id)+'" value="'+esc(r.suggest_sku||'')+'" placeholder="Correct Shopify SKU"><button class="authbtn act" data-auth="'+esc(r.listing_id)+'">Authorize</button></div>';
+  return s;
+}
+
 function rowHtml(r){
-  const shop = r.shopify_title
-    ? '<div class="shoptitle"><span>'+esc(r.shopify_title)+(r.fixed?'<span class="tag-fixed">fixed</span>':'')+'</span><button class="copy" data-copy="'+esc(r.shopify_title)+'">Copy</button></div>'
-      + '<div class="muted" style="font-size:12px">'+esc(r.shopify_handle)+'</div>'
-    : '<span class="muted">—</span>';
   const fixUI = (r.status!=='matched')
-    ? '<div class="fixbox"><input type="text" data-fixinput="'+esc(r.listing_id)+'" placeholder="Correct SKU"><button class="act" data-fixsave="'+esc(r.listing_id)+'">Save</button></div>'
+    ? '<div class="fixbox"><input type="text" data-fixinput="'+esc(r.listing_id)+'" placeholder="Match SKU"><button class="act" data-fixsave="'+esc(r.listing_id)+'">Save</button></div>'
     : '';
   const doneBtn = r.done
     ? '<button class="act" data-undone="'+esc(r.listing_id)+'">Undo</button>'
     : '<button class="act" data-done="'+esc(r.listing_id)+'">Done</button>';
-  const diffFlag = r.diff_format ? ' <span class="pill nosku" title="Etsy SKU is not the clean base — won\'t auto-match">≠ format</span>' : '';
+  const diffFlag = r.diff_format ? ' <span class="pill nosku" title="Etsy SKU is not the clean base — won\'t auto-match">&ne; format</span>' : '';
   const revCell = (r.review_count>0) ? '<b>'+r.review_count+'</b>' : '<span class="muted">0</span>';
   return '<tr class="'+(r.done?'doneRow':'')+'" data-id="'+esc(r.listing_id)+'">'
-    + '<td class="sku">'+esc(r.etsy_sku||'—')+diffFlag+'</td>'
+    + '<td class="sku">'+esc(r.etsy_sku_raw||r.etsy_sku||'—')+diffFlag+'</td>'
     + '<td>'+esc(r.etsy_title)+' <span class="state">'+esc(r.state)+'</span></td>'
-    + '<td>'+shop+'</td>'
+    + '<td>'+imgCell(r)+'</td>'
+    + '<td>'+shopCell(r)+'</td>'
     + '<td>'+pill(r.status)+'</td>'
     + '<td>'+revCell+'</td>'
     + '<td class="cell-actions">'+doneBtn+fixUI+'</td>'
@@ -166,7 +217,6 @@ function rowHtml(r){
 function render(){
   const list = visibleRows();
   document.getElementById('tbody').innerHTML = list.map(rowHtml).join('');
-  // header arrows
   document.querySelectorAll('#headRow th[data-k]').forEach(th => {
     const base = th.textContent.replace(/[▲▼]\s*$/,'').trim();
     th.innerHTML = esc(base) + (th.dataset.k===sortKey ? ' <span class="arrow">'+(sortDir>0?'▲':'▼')+'</span>' : '');
@@ -195,23 +245,34 @@ function updateStats(){
   const noSku = ROWS.filter(r=>r.status==='NO SKU').length;
   const done = ROWS.filter(r=>r.done).length;
   const withRev = ROWS.filter(r=>(r.review_count||0)>0).length;
-  const diffFmt = ROWS.filter(r=>r.diff_format).length;
+  const authd = ROWS.filter(r=>r.fix_authorized).length;
   document.getElementById('stats').innerHTML =
      '<div class="stat"><b>'+total+'</b> <span class="muted">listings</span></div>'
     +'<div class="stat"><b>'+matched+'</b> <span class="muted">matched</span></div>'
     +'<div class="stat"><b>'+noMatch+'</b> <span class="muted">no match</span></div>'
     +'<div class="stat"><b>'+noSku+'</b> <span class="muted">no SKU</span></div>'
     +'<div class="stat"><b>'+withRev+'</b> <span class="muted">with reviews</span></div>'
-    +'<div class="stat"><b>'+diffFmt+'</b> <span class="muted">diff SKU format</span></div>'
+    +'<div class="stat"><b>'+authd+'</b> <span class="muted">authorized to fix</span></div>'
     +'<div class="stat"><b>'+done+'</b> <span class="muted">done</span></div>';
 }
 
 function toCSV(rows){
-  const head = ['Etsy SKU','Etsy SKU (raw)','Diff format','Etsy reviews','Etsy title','Shopify title','Shopify handle','State','Status','Done'];
+  const head = ['Etsy SKU (raw)','Etsy base SKU','Diff format','Etsy reviews','Etsy title','State','Status','Shopify title','Shopify handle','Suggested Shopify SKU','Suggested title','Suggest %','Authorized fix SKU','Done'];
   const q = s => '"'+String(s==null?'':s).replace(/"/g,'""')+'"';
   const lines = [head.map(q).join(',')];
-  rows.forEach(r => lines.push([r.etsy_sku,r.etsy_sku_raw,r.diff_format?'yes':'no',r.review_count||0,r.etsy_title,r.shopify_title,r.shopify_handle,r.state,r.status,r.done?'yes':'no'].map(q).join(',')));
+  rows.forEach(r => lines.push([r.etsy_sku_raw,r.etsy_sku,r.diff_format?'yes':'no',r.review_count||0,r.etsy_title,r.state,r.status,r.shopify_title,r.shopify_handle,r.suggest_sku,r.suggest_title,r.suggest_score||'',r.fix_authorized?r.fix_sku:'',r.done?'yes':'no'].map(q).join(',')));
   return lines.join('\r\n');
+}
+
+function copyFixList(){
+  const fixes = ROWS.filter(r=>r.fix_authorized);
+  if(!fixes.length){ alert('No authorized fixes yet. Set the correct Shopify SKU on a "no match" row and click Authorize first.'); return; }
+  const header = 'Etsy SKU (current)  ->  Shopify SKU (correct)   (title)';
+  const lines = fixes.map(r => (r.etsy_sku_raw||r.etsy_sku||'?')+'  ->  '+r.fix_sku+'   ('+(r.etsy_title||'')+')');
+  const text = header+'\n'+lines.join('\n');
+  navigator.clipboard.writeText(text).then(()=>{
+    const b=document.getElementById('copyfix'); b.textContent='Copied ('+fixes.length+')'; setTimeout(()=>b.textContent='Copy Etsy fix list',1500);
+  });
 }
 
 document.getElementById('gen').addEventListener('click', async () => {
@@ -223,14 +284,14 @@ document.getElementById('gen').addEventListener('click', async () => {
     const d = await r.json();
     if(!d.ok) throw new Error(d.error || 'Request failed');
     if(d.backendVersion !== REQ_BACKEND){
-      msg.innerHTML = '<div class="err">⚠️ Upload <b>api/etsy.js</b> (the new version) to GitHub — this page needs backend v'+REQ_BACKEND+(d.backendVersion?(' but found v'+d.backendVersion):'')+'. The new filters won\'t work until you do.</div>';
+      msg.innerHTML = '<div class="err">⚠️ Upload <b>api/etsy.js</b> (the new version) to GitHub — this page needs backend v'+REQ_BACKEND+(d.backendVersion?(' but found v'+d.backendVersion):'')+'. The images, suggestions and Authorize won\'t work until you do.</div>';
     }
     ROWS = d.rows || [];
     updateStats();
     document.getElementById('emptyState').style.display='none';
     document.getElementById('tableCard').style.display='block';
     document.getElementById('filters').style.display='flex';
-    ['csv','search','showDone'].forEach(id => document.getElementById(id).disabled=false);
+    ['csv','copyfix','search','showDone'].forEach(id => document.getElementById(id).disabled=false);
     render();
   }catch(e){
     msg.innerHTML = '<div class="err">'+esc(e.message||e)
@@ -238,7 +299,7 @@ document.getElementById('gen').addEventListener('click', async () => {
   }finally{ btn.disabled=false; btn.textContent='Generate list'; }
 });
 
-// Header click = sort
+// Header click = sort (only sortable columns)
 document.getElementById('headRow').addEventListener('click', e => {
   const th = e.target.closest('th[data-k]'); if(!th) return;
   const k = th.dataset.k;
@@ -246,7 +307,7 @@ document.getElementById('headRow').addEventListener('click', e => {
   render();
 });
 
-// Row actions (copy / done / undo / fix) — delegated
+// Row actions (copy / done / undo / fix / authorize) — delegated
 document.getElementById('tbody').addEventListener('click', async e => {
   const t = e.target;
   if(t.dataset.copy!=null){
@@ -268,15 +329,28 @@ document.getElementById('tbody').addEventListener('click', async e => {
     saveFix(id, inp, t);
     return;
   }
+  if(t.dataset.auth!=null){
+    const id = t.dataset.auth;
+    const inp = document.querySelector('input[data-authinput="'+CSS.escape(id)+'"]');
+    authorizeFix(id, inp, t);
+    return;
+  }
+  if(t.dataset.unauth!=null){
+    unauthorizeFix(t.dataset.unauth, t);
+    return;
+  }
 });
 
-// Enter in a Fix input = Save
+// Enter in a Match-SKU or Authorize input = submit
 document.getElementById('tbody').addEventListener('keydown', e => {
   const inp = e.target;
-  if(inp && inp.dataset && inp.dataset.fixinput!=null && e.key==='Enter'){
+  if(!inp || !inp.dataset || e.key!=='Enter') return;
+  if(inp.dataset.fixinput!=null){
     const id = inp.dataset.fixinput;
-    const btn = document.querySelector('button[data-fixsave="'+CSS.escape(id)+'"]');
-    saveFix(id, inp, btn);
+    saveFix(id, inp, document.querySelector('button[data-fixsave="'+CSS.escape(id)+'"]'));
+  } else if(inp.dataset.authinput!=null){
+    const id = inp.dataset.authinput;
+    authorizeFix(id, inp, document.querySelector('button[data-auth="'+CSS.escape(id)+'"]'));
   }
 });
 
@@ -294,9 +368,31 @@ async function saveFix(id, inp, btn){
   }
 }
 
+async function authorizeFix(id, inp, btn){
+  const sku = (inp && inp.value || '').trim();
+  if(!sku){ if(inp) inp.focus(); return; }
+  if(btn){ btn.disabled=true; btn.textContent='…'; }
+  const r = ROWS.find(x=>String(x.listing_id)===String(id));
+  const res = await post('sku-fix-authorize', { listing_id:id, shopify_sku:sku, etsy_sku_raw:(r&&r.etsy_sku_raw)||'', etsy_title:(r&&r.etsy_title)||'' });
+  if(res.ok){
+    if(r){ r.fix_authorized=true; r.fix_sku=res.shopify_sku; r.suggest_title=res.shopify_title||r.suggest_title; if(!r.suggest_image) r.suggest_image=res.shopify_image||''; updateStats(); updateRow(r); }
+  } else {
+    if(btn){ btn.disabled=false; btn.textContent='Authorize'; }
+    alert(res.error || 'Could not authorize');
+  }
+}
+
+async function unauthorizeFix(id, btn){
+  if(btn){ btn.disabled=true; btn.textContent='…'; }
+  const res = await post('sku-fix-unauthorize', { listing_id:id });
+  if(res.ok){ const r = ROWS.find(x=>String(x.listing_id)===String(id)); if(r){ r.fix_authorized=false; r.fix_sku=''; updateStats(); updateRow(r); } }
+  else { if(btn){ btn.disabled=false; btn.textContent='Undo'; } alert(res.error || 'Could not undo'); }
+}
+
 document.getElementById('search').addEventListener('input', render);
 document.getElementById('showDone').addEventListener('change', render);
-['fActive','fOther','fReviews','fDiff'].forEach(id => document.getElementById(id).addEventListener('change', render));
+['fActive','fOther','fReviews','fDiff','fNoMatch'].forEach(id => document.getElementById(id).addEventListener('change', render));
+document.getElementById('copyfix').addEventListener('click', copyFixList);
 document.getElementById('csv').addEventListener('click', () => {
   const blob = new Blob([toCSV(ROWS)], {type:'text/csv;charset=utf-8'});
   const a = document.createElement('a');
