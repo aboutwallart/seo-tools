@@ -53,7 +53,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>Etsy → Shopify SKU Matcher <span class="vbadge">v1.3</span></h1>
+  <h1>Etsy → Shopify SKU Matcher <span class="vbadge">v1.4</span></h1>
   <p class="sub">Match Etsy reviews to Shopify products in Judge.me. Search an Etsy title, copy the Shopify title, paste it into Judge.me, then mark it <b>Done</b>. Fix a wrong SKU once and it stays fixed. No AI tokens used.</p>
 
   <div class="card">
@@ -62,6 +62,14 @@
       <input type="text" id="search" placeholder="Search Etsy title or SKU…" disabled>
       <label class="chk"><input type="checkbox" id="showDone" disabled> Show done</label>
       <button id="csv" disabled>Download CSV</button>
+    </div>
+    <div class="row" id="filters" style="display:none;margin-top:10px;border-top:1px solid var(--line);padding-top:10px">
+      <span class="muted" style="font-size:13px;font-weight:700">Filters</span>
+      <label class="chk"><input type="checkbox" id="fActive" checked> Active</label>
+      <label class="chk"><input type="checkbox" id="fOther" checked> Other states</label>
+      <span class="muted">·</span>
+      <label class="chk"><input type="checkbox" id="fReviews"> With Etsy reviews only</label>
+      <label class="chk"><input type="checkbox" id="fDiff"> Different SKU format only</label>
     </div>
     <div class="stats" id="stats"></div>
     <div id="msg"></div>
@@ -80,6 +88,7 @@
           <th data-k="etsy_title">Etsy title</th>
           <th data-k="shopify_title">Shopify title (copy &amp; paste)</th>
           <th data-k="status" style="width:95px">Status</th>
+          <th data-k="review_count" style="width:80px">Reviews</th>
           <th style="width:150px">Action</th>
         </tr>
       </thead>
@@ -87,12 +96,13 @@
     </table>
   </div>
 
-  <div class="ver">v1.3</div>
+  <div class="ver">v1.4</div>
 </div>
 
 <script>
 let ROWS = [];
 let sortKey = 'etsy_title', sortDir = 1;   // 1 asc, -1 desc
+const REQ_BACKEND = '0.65';   // backend version this page needs (api/etsy.js); mismatch shows an upload banner
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
@@ -107,7 +117,14 @@ function statusRank(s){ return s==='matched' ? 0 : (s==='NO MATCH' ? 1 : 2); }
 function visibleRows(){
   const showDone = document.getElementById('showDone').checked;
   const q = (document.getElementById('search').value||'').trim().toLowerCase();
+  const fActive = document.getElementById('fActive').checked;
+  const fOther  = document.getElementById('fOther').checked;
+  const fReviews= document.getElementById('fReviews').checked;
+  const fDiff   = document.getElementById('fDiff').checked;
   let list = ROWS.filter(r => showDone ? true : !r.done);
+  list = list.filter(r => (r.state==='active') ? fActive : fOther);
+  if(fReviews) list = list.filter(r => (r.review_count||0) > 0);
+  if(fDiff)    list = list.filter(r => r.diff_format);
   if(q) list = list.filter(r =>
     (r.etsy_title||'').toLowerCase().includes(q) ||
     (r.etsy_sku||'').toLowerCase().includes(q) ||
@@ -116,6 +133,7 @@ function visibleRows(){
   list.sort((a,b) => {
     let av, bv;
     if(sortKey==='status'){ av=statusRank(a.status); bv=statusRank(b.status); }
+    else if(sortKey==='review_count'){ av=(a.review_count||0); bv=(b.review_count||0); }
     else { av=(a[sortKey]||'').toLowerCase(); bv=(b[sortKey]||'').toLowerCase(); }
     if(av<bv) return -1*sortDir; if(av>bv) return 1*sortDir; return 0;
   });
@@ -133,11 +151,14 @@ function rowHtml(r){
   const doneBtn = r.done
     ? '<button class="act" data-undone="'+esc(r.listing_id)+'">Undo</button>'
     : '<button class="act" data-done="'+esc(r.listing_id)+'">Done</button>';
+  const diffFlag = r.diff_format ? ' <span class="pill nosku" title="Etsy SKU is not the clean base — won\'t auto-match">≠ format</span>' : '';
+  const revCell = (r.review_count>0) ? '<b>'+r.review_count+'</b>' : '<span class="muted">0</span>';
   return '<tr class="'+(r.done?'doneRow':'')+'" data-id="'+esc(r.listing_id)+'">'
-    + '<td class="sku">'+esc(r.etsy_sku||'—')+'</td>'
+    + '<td class="sku">'+esc(r.etsy_sku||'—')+diffFlag+'</td>'
     + '<td>'+esc(r.etsy_title)+' <span class="state">'+esc(r.state)+'</span></td>'
     + '<td>'+shop+'</td>'
     + '<td>'+pill(r.status)+'</td>'
+    + '<td>'+revCell+'</td>'
     + '<td class="cell-actions">'+doneBtn+fixUI+'</td>'
     + '</tr>';
 }
@@ -173,19 +194,23 @@ function updateStats(){
   const noMatch = ROWS.filter(r=>r.status==='NO MATCH').length;
   const noSku = ROWS.filter(r=>r.status==='NO SKU').length;
   const done = ROWS.filter(r=>r.done).length;
+  const withRev = ROWS.filter(r=>(r.review_count||0)>0).length;
+  const diffFmt = ROWS.filter(r=>r.diff_format).length;
   document.getElementById('stats').innerHTML =
      '<div class="stat"><b>'+total+'</b> <span class="muted">listings</span></div>'
     +'<div class="stat"><b>'+matched+'</b> <span class="muted">matched</span></div>'
     +'<div class="stat"><b>'+noMatch+'</b> <span class="muted">no match</span></div>'
     +'<div class="stat"><b>'+noSku+'</b> <span class="muted">no SKU</span></div>'
+    +'<div class="stat"><b>'+withRev+'</b> <span class="muted">with reviews</span></div>'
+    +'<div class="stat"><b>'+diffFmt+'</b> <span class="muted">diff SKU format</span></div>'
     +'<div class="stat"><b>'+done+'</b> <span class="muted">done</span></div>';
 }
 
 function toCSV(rows){
-  const head = ['Etsy SKU','Etsy title','Shopify title','Shopify handle','State','Status','Done'];
+  const head = ['Etsy SKU','Etsy SKU (raw)','Diff format','Etsy reviews','Etsy title','Shopify title','Shopify handle','State','Status','Done'];
   const q = s => '"'+String(s==null?'':s).replace(/"/g,'""')+'"';
   const lines = [head.map(q).join(',')];
-  rows.forEach(r => lines.push([r.etsy_sku,r.etsy_title,r.shopify_title,r.shopify_handle,r.state,r.status,r.done?'yes':'no'].map(q).join(',')));
+  rows.forEach(r => lines.push([r.etsy_sku,r.etsy_sku_raw,r.diff_format?'yes':'no',r.review_count||0,r.etsy_title,r.shopify_title,r.shopify_handle,r.state,r.status,r.done?'yes':'no'].map(q).join(',')));
   return lines.join('\r\n');
 }
 
@@ -197,10 +222,14 @@ document.getElementById('gen').addEventListener('click', async () => {
     const r = await fetch('/api/etsy.js?action=sku-map-csv');
     const d = await r.json();
     if(!d.ok) throw new Error(d.error || 'Request failed');
+    if(d.backendVersion !== REQ_BACKEND){
+      msg.innerHTML = '<div class="err">⚠️ Upload <b>api/etsy.js</b> (the new version) to GitHub — this page needs backend v'+REQ_BACKEND+(d.backendVersion?(' but found v'+d.backendVersion):'')+'. The new filters won\'t work until you do.</div>';
+    }
     ROWS = d.rows || [];
     updateStats();
     document.getElementById('emptyState').style.display='none';
     document.getElementById('tableCard').style.display='block';
+    document.getElementById('filters').style.display='flex';
     ['csv','search','showDone'].forEach(id => document.getElementById(id).disabled=false);
     render();
   }catch(e){
@@ -267,6 +296,7 @@ async function saveFix(id, inp, btn){
 
 document.getElementById('search').addEventListener('input', render);
 document.getElementById('showDone').addEventListener('change', render);
+['fActive','fOther','fReviews','fDiff'].forEach(id => document.getElementById(id).addEventListener('change', render));
 document.getElementById('csv').addEventListener('click', () => {
   const blob = new Blob([toCSV(ROWS)], {type:'text/csv;charset=utf-8'});
   const a = document.createElement('a');
