@@ -148,7 +148,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v3.20 · DC Concept now gets the dc-concepts template + description cleanup (one h1, no stray code) automatically on apply and on "Fix publishing &amp; template" (temporary fix-all tab removed after use) · v3.18 · NEW "Fix publishing &amp; template" tab (sets template home-decor-final + publishes to 6 regions + 9 channels on all Collective, additive) · "Collective items data" tab — per-product Category · Product type · Room type · Decor style (35) · Collections · Tags · Trend pages, by vendor/SKU. Auto-mark: Furniture tag by room, and Trend pages by Decor style (rest dimmed, still tickable). Vendor list shows only vendors with drafts. Tag match ignores upper/lowercase. Click a photo to enlarge · Recent runs (last 10) show their products; Undo moves them back to Drafts · Select all + count · Backup gate · Tabs grouped: AWA · Collective · General</div>
+            <div class="subtitle">v3.21 · NEW "Judge.me reviews matching" tab (AWA group): sets each product's A4UN variant SKU = base, cross-checked against Etsy (✓ match / △ no match / ○ not on a platform), images from both stores, blocks of 25, backup + undo · v3.20 · DC Concept now gets the dc-concepts template + description cleanup (one h1, no stray code) automatically on apply and on "Fix publishing &amp; template" (temporary fix-all tab removed after use) · v3.18 · NEW "Fix publishing &amp; template" tab (sets template home-decor-final + publishes to 6 regions + 9 channels on all Collective, additive) · "Collective items data" tab — per-product Category · Product type · Room type · Decor style (35) · Collections · Tags · Trend pages, by vendor/SKU. Auto-mark: Furniture tag by room, and Trend pages by Decor style (rest dimmed, still tickable). Vendor list shows only vendors with drafts. Tag match ignores upper/lowercase. Click a photo to enlarge · Recent runs (last 10) show their products; Undo moves them back to Drafts · Select all + count · Backup gate · Tabs grouped: AWA · Collective · General</div>
         </div>
 
         <!-- TOP-LEVEL GROUPS (full width) -->
@@ -161,12 +161,68 @@
         <div class="tabbar">
             <button class="tab active" id="tabBtnAwa" onclick="switchTab('awa')">AWA Prices</button>
             <button class="tab" id="tabBtnAv" onclick="switchTab('av')">Add variants</button>
+            <button class="tab" id="tabBtnJm" onclick="switchTab('jm')">Judge.me reviews matching</button>
             <button class="tab" id="tabBtnCdt" onclick="switchTab('cdt')">Collective items data</button>
             <button class="tab" id="tabBtnCfix" onclick="switchTab('cfix')">Fix publishing &amp; template</button>
             <button class="tab" id="tabBtn1" onclick="switchTab(1)">Collective Prices</button>
             <button class="tab" id="tabBtn2" onclick="switchTab(2)">Other fields</button>
             <button class="tab" id="tabBtnXl" onclick="switchTab('xl')">Excel</button>
             <button class="tab" id="tabBtnMf" onclick="switchTab('mf')">Metafields</button>
+        </div>
+
+        <!-- ============ TAB: JUDGE.ME REVIEWS MATCHING (AWA) ============ -->
+        <div class="tabpanel" id="tabJm" hidden>
+            <div class="panel">
+                <h2>Judge.me reviews matching — About Wall Art</h2>
+                <p class="muted" style="font-size:13px; margin-top:4px;">
+                    Sets each product's <b>A4UN</b> variant SKU so it matches the Etsy listing exactly — then Judge.me auto-imports the reviews.
+                    <span style="color:#2e7d32; font-weight:700;">✓ green</span> = already matches ·
+                    <span style="color:#c62828; font-weight:700;">△ red</span> = SKU won't match (fix it in the box) ·
+                    <span style="color:#1565c0; font-weight:700;">○ blue</span> = not on one platform.
+                    Tick rows (blocks of 25) and Apply. Back up first.
+                </p>
+                <div id="jmVerBanner"></div>
+            </div>
+
+            <div class="panel backup-panel red" id="jmBackupPanel" style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+                <div style="flex:1; min-width:220px;">
+                    <div class="backup-title" style="font-weight:700;">Backup — all A4UN SKUs</div>
+                    <div class="muted" id="jmBackupMsg" style="font-size:13px;">Not backed up yet.</div>
+                </div>
+                <button class="btn btn-light" id="jmBackupBtn" onclick="jmBackup()">↓ Back up all A4UN SKUs</button>
+            </div>
+
+            <div class="panel">
+                <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+                    <button class="btn btn-primary" id="jmLoadBtn" onclick="jmLoad()">Load / refresh</button>
+                    <input type="text" id="jmSearch" placeholder="Search title or SKU…" oninput="jmRender()" style="flex:1; min-width:200px; padding:10px 12px; border:1px solid #ddd; border-radius:10px;">
+                </div>
+                <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:center; margin-top:10px; font-size:14px;">
+                    <span class="muted" style="font-weight:700; font-size:13px;">Show</span>
+                    <label><input type="checkbox" id="jmFGreen" checked onchange="jmRender()"> <span style="color:#2e7d32; font-weight:700;">✓ matches</span></label>
+                    <label><input type="checkbox" id="jmFRed" checked onchange="jmRender()"> <span style="color:#c62828; font-weight:700;">△ no match</span></label>
+                    <label><input type="checkbox" id="jmFBlue" onchange="jmRender()"> <span style="color:#1565c0; font-weight:700;">○ not on a platform</span></label>
+                    <span class="muted">·</span>
+                    <label><input type="checkbox" id="jmHideDone" checked onchange="jmRender()"> Hide already applied</label>
+                </div>
+                <div id="jmStats" class="muted" style="margin-top:10px; font-size:13px;"></div>
+            </div>
+
+            <div class="panel">
+                <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
+                    <button class="btn btn-light" onclick="jmSelectBlock(25)">Select next 25</button>
+                    <button class="btn btn-light" onclick="jmClearSel()">Clear selection</button>
+                    <button class="btn btn-green" id="jmApplyBtn" onclick="jmApply()">✅ Apply selected</button>
+                    <span id="jmSelCount" class="muted" style="font-size:13px;"></span>
+                </div>
+                <div id="jmRows"></div>
+                <div id="jmMore" style="text-align:center; margin-top:12px;"></div>
+            </div>
+
+            <div class="panel">
+                <h2>Undo</h2>
+                <div id="jmUndos" class="muted" style="font-size:13px;">—</div>
+            </div>
         </div>
 
         <!-- ============ TAB 1: PRICES ============ -->
@@ -905,6 +961,7 @@ function switchTab(w){
     document.getElementById('tabCsv').hidden = w!=='csv';
     document.getElementById('tabCdt').hidden = w!=='cdt';
     document.getElementById('tabCfix').hidden = w!=='cfix';
+    document.getElementById('tabJm').hidden = w!=='jm';
     var _ctn=document.querySelector('.container'); if(_ctn) _ctn.classList.toggle('cdtfull', w==='cdt');
     document.getElementById('tabBtn1').classList.toggle('active', w===1);
     document.getElementById('tabBtnAwa').classList.toggle('active', w==='awa');
@@ -914,24 +971,181 @@ function switchTab(w){
     document.getElementById('tabBtnMf').classList.toggle('active', w==='mf');
     document.getElementById('tabBtnCdt').classList.toggle('active', w==='cdt');
     document.getElementById('tabBtnCfix').classList.toggle('active', w==='cfix');
+    document.getElementById('tabBtnJm').classList.toggle('active', w==='jm');
     if (w===2) loadFieldMeta(); // fresh from Shopify every time you open Other fields
     if (w==='av') { avOnGroup(); avLoadAdded(); } // Add variants tab
     if (w==='xl') { xlRenderChecks(); xlLoadUndos(); } // Excel tab
     if (w==='mf') mfInit(); // Metafields tab
     if (w==='cdt') cdtInit(); // Update Collective items data tab
     if (w==='cfix') cfixInit(); // Fix publishing & template tab
+    if (w==='jm') jmInit(); // Judge.me reviews matching tab
 }
 // Top-level groups: AWA Products | Collective Products | General. Each shows only its sub-tabs.
-var TAB_SUBS = { awa:['tabBtnAwa','tabBtnAv'], collective:['tabBtnCdt','tabBtnCfix','tabBtn1'], general:['tabBtn2','tabBtnXl','tabBtnMf'] };
+var TAB_SUBS = { awa:['tabBtnAwa','tabBtnAv','tabBtnJm'], collective:['tabBtnCdt','tabBtnCfix','tabBtn1'], general:['tabBtn2','tabBtnXl','tabBtnMf'] };
 var TAB_FIRST = { awa:'awa', collective:'cdt', general:2 };
 function selectGroup(g){
     ['Awa','Collective','General'].forEach(function(x){ var b=document.getElementById('grp'+x); if(b) b.classList.toggle('active', x.toLowerCase()===g); });
-    var allSubs=['tabBtnAwa','tabBtnAv','tabBtnCdt','tabBtnCfix','tabBtn1','tabBtn2','tabBtnXl','tabBtnMf'];
+    var allSubs=['tabBtnAwa','tabBtnAv','tabBtnJm','tabBtnCdt','tabBtnCfix','tabBtn1','tabBtn2','tabBtnXl','tabBtnMf'];
     allSubs.forEach(function(id){ var b=document.getElementById(id); if(b) b.style.display='none'; });
     (TAB_SUBS[g]||[]).forEach(function(id){ var b=document.getElementById(id); if(b) b.style.display=''; });
     switchTab(TAB_FIRST[g]);
 }
 selectGroup('awa'); // default: AWA Products
+
+/* ===================== Judge.me reviews matching (AWA) ===================== */
+var JM = { loaded:false, rows:[], sel:{}, shown:50, backup:null };
+async function jmInit(){ jmCheckBackup(); jmLoadUndos(); if(!JM.loaded) jmLoad(); }
+
+async function jmCheckBackup(){
+    try{ const d = await (await fetch(API+'?action=jm-last-backup')).json(); JM.backup = (d && d.latest) || null; }catch(e){ JM.backup=null; }
+    var p=document.getElementById('jmBackupPanel'), m=document.getElementById('jmBackupMsg');
+    if(JM.backup){ p.classList.remove('red'); p.classList.add('green'); m.textContent = 'Backed up '+JM.backup.count+' SKUs · '+new Date(JM.backup.createdAt).toLocaleString(); }
+    else { p.classList.add('red'); p.classList.remove('green'); m.textContent='Not backed up yet.'; }
+}
+async function jmBackup(){
+    var b=document.getElementById('jmBackupBtn'); b.disabled=true; b.textContent='Backing up… (up to a minute)';
+    try{ const d=await (await fetch(API+'?action=jm-backup')).json(); if(!d.ok) throw new Error(d.error||'failed'); await jmCheckBackup(); }
+    catch(e){ alert('Backup failed: '+(e.message||e)); }
+    b.disabled=false; b.textContent='↓ Back up all A4UN SKUs';
+}
+
+async function jmLoad(){
+    var btn=document.getElementById('jmLoadBtn'); btn.disabled=true; btn.textContent='Loading… (up to a minute)';
+    document.getElementById('jmRows').innerHTML=''; document.getElementById('jmStats').textContent='Loading Shopify + Etsy…';
+    try{
+        const results = await Promise.all([
+            fetch(API+'?action=jm-awa-variants').then(function(r){return r.json();}),
+            fetch('/api/etsy.js?action=sku-map-csv').then(function(r){return r.json();})
+        ]);
+        const shopR = results[0], etsyR = results[1];
+        if(!shopR.ok) throw new Error(shopR.error||'Shopify load failed');
+        var vb=document.getElementById('jmVerBanner');
+        if(shopR.backendVersion !== '3.21'){ vb.innerHTML='<div style="background:#fff4f4; border:1px solid #e53935; color:#c62828; padding:10px 12px; border-radius:8px; margin-top:8px;">⚠️ Upload <b>api/shopify-bulk.js</b> v3.21 to GitHub — this tab needs it'+(shopR.backendVersion?(' (found v'+esc(shopR.backendVersion)+')'):'')+'.</div>'; } else { vb.innerHTML=''; }
+        // Etsy listings keyed by base SKU (uppercase). Prefer a listing that has reviews.
+        var etsyMap={};
+        ((etsyR&&etsyR.rows)||[]).forEach(function(e){
+            var k=(e.etsy_sku||'').toUpperCase().trim(); if(!k) return;
+            var cur=etsyMap[k];
+            if(!cur || ((e.review_count||0) > (cur.review_count||0))) etsyMap[k]={ raw:(e.etsy_sku_raw||''), image:(e.etsy_image||''), review_count:(e.review_count||0), state:(e.state||'') };
+        });
+        JM.rows = (shopR.rows||[]).map(function(p){
+            var base=(p.base||'').toUpperCase().trim();
+            var r={ productId:p.productId, variantId:p.variantId, hasA4un:p.hasA4un, title:p.title, base:p.base, currentSku:p.currentSku||'', shopImage:p.image||'', etsyImage:'', etsyRaw:'', review_count:0, symbol:'blue', newSku:'', note:'' };
+            if(!p.hasA4un){ r.note='No A4UN variant'; return r; }
+            if(!base){ r.note='No base SKU (metafield)'; return r; }
+            var e=etsyMap[base];
+            if(!e){ r.note='Not on Etsy'; r.newSku=p.base; return r; }
+            r.etsyImage=e.image; r.etsyRaw=e.raw; r.review_count=e.review_count||0;
+            r.newSku=e.raw;                                   // make Shopify == Etsy raw, exactly
+            r.symbol=((e.raw||'').toUpperCase().trim()===base) ? 'green' : 'red';
+            return r;
+        });
+        JM.loaded=true; JM.sel={}; JM.shown=50;
+        jmRender();
+    }catch(e){ document.getElementById('jmStats').textContent=''; document.getElementById('jmRows').innerHTML='<div style="color:#c62828;">'+esc(e.message||e)+'</div>'; }
+    btn.disabled=false; btn.textContent='Load / refresh';
+}
+
+function jmIsDone(r){ return r.symbol!=='blue' && r.newSku && (String(r.currentSku||'').trim()===String(r.newSku||'').trim()); }
+function jmFiltered(){
+    var q=(document.getElementById('jmSearch').value||'').toLowerCase().trim();
+    var fG=document.getElementById('jmFGreen').checked, fR=document.getElementById('jmFRed').checked, fB=document.getElementById('jmFBlue').checked, hideDone=document.getElementById('jmHideDone').checked;
+    return JM.rows.filter(function(r){
+        if(r.symbol==='green'&&!fG) return false;
+        if(r.symbol==='red'&&!fR) return false;
+        if(r.symbol==='blue'&&!fB) return false;
+        if(hideDone && jmIsDone(r)) return false;
+        if(q && !((r.title||'').toLowerCase().indexOf(q)>=0 || (r.base||'').toLowerCase().indexOf(q)>=0 || (r.currentSku||'').toLowerCase().indexOf(q)>=0)) return false;
+        return true;
+    });
+}
+function jmSymbolHtml(s){
+    if(s==='green') return '<span style="color:#2e7d32; font-weight:800; font-size:18px;" title="Exact match">✓</span>';
+    if(s==='red') return '<span style="color:#c62828; font-weight:800; font-size:18px;" title="Won\'t match — fix the SKU">△</span>';
+    return '<span style="color:#1565c0; font-weight:800; font-size:18px;" title="Not on one platform">○</span>';
+}
+function jmThumb(u){ return u ? '<img src="'+esc(u)+'" loading="lazy" style="width:46px; height:46px; object-fit:cover; border-radius:6px; border:1px solid #e0e0e0;">' : '<span style="width:46px; height:46px; border:1px dashed #ddd; border-radius:6px; display:inline-block;"></span>'; }
+function jmRowHtml(r){
+    var done=jmIsDone(r);
+    var canSel = (r.symbol==='green'||r.symbol==='red') && !!r.variantId && !done;
+    var checked = JM.sel[r.variantId] ? 'checked' : '';
+    var imgs='<div style="display:flex; gap:6px; align-items:center;">'+jmThumb(r.etsyImage)+'<span style="color:#aaa;">→</span>'+jmThumb(r.shopImage)+'</div>';
+    var skuCell;
+    if(r.symbol==='red'){
+        skuCell = '<div style="font-size:12px; color:#666;">now: <span style="font-family:monospace;">'+esc(r.currentSku||'—')+'</span></div>'
+            + '<div style="display:flex; gap:6px; align-items:center; margin-top:3px;"><span style="font-size:12px; color:#c62828;">→</span><input type="text" value="'+esc(r.newSku||'')+'" oninput="jmSetSku(\''+esc(r.variantId)+'\', this.value)" style="width:160px; font-family:monospace; font-size:13px; padding:4px 6px; border:1px solid #e53935; border-radius:6px;"></div>';
+    } else if(r.symbol==='green'){
+        skuCell = '<div style="font-size:12px; color:#666;">now: <span style="font-family:monospace;">'+esc(r.currentSku||'—')+'</span></div>'
+            + '<div style="font-size:13px; margin-top:3px;">→ <span style="font-family:monospace; color:#2e7d32; font-weight:600;">'+esc(r.newSku)+'</span></div>';
+    } else {
+        skuCell = '<div style="font-size:12px; color:#888;">'+esc(r.note||'—')+'</div>';
+    }
+    var rev = r.review_count>0 ? '<span style="color:#185FA5; font-weight:700;">'+r.review_count+' ★</span>' : '<span style="color:#bbb;">0</span>';
+    return '<tr style="border-bottom:1px solid #f0f0f0;'+(done?' opacity:.5;':'')+'">'
+        + '<td style="padding:8px 6px; text-align:center;">'+(canSel?'<input type="checkbox" '+checked+' onchange="jmToggle(\''+esc(r.variantId)+'\', this.checked)">':'')+'</td>'
+        + '<td style="padding:8px 6px; text-align:center;">'+jmSymbolHtml(r.symbol)+'</td>'
+        + '<td style="padding:8px 6px;">'+imgs+'</td>'
+        + '<td style="padding:8px 6px; font-size:13px; max-width:340px;">'+esc(r.title)+(done?' <span style="color:#2e7d32; font-size:11px;">(applied)</span>':'')+'</td>'
+        + '<td style="padding:8px 6px;">'+skuCell+'</td>'
+        + '<td style="padding:8px 6px; text-align:center;">'+rev+'</td>'
+        + '</tr>';
+}
+function jmRender(){
+    if(!JM.loaded) return;
+    var list=jmFiltered();
+    var show=list.slice(0, JM.shown);
+    document.getElementById('jmRows').innerHTML =
+        '<table style="width:100%; border-collapse:collapse;"><thead><tr style="text-align:left; color:#999; font-size:12px; text-transform:uppercase;">'
+        + '<th style="padding:6px;"></th><th style="padding:6px;"></th><th style="padding:6px;">Images (Etsy → Shopify)</th><th style="padding:6px;">Product</th><th style="padding:6px;">SKU change</th><th style="padding:6px;">Reviews</th></tr></thead><tbody>'
+        + show.map(jmRowHtml).join('') + '</tbody></table>';
+    document.getElementById('jmMore').innerHTML = (list.length>JM.shown) ? '<button class="btn btn-light" onclick="JM.shown+=50; jmRender();">Show more ('+(list.length-JM.shown)+' left)</button>' : '';
+    var g=JM.rows.filter(function(r){return r.symbol==='green'&&!jmIsDone(r);}).length;
+    var rd=JM.rows.filter(function(r){return r.symbol==='red'&&!jmIsDone(r);}).length;
+    var bl=JM.rows.filter(function(r){return r.symbol==='blue';}).length;
+    var dn=JM.rows.filter(jmIsDone).length;
+    document.getElementById('jmStats').innerHTML='<b>'+JM.rows.length+'</b> products · <span style="color:#2e7d32;">✓ '+g+'</span> · <span style="color:#c62828;">△ '+rd+'</span> · <span style="color:#1565c0;">○ '+bl+'</span> · applied '+dn+' · showing '+show.length+'/'+list.length;
+    jmSelCount();
+}
+function jmSetSku(vid, val){ var r=JM.rows.find(function(x){return x.variantId===vid;}); if(r) r.newSku=val; }
+function jmToggle(vid, on){ if(on) JM.sel[vid]=true; else delete JM.sel[vid]; jmSelCount(); }
+function jmSelCount(){ document.getElementById('jmSelCount').textContent = Object.keys(JM.sel).length+' selected'; }
+function jmClearSel(){ JM.sel={}; jmRender(); }
+function jmSelectBlock(n){
+    var list=jmFiltered();
+    var pick=list.filter(function(r){return (r.symbol==='green'||r.symbol==='red')&&r.variantId&&!jmIsDone(r)&&!JM.sel[r.variantId];}).slice(0,n);
+    pick.forEach(function(r){ JM.sel[r.variantId]=true; });
+    if(pick.length){ var lastIdx=list.indexOf(pick[pick.length-1]); if(lastIdx+1>JM.shown) JM.shown=lastIdx+1; }
+    jmRender();
+}
+async function jmApply(){
+    if(!JM.backup){ alert('Back up all A4UN SKUs first (the panel at the top).'); return; }
+    var ids=Object.keys(JM.sel); if(!ids.length){ alert('Tick some rows first.'); return; }
+    var items=[]; ids.forEach(function(vid){ var r=JM.rows.find(function(x){return x.variantId===vid;}); if(r && r.newSku && String(r.newSku).trim()) items.push({ variantId:r.variantId, productId:r.productId, newSku:String(r.newSku).trim(), oldSku:r.currentSku||'' }); });
+    if(!items.length){ alert('Nothing to apply.'); return; }
+    if(!confirm('Apply '+items.length+' SKU change(s)? An undo is saved first.')) return;
+    var b=document.getElementById('jmApplyBtn'); b.disabled=true; b.textContent='Applying…';
+    try{
+        const d=await (await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'jm-apply',items:items})})).json();
+        if(!d.ok) throw new Error(d.error||'apply failed');
+        items.forEach(function(it){ var r=JM.rows.find(function(x){return x.variantId===it.variantId;}); if(r) r.currentSku=it.newSku; delete JM.sel[it.variantId]; });
+        jmLoadUndos(); jmRender();
+        showReady('Applied <b>'+(d.applied||0)+'</b> SKU change(s).'+((d.errors&&d.errors.length)?'<br><span style="color:#c62828;">Errors: '+esc(d.errors.join('; '))+'</span>':''));
+    }catch(e){ alert('Apply failed: '+(e.message||e)); }
+    b.disabled=false; b.textContent='✅ Apply selected';
+}
+async function jmLoadUndos(){
+    try{ const d=await (await fetch(API+'?action=jm-undo-list')).json(); var idx=(d&&d.undos)||[];
+        document.getElementById('jmUndos').innerHTML = idx.length ? idx.slice(0,10).map(function(u){ return '<div style="margin:4px 0;">'+new Date(u.createdAt).toLocaleString()+' · '+u.count+' SKU(s) '+(u.reverted?'<span style="color:#999;">(reverted)</span>':'<button class="btn btn-undo" style="padding:4px 10px; font-size:12px;" onclick="jmUndo(\''+u.id+'\')">↺ Undo</button>')+'</div>'; }).join('') : '<span class="muted">No runs yet.</span>';
+    }catch(e){}
+}
+async function jmUndo(id){
+    if(!confirm('Undo this run (restore the previous SKUs)?')) return;
+    try{ const d=await (await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'jm-undo',undoId:id})})).json();
+        if(!d.ok) throw new Error(d.error||'undo failed');
+        showReady('Restored <b>'+(d.restored||0)+'</b> SKU(s). Click Load / refresh to see the current state.');
+        jmLoadUndos();
+    }catch(e){ alert('Undo failed: '+(e.message||e)); }
+}
 
 /* ===================== Fix publishing & template (Collective) ===================== */
 var cfixRunning = false, cfixStop = false;
