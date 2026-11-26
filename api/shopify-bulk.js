@@ -1,4 +1,8 @@
-// shopify-bulk.js — v3.19 (1 Nov 2026)
+// shopify-bulk.js — v3.21 (26 Nov 2026)
+// v3.21: NEW "Judge.me reviews matching" tab (AWA group). jm-awa-variants (every About Wall Art product + its A4UN variant
+//   + base SKU from sku_for_print_files + featured image; backendVersion for the page's version check), jm-backup / jm-last-backup
+//   (full restore point of every A4UN variant SKU), jm-apply (set the A4UN variant SKU, grouped by product; undo saved FIRST
+//   or it aborts), jm-undo-list / jm-undo. SKU write via productVariantsBulkUpdate + inventoryItem.sku (same path as xlsx).
 // v3.19: DC Concept — NEW temporary "Fix DC Concept descriptions" tab (dcfix-start/dcfix-test/dcfix-batch/dcfix-status/
 //   dcfix-undo): cleans the body (drops the redundant "Description" <h1>, downgrades the other section <h1> to <h2> so
 //   there is one h1, removes stray <meta>) and sets template dc-concepts, over every DC Concept product (active+draft),
@@ -116,6 +120,10 @@ const UNDO_INDEX = 'data/bulk-price-undos.json';       // price undo list
 const UNDO_DIR = 'data/bulk-price-undo';                // price undo snapshots
 const FIELD_UNDO_INDEX = 'data/bulk-field-undos.json';  // other-fields undo list
 const FIELD_UNDO_DIR = 'data/bulk-field-undo';          // other-fields undo snapshots
+const BULK_VERSION = '3.21';                            // Judge.me matching tab checks this (page shows a banner on mismatch)
+const JM_UNDO_DIR = 'data/jm-sku-undo';                 // Judge.me matching: per-apply SKU undo snapshots
+const JM_UNDO_IDX = 'data/jm-sku-undos.json';           // Judge.me matching: SKU undo index
+const JM_BACKUP = 'data/jm-sku-backup-latest.json';     // Judge.me matching: full restore point of every A4UN variant SKU
 
 // Product metafields the Metafields tab can bulk-edit. Field id in the API = 'mf.<short>'. All reuse the
 // field backup / apply / undo plumbing (one more branch in each). List types store a JSON-array string.
@@ -1972,6 +1980,111 @@ module.exports = async function handler(req, res) {
       const total = snap.snapshot.length, nextOffset = offset + work.length, hasMore = nextOffset < total;
       if (!hasMore) { try { const idx = (await ghGet('data/xlsx-undos.json')).json || []; const hit = idx.find(x => x.id === undoId); if (hit) hit.reverted = true; await ghPut('data/xlsx-undos.json', idx, `xlsx reverted ${undoId}`); } catch (e) {} }
       return res.status(200).json({ ok: true, restored, total, nextOffset, hasMore, errors: errors.slice(0, 20) });
+    }
+
+    // ===== JUDGE.ME REVIEWS MATCHING (About Wall Art) =====
+    // The A4UN variant = the SKU token "A4UN" (A4 Unframed). One per product. We set its SKU to the base so Judge.me auto-matches.
+    const isA4un = s2 => /(^|[^A-Z0-9])A4UN([^A-Z0-9]|$)/i.test(String(s2 || ''));
+
+    // Every About Wall Art product + its A4UN variant + base SKU + featured image (the page cross-checks these vs Etsy).
+    if (action === 'jm-awa-variants') {
+      const rows = []; let cursor = null;
+      for (let page = 0; page < 300; page++) {
+        const d = await shopify(
+          `query($cursor:String){ products(first:20, query:"vendor:'About Wall Art'", after:$cursor){ pageInfo{ hasNextPage endCursor } nodes{ id title featuredImage{ url } skuMf: metafield(namespace:"custom", key:"sku_for_print_files"){ value } variants(first:60){ nodes{ id sku } } } } }`,
+          { cursor }
+        );
+        const conn = (d && d.products) || {};
+        (conn.nodes || []).forEach(p => {
+          const vs = (p.variants && p.variants.nodes) || [];
+          const a4 = vs.find(v => isA4un(v.sku)) || null;
+          rows.push({
+            productId: p.id,
+            title: p.title || '',
+            image: (p.featuredImage && p.featuredImage.url) || '',
+            base: (p.skuMf && p.skuMf.value ? String(p.skuMf.value) : '').trim(),
+            variantId: a4 ? a4.id : '',
+            currentSku: a4 ? (a4.sku || '') : '',
+            hasA4un: !!a4
+          });
+        });
+        if (!conn.pageInfo || !conn.pageInfo.hasNextPage) break;
+        cursor = conn.pageInfo.endCursor;
+      }
+      return res.status(200).json({ ok: true, backendVersion: BULK_VERSION, count: rows.length, rows });
+    }
+
+    // Full restore point: every About Wall Art A4UN variant's current SKU, before any change.
+    if (action === 'jm-backup') {
+      const snap = []; let cursor = null;
+      for (let page = 0; page < 300; page++) {
+        const d = await shopify(
+          `query($cursor:String){ products(first:20, query:"vendor:'About Wall Art'", after:$cursor){ pageInfo{ hasNextPage endCursor } nodes{ id variants(first:60){ nodes{ id sku } } } } }`,
+          { cursor }
+        );
+        const conn = (d && d.products) || {};
+        (conn.nodes || []).forEach(p => {
+          const a4 = ((p.variants && p.variants.nodes) || []).find(v => isA4un(v.sku));
+          if (a4) snap.push({ productId: p.id, variantId: a4.id, sku: a4.sku || '' });
+        });
+        if (!conn.pageInfo || !conn.pageInfo.hasNextPage) break;
+        cursor = conn.pageInfo.endCursor;
+      }
+      const createdAt = new Date().toISOString();
+      await ghPut(JM_BACKUP, { createdAt, count: snap.length, snapshot: snap }, `jm sku backup (${snap.length})`);
+      return res.status(200).json({ ok: true, count: snap.length, createdAt });
+    }
+    if (action === 'jm-last-backup') {
+      const b = (await ghGet(JM_BACKUP)).json;
+      return res.status(200).json({ ok: true, latest: b ? { createdAt: b.createdAt, count: b.count } : null });
+    }
+
+    // Apply a ticked block of SKU changes. Undo is saved FIRST — if that fails, nothing is written.
+    if (action === 'jm-apply') {
+      const items = Array.isArray(body.items) ? body.items.filter(it => it && it.variantId && it.productId && it.newSku != null && String(it.newSku).trim() !== '') : [];
+      if (!items.length) return res.status(200).json({ ok: true, applied: 0, message: 'Nothing selected.' });
+      const now = new Date().toISOString();
+      const undoId = 'jmundo-' + now.replace(/[:.]/g, '-');
+      const snapshot = items.map(it => ({ productId: it.productId, variantId: it.variantId, oldSku: String(it.oldSku || ''), newSku: String(it.newSku).trim() }));
+      try {
+        await ghPut(`${JM_UNDO_DIR}/${undoId}.json`, { id: undoId, createdAt: now, snapshot }, `jm undo ${undoId}`);
+        const idx = (await ghGet(JM_UNDO_IDX)).json || [];
+        idx.unshift({ id: undoId, createdAt: now, count: snapshot.length, reverted: false });
+        await ghPut(JM_UNDO_IDX, idx.slice(0, 100), `jm index ${undoId}`);
+        await pruneUndos(JM_UNDO_IDX, JM_UNDO_DIR, UNDO_KEEP);
+      } catch (e) { return res.status(500).json({ ok: false, error: 'Could not save the undo snapshot — nothing was changed. (' + String(e.message || e) + ')' }); }
+      const byProduct = {};
+      items.forEach(it => { (byProduct[it.productId] = byProduct[it.productId] || []).push({ id: it.variantId, inventoryItem: { sku: String(it.newSku).trim() } }); });
+      const errors = []; let applied = 0;
+      for (const pid of Object.keys(byProduct)) {
+        try {
+          const d3 = await shopify(`mutation($productId:ID!, $variants:[ProductVariantsBulkInput!]!){ productVariantsBulkUpdate(productId:$productId, variants:$variants){ userErrors{ field message } } }`, { productId: pid, variants: byProduct[pid] });
+          const ue = (d3.productVariantsBulkUpdate && d3.productVariantsBulkUpdate.userErrors) || [];
+          if (ue.length) ue.forEach(e => errors.push(`${pid}: ${e.message}`)); else applied += byProduct[pid].length;
+        } catch (e) { errors.push(`${pid}: ${String(e.message || e)}`); }
+      }
+      return res.status(200).json({ ok: true, applied, undoId, errors: errors.slice(0, 20) });
+    }
+    if (action === 'jm-undo-list') {
+      const idx = (await ghGet(JM_UNDO_IDX)).json || [];
+      return res.status(200).json({ ok: true, undos: idx });
+    }
+    if (action === 'jm-undo') {
+      const undoId = body.undoId; if (!undoId) return res.status(400).json({ ok: false, error: 'undoId required' });
+      const snap = (await ghGet(`${JM_UNDO_DIR}/${undoId}.json`)).json;
+      if (!snap || !Array.isArray(snap.snapshot)) return res.status(404).json({ ok: false, error: 'Snapshot not found' });
+      const byProduct = {};
+      snap.snapshot.forEach(s2 => { (byProduct[s2.productId] = byProduct[s2.productId] || []).push({ id: s2.variantId, inventoryItem: { sku: String(s2.oldSku || '') } }); });
+      const errors = []; let restored = 0;
+      for (const pid of Object.keys(byProduct)) {
+        try {
+          const d3 = await shopify(`mutation($productId:ID!, $variants:[ProductVariantsBulkInput!]!){ productVariantsBulkUpdate(productId:$productId, variants:$variants){ userErrors{ message } } }`, { productId: pid, variants: byProduct[pid] });
+          const ue = (d3.productVariantsBulkUpdate && d3.productVariantsBulkUpdate.userErrors) || [];
+          if (ue.length) ue.forEach(e => errors.push(e.message)); else restored += byProduct[pid].length;
+        } catch (e) { errors.push(String(e.message || e)); }
+      }
+      try { const idx = (await ghGet(JM_UNDO_IDX)).json || []; const hit = idx.find(x => x.id === undoId); if (hit) hit.reverted = true; await ghPut(JM_UNDO_IDX, idx, `jm reverted ${undoId}`); } catch (e) {}
+      return res.status(200).json({ ok: true, restored, errors: errors.slice(0, 20) });
     }
 
     // ================= APPLY DATA VIA CSV (Category · Product Type · Room Type) =================
