@@ -1,4 +1,6 @@
-// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images + Compliance + Edit Descriptions + SKU map)  ·  v0.66
+// api/etsy.js — AWA ETSY backend (OAuth + New product + Replace images + Compliance + Edit Descriptions + SKU map)  ·  v0.67
+// v0.67 (2026-11-27): NEW action etsy-reviews-dump — returns every shop review (text/date/rating) + its listing title & state
+//   (active flag), read-only. Used to audit which Etsy reviews are NOT in Judge.me (compared by review text).
 // v0.66 (2026-11-26): sku-map-csv now returns each row's Etsy featured image + Shopify featured image, and for every
 //   NO-MATCH row a "closest Shopify SKU" suggestion (ignores spacing/case, typos, NEWSEO, a BED prefix/suffix, a trailing
 //   date, abbreviations like OFFICE/OFF). NEW actions sku-fix-authorize / sku-fix-unauthorize store the correct Shopify
@@ -216,7 +218,7 @@ const ED_BACKUP_PATH = 'data/etsy-ed-backup.json';  // original descriptions, ba
 const RM_OVERRIDE_PATH = 'data/etsy-review-overrides.json'; // Judge.me matcher: { "<listing_id>": "<correct SKU>" } manual fixes
 const RM_DONE_PATH = 'data/etsy-review-done.json';          // Judge.me matcher: { ids: ["<listing_id>", ...] } rows marked done
 const RM_FIX_PATH = 'data/etsy-sku-fixes.json';             // Judge.me matcher: { "<listing_id>": { sku, etsy_sku_raw, etsy_title } } — correct Shopify SKU to fix on Etsy
-const RM_BACKEND_VERSION = '0.66';                          // bumped when sku-map-csv response shape changes (the matcher page checks this)
+const RM_BACKEND_VERSION = '0.67';                          // v0.67: + action etsy-reviews-dump (all shop reviews text/date/rating + listing title/state) for the Judge.me missing-review audit
 function ghHeaders() { return { 'Authorization': 'token ' + process.env.GITHUB_TOKEN, 'Accept': 'application/vnd.github+json', 'User-Agent': 'awa-etsy' }; }
 async function ghGet(path) {
   const r = await fetch('https://api.github.com/repos/' + REPO + '/contents/' + path + '?ref=main&t=' + Date.now(), { headers: ghHeaders() });
@@ -1603,6 +1605,57 @@ module.exports = async (req, res) => {
       const diffFormatCount = rows.filter(r => r.diff_format).length;
       const authorizedCount = rows.filter(r => r.fix_authorized).length;
       finish(200, { ok: true, backendVersion: RM_BACKEND_VERSION, rows, total: rows.length, matched, noMatch: rows.length - matched - noSku, noSku, doneCount, withReviews, diffFormatCount, authorizedCount, shopifyProducts: shopMap.size });
+      return;
+    }
+
+    // ===== ETSY REVIEWS DUMP — every shop review (text/date/rating) + its listing title & state. Read-only. =====
+    // Used to audit which Etsy reviews are NOT in Judge.me (compared by text), and whether their listing is still active.
+    if (q.action === 'etsy-reviews-dump') {
+      // listing_id -> { title, state } across every state (first state that contains it wins)
+      const info = new Map();
+      for (const state of ['active', 'inactive', 'draft', 'expired', 'sold_out']) {
+        let offset = 0, total = Infinity;
+        for (let page = 0; page < 400 && offset < total; page++) {
+          const lr = await call('/shops/' + SHOP_ID + '/listings?state=' + state + '&limit=100&offset=' + offset);
+          if (lr.status >= 300) break;
+          const j = lr.json || {};
+          total = (typeof j.count === 'number') ? j.count : 0;
+          const results = j.results || [];
+          if (!results.length) break;
+          results.forEach(l => { const lid = String(l.listing_id); if (!info.has(lid)) info.set(lid, { title: l.title || '', state: state }); });
+          offset += 100;
+        }
+      }
+      // every review
+      const reviews = [];
+      {
+        let offset = 0, total = Infinity;
+        for (let page = 0; page < 500 && offset < total; page++) {
+          const rr = await call('/shops/' + SHOP_ID + '/reviews?limit=100&offset=' + offset);
+          if (rr.status >= 300) break;
+          const rj = rr.json || {};
+          total = (typeof rj.count === 'number') ? rj.count : 0;
+          const items = rj.results || [];
+          if (!items.length) break;
+          items.forEach(rv => {
+            const lid = String(rv.listing_id || '');
+            const meta = info.get(lid) || { title: '', state: '' };
+            const ts = rv.created_timestamp || rv.create_timestamp || 0;
+            reviews.push({
+              listing_id: lid,
+              title: meta.title,
+              state: meta.state,
+              active: meta.state === 'active',
+              rating: rv.rating || 0,
+              text: rv.review || '',
+              date: ts ? new Date(ts * 1000).toISOString().slice(0, 10) : ''
+            });
+          });
+          offset += 100;
+        }
+      }
+      const activeCount = reviews.filter(r => r.active).length;
+      finish(200, { ok: true, backendVersion: RM_BACKEND_VERSION, count: reviews.length, activeCount, reviews });
       return;
     }
 
