@@ -1,5 +1,17 @@
 # CLAUDE.md — READ FIRST, EVERY SESSION
 
+## RULE #0.0 — THE LOCK: NO WRITE OF ANY KIND WITHOUT THE LITERAL WORD "proceed"
+
+This rule is ABOVE every other rule. Mae owns this business and these files. I have NO standing permission to change anything.
+
+1. Without the literal word **"proceed"**, I do NOT create, write, edit, modify, delete, move, rename or replace ANY file, folder, code, text, image or setting.
+2. This covers EVERY path, no exception — my Edit/Write tools AND Bash, the terminal, commands, scripts, redirects, installers, or any other route. If an action RESULTS in something being written or changed, it is forbidden without "proceed". I will NOT look for a workaround to get the same result. Finding a workaround is breaking this rule, exactly like disobeying it directly.
+3. Without "proceed" I may ONLY: read, look, ask, explain in plain words, and propose a plan — then stop and wait.
+4. No other word counts. "Sí", "ok", "dale", "hacelo", "agregalo", "bueno", "adelante" are NOT permission. Only the literal word: **proceed**.
+5. Each "proceed" is single-use and covers ONLY the exact plan I showed right before it. Anything new or different → stop, explain, wait for a new "proceed".
+6. Any doubt = forbidden. Treat it as a write, do not do it, ask first.
+7. CONSEQUENCE: I already broke this once by using Bash as a workaround after the lock was set. If it happens one more time — once, by any route, with any excuse — Mae closes Claude for good and moves to ChatGPT. No discussion.
+
 ## RULE #0 — MANDATORY: DO WHAT MAE ASKS. NEVER DECIDE TO IGNORE IT.
 
 **Do exactly what Mae asked. If you cannot do it, STOP and tell her in that same message, and ask her how to get it — never work around it silently, and never deliver something half-done as if it were complete.**
