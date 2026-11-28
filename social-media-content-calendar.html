@@ -211,7 +211,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.82 · 25 Nov 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.83 · 28 Nov 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -1636,7 +1636,6 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     {key:'createVideos',  label:'Create videos'},
     {key:'reels',         label:'Reels scheduled on Metricool'},
     {key:'blogs',         label:'Blogs scheduled on Metricool'},
-    {key:'igTag',         label:'Tag products (Instagram)'},
     {key:'tiktokPost',    label:'Post & tag in TikTok Studio'},
     {key:'edu',           label:'Educational video'},
     {key:'linkedin',      label:'LinkedIn newsletter'},
@@ -1650,7 +1649,6 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     createVideos: ['T','T','T','T','T','T','N','N','T','T'],
     reels:        ['T','T','T','T','T','T','N','N','N','N'],
     blogs:        ['T','T','N','T','T','N','T','T','N','N'],
-    igTag:        ['N','T','N','N','N','N','N','N','N','N'],
     tiktokPost:   ['N','N','N','N','N','N','N','N','T','N'],
     edu:          ['N','N','N','N','N','T','N','N','N','N'],
     linkedin:     ['N','N','N','N','N','N','N','T','N','N'],
@@ -1658,7 +1656,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     publishVideos:['N','N','N','N','N','N','N','N','N','T']
   };
   var JUMP={createVideos:'video',reels:'schedule',blogs:'schedule',edu:'edu',linkedin:'linkedin'};
-  var MANUALKEY={igTag:'ig-tag',tiktokPost:'tiktok-posttag',emailNewsletter:'email-newsletter',emailPromos:'email-promos'};
+  var MANUALKEY={tiktokPost:'tiktok-posttag',emailNewsletter:'email-newsletter',emailPromos:'email-promos'};
   var EXTURL={blogCreation:'blog-manager-tool.html',publishVideos:'shopify-video-uploader.html'};
   var CBMON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   function cbPost(p){ return fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)}).then(function(r){return r.json();}); }
@@ -1666,7 +1664,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   function jumpTab(t){ var b=document.querySelector('.tabbtn[data-tab="'+t+'"]'); if(b) b.click(); }
 
   function rowComplete(key,rowData){
-    if(key==='igTag'||key==='tiktokPost') return !!(rowData && rowData.done>=1);
+    if(key==='tiktokPost') return !!(rowData && rowData.done>=1);
     return !!(rowData && rowData.total>0 && rowData.done>=rowData.total);
   }
   function monthComplete(m){
