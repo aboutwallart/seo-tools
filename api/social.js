@@ -1,4 +1,7 @@
 // Social Content Tool — tick-state persistence on GitHub.
+// 2026-11-28: (1) Instagram posts no longer go into the Metricool file as Draft (removed Draft=true on the IG
+//   reel + edu-video rows) so IG auto-posts like every other network — Mae no longer tags IG products in Metricool.
+//   (2) "Publish product videos" board row now honours a manual override man['publish-videos'] (full when set).
 // 2026-11-15: script generator (step 4) max_tokens 6000→16000. Long colour/infographic blogs (~19 scenes with
 //   long image prompts) were overflowing 6000 output tokens, so the JSON came back truncated and unparseable
 //   → "Could not read the AI output — try again." Raising the cap lets the full JSON return.
@@ -958,7 +961,7 @@ module.exports = async (req, res) => {
           var rYt = mk('Youtube'); rYt.Time = '10:00:00'; rYt['Youtube Video Title'] = caps.youtubeTitle || title; rYt['Youtube Video Type'] = 'SHORT'; rYt['Youtube Video Privacy'] = 'PUBLIC'; rYt.Text = trimTo(caps.youtube, 4900); rows.push(rowLine(rYt));
           var rTh = mk('Threads'); rTh.Time = '11:00:00'; rTh['Threads Reply Control'] = 'EVERYONE'; rTh['Threads Post Type'] = 'POST'; rTh.Text = trimTo(caps.threads, 500); rows.push(rowLine(rTh));
           var rPi = mk('Pinterest'); rPi.Time = '11:00:00'; rPi['Pinterest Board'] = board; rPi['Pinterest Pin Title'] = caps.pinterestTitle || title; rPi['Pinterest Pin Link'] = shop('pinterest', 'video'); rPi.Text = trimTo(caps.pinterest, 500); rows.push(rowLine(rPi));
-          var rIg = mk('Instagram'); rIg.Time = '11:00:00'; rIg.Draft = true; rIg['Instagram Post Type'] = 'REEL'; rIg['Instagram Show Reel On Feed'] = true; rIg.Text = trimTo(caps.instagram, 2200); rows.push(rowLine(rIg));
+          var rIg = mk('Instagram'); rIg.Time = '11:00:00'; rIg['Instagram Post Type'] = 'REEL'; rIg['Instagram Show Reel On Feed'] = true; rIg.Text = trimTo(caps.instagram, 2200); rows.push(rowLine(rIg));
         }
 
         var usedB = null;
@@ -2244,7 +2247,7 @@ module.exports = async (req, res) => {
           rY.Text = trimE(yt.description || vTitle, 4900); rows.push(rowLineE(rY));
         }
         if (nets.indexOf('facebook') >= 0) { var rF = mk('Facebook'); rF.Time = timeFor('facebook'); rF['Facebook Post Type'] = 'POST'; rF['Facebook Title'] = trimE(vTitle, 40); rF.Text = trimE(caps.facebook || vTitle, 2000); rows.push(rowLineE(rF)); }
-        if (nets.indexOf('instagram') >= 0) { var rI = mk('Instagram'); rI.Time = timeFor('instagram'); rI.Draft = true; rI['Instagram Post Type'] = 'POST'; rI.Text = trimE(caps.instagram || vTitle, 2200); rows.push(rowLineE(rI)); }
+        if (nets.indexOf('instagram') >= 0) { var rI = mk('Instagram'); rI.Time = timeFor('instagram'); rI['Instagram Post Type'] = 'POST'; rI.Text = trimE(caps.instagram || vTitle, 2200); rows.push(rowLineE(rI)); }
         if (nets.indexOf('linkedin') >= 0) { var rL = mk('LinkedIn'); rL.Time = timeFor('linkedin'); rL['LinkedIn Type'] = 'POST'; rL.Text = trimE(caps.linkedin || vTitle, 3000); rows.push(rowLineE(rL)); }
         if (nets.indexOf('twitter') >= 0) { var rT = mk('Twitter/X'); rT.Time = timeFor('twitter'); rT['Twitter/X Type'] = 'POST'; rT.Text = trimE(caps.twitter || vTitle, 280); rows.push(rowLineE(rT)); }
         if (nets.indexOf('threads') >= 0) { var rH = mk('Threads'); rH.Time = timeFor('threads'); rH['Threads Reply Control'] = 'EVERYONE'; rH['Threads Post Type'] = 'POST'; rH.Text = trimE(caps.threads || vTitle, 500); rows.push(rowLineE(rH)); }
@@ -2709,7 +2712,7 @@ module.exports = async (req, res) => {
             edu: { done: eduDone, total: eduN },
             linkedin: { done: liDone, total: liN },
             blogCreation: { done: (man['blog-creation'] ? blogTotal : blogMadeDone), total: blogTotal, realDone: blogMadeDone, markedDone: !!man['blog-creation'] },
-            publishVideos: { done: pubVidDone, total: planN },
+            publishVideos: { done: (man['publish-videos'] ? planN : pubVidDone), total: planN, realDone: pubVidDone, markedDone: !!man['publish-videos'] },
             emailNewsletter: { manual: true, done: man['email-newsletter'] ? 1 : 0, total: 1 },
             emailPromos: (promoTotal > 0 ? { done: promoDoneN, total: promoTotal } : { manual: true, done: man['email-promos'] ? 1 : 0, total: 1 })
           }

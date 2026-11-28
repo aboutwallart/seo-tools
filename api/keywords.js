@@ -1,4 +1,7 @@
-// api/keywords.js — New Product Generator backend  ·  v0.56
+// api/keywords.js — New Product Generator backend  ·  v0.57
+// v0.57 (2026-11-28): A4UN SKU FIX. buildVariantMatrix now gives the A4 Unframed variant the bare base SKU
+//   (${skuRoot}) instead of "${skuRoot}- A4UN SP", matching Etsy's listing SKU so Judge.me auto-matches the
+//   Etsy reviews of every new product. All other variants keep their suffix. (Same shape as the 726 mass-fix.)
 // v0.56 (2026-11-22): LOCK & OPTIMISE FIX (Money Page Doctor Do-First). The lock saved fine, but the background
 //   re-sync re-read the registry from the CACHED raw CDN (which didn't have the new lock yet), so the card came
 //   back as if nothing happened. The 3 registry readers (lockedKeywordSet, registryUrlLockMap,
@@ -2554,7 +2557,7 @@ function buildVariantMatrix(skuRoot, priceTable, flatFileGids) {
     for (const [sizeCode, paperCode, price] of rows) {
       variants.push({
         optionValues: [{ optionName: 'Frame', name: FRAME_LABEL[frameCode] }, { optionName: 'Size', name: SIZE_LABEL[sizeCode] }, { optionName: 'Paper', name: PAPER_LABEL[paperCode] }],
-        price: String(price), sku: `${skuRoot}- ${sizeCode}${frameCode} ${paperCode}`,
+        price: String(price), sku: (frameCode === 'UN' && sizeCode === 'A4') ? skuRoot : `${skuRoot}- ${sizeCode}${frameCode} ${paperCode}`,
         inventoryQuantities: [{ locationId: STORE_LOCATION_GID, name: 'available', quantity: 100 }],
         ...(fileRef ? { file: fileRef } : {})
       });
