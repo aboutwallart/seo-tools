@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.57 - 2026-11-25</p>
+        <p class="version">v6.58 - 2026-11-28</p>
         <div id="version-banner" style="display:none;"></div>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
@@ -2702,6 +2702,7 @@ Give me:
                 const _coveredClash = (level === 'CAUTION' || level === 'DANGER') && idea.conflictingUrl && !String(idea.conflictingKeyword || '').includes(' | ');
                 actionsHTML = `
                     ${_coveredClash ? `<button class="btn-mark" style="background:#1565c0;" onclick="addParagraphToBlog(${index})">➕ Add paragraph to that blog</button>` : ''}
+                    <button class="btn-mark" style="background:#6a1b9a;" onclick="researchIdea(${index})">🔍 Research</button>
                     <button class="btn-mark" onclick="markForWriting(${index})">Mark for Writing</button>
                     <button class="btn-keyword-change" onclick="toggleEditBar(${index})">Change Keyword</button>
                     <button class="btn-ignore" onclick="ignoreIdea(${index})">Ignore</button>
@@ -2868,6 +2869,7 @@ Give me:
                     <div class="title">${idea.currentTitle}</div>
                     ${metaLineHTML}<div class="perspective">${idea.perspective}</div>${fusionNoteHTML}`}
                     <div class="card-actions">${actionsHTML}</div>
+                    ${tab === 'ideas' ? `<div id="research-${index}" style="width:100%;margin-top:4px;"></div>` : ''}
                     ${compHTML}
                     ${manualFormHTML}
                 </div>
@@ -2875,16 +2877,100 @@ Give me:
         }
 
         // ============================================
+        // PER-CARD RESEARCH (the Discover flow, on a Blog Idea card)
+        // 🔍 Research → questions people ask (Serper) for THIS idea → Ubersuggest prompt.
+        // The ticked questions travel to To Write as the blog's "also covers" (same as the Discover tab).
+        // ============================================
+        window._ideaResearch = window._ideaResearch || {};
+        async function researchIdea(index) {
+            const idea = allIdeas.find(i => i.index === index); if (!idea) return;
+            const seed = (idea.currentKeyword || idea.keyword || idea.currentTitle || '').trim();
+            const box = document.getElementById('research-' + index); if (!box) return;
+            if (!seed) { box.innerHTML = '<div style="color:#a33;font-size:13px;margin-top:8px;">This idea has no keyword yet — add one in the keyword box above first.</div>'; return; }
+            box.innerHTML = '<div style="color:#6a1b9a;font-size:13px;margin-top:8px;">🔍 Searching questions people ask… (may take a bit)</div>';
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'discover-search', seeds: [seed] }) }).then(x => x.json());
+                if (!r.success) throw new Error(r.error || 'Search failed');
+                window._ideaResearch[index] = r.candidates || [];
+                renderIdeaResearch(index, r.candidates || [], r);
+            } catch (e) { box.innerHTML = '<div style="color:#a33;font-size:13px;margin-top:8px;">Search error: ' + escHtml(e.message) + '</div>'; }
+        }
+        function renderIdeaResearch(index, cands, meta) {
+            const box = document.getElementById('research-' + index); if (!box) return;
+            if (!cands.length) {
+                box.innerHTML = '<div style="background:#faf7ff;border:1px solid #e3d9f5;border-radius:8px;padding:12px;margin-top:8px;font-size:13px;color:#555;">No new questions came back (all were already in your ideas/pool). Used ' + ((meta || {}).creditsUsed || 0) + ' credits.</div>';
+                return;
+            }
+            const rows = cands.map(function (c, i) {
+                return '<label style="display:flex;gap:9px;align-items:flex-start;border:1px solid ' + (c.maybeCovered ? '#f0d9a8' : '#e6e6e6') + ';border-radius:7px;padding:8px 10px;margin-bottom:6px;background:' + (c.maybeCovered ? '#fffaf0' : '#fff') + ';cursor:pointer;">'
+                    + '<input type="checkbox" data-iri="' + i + '" style="margin-top:3px;">'
+                    + '<span style="font-size:13px;color:#333;">' + escHtml(c.question) + (c.maybeCovered ? '<div style="font-size:12px;color:#8a6d1a;margin-top:2px;">⚠️ ' + escHtml(c.coveredReason || 'may already be covered') + '</div>' : '') + '</span></label>';
+            }).join('');
+            box.innerHTML = '<div style="background:#faf7ff;border:1px solid #e3d9f5;border-radius:8px;padding:12px;margin-top:8px;">'
+                + '<div style="font-weight:700;font-size:13px;margin-bottom:8px;">' + cands.length + ' question(s) found — tick the ones to cover in this blog</div>'
+                + rows
+                + '<div style="display:flex;gap:8px;align-items:center;margin:10px 0 8px;flex-wrap:wrap;">'
+                + '<label style="font-size:12px;color:#555;">Min searches:</label>'
+                + '<input id="idea-floor-' + index + '" type="number" value="100" style="width:80px;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px;">'
+                + '<button onclick="genIdeaPrompt(' + index + ')" style="background:#6a1b9a;color:#fff;border:none;border-radius:6px;padding:7px 12px;font-weight:700;font-size:13px;cursor:pointer;">Generate Ubersuggest prompt</button></div>'
+                + '<textarea id="idea-prompt-' + index + '" readonly placeholder="Press &quot;Generate Ubersuggest prompt&quot;, then copy it into Ubersuggest AI." style="width:100%;min-height:110px;padding:9px;border:1px solid #ccc;border-radius:7px;font-size:12px;font-family:monospace;box-sizing:border-box;"></textarea>'
+                + '<button onclick="copyIdeaPrompt(' + index + ', this)" style="margin-top:6px;background:#fff;color:#6a1b9a;border:1px solid #6a1b9a;border-radius:6px;padding:6px 12px;font-weight:700;font-size:12px;cursor:pointer;">Copy prompt</button>'
+                + '<div style="font-size:12px;color:#555;margin-top:10px;border-top:1px dashed #e0d5f5;padding-top:8px;">Then: paste the <b>keyword + vol + diff</b> in the keyword box above and press <b>Save</b>, and finally <b>Mark for Writing</b> — the ticked questions travel with the blog.</div>'
+                + '</div>';
+        }
+        function ideaTickedQuestions(index) {
+            const box = document.getElementById('research-' + index); if (!box) return [];
+            const cands = window._ideaResearch[index] || [];
+            return [...box.querySelectorAll('input[type=checkbox][data-iri]:checked')].map(function (cb) { return cands[+cb.getAttribute('data-iri')]; }).filter(Boolean);
+        }
+        function buildIdeaUbersuggestPrompt(idea, questions, floor) {
+            const topic = (idea.currentKeyword || idea.currentTitle || '').trim();
+            const shown = questions.slice(0, 8);
+            const extra = questions.length - shown.length;
+            const list = shown.map(function (a) { return '- ' + a; }).join('\n') + (extra > 0 ? '\n(+' + extra + ' more on the same theme)' : '');
+            return 'About Wall Art — UK brand, wall art / art sets (sets of 3). ONE blog about: ' + topic + '.\n\n'
+                + "Angles I'd cover:\n" + list + '\n\n'
+                + 'Explore the topic broadly in Ubersuggest (UK) — not just those exact phrases.\n\n'
+                + 'RULES:\n'
+                + '1. Only keywords with >= ' + (floor || 100) + ' monthly UK searches.\n'
+                + "2. Informational intent first (ideas, how-to, what-is, guides) — for a blog. Add commercial only if no informational one clears the threshold; label each keyword's intent.\n\n"
+                + 'Give me:\n'
+                + '1. Recommended keyword + monthly volume + SEO difficulty + intent.\n'
+                + '2. Up to 5 alternatives above the threshold (keyword · volume · difficulty · intent).';
+        }
+        function genIdeaPrompt(index) {
+            const idea = allIdeas.find(i => i.index === index); if (!idea) return;
+            const floor = +((document.getElementById('idea-floor-' + index) || {}).value) || 100;
+            const picks = ideaTickedQuestions(index).map(function (c) { return c.question; });
+            const ta = document.getElementById('idea-prompt-' + index);
+            if (ta) ta.value = buildIdeaUbersuggestPrompt(idea, picks, floor);
+        }
+        function copyIdeaPrompt(index, btn) {
+            const ta = document.getElementById('idea-prompt-' + index); if (!ta || !ta.value) { alert('Generate the prompt first.'); return; }
+            navigator.clipboard.writeText(ta.value).then(function () { const o = btn.textContent; btn.textContent = 'Copied ✓'; setTimeout(function () { btn.textContent = o; }, 1500); }).catch(function () { ta.select(); try { document.execCommand('copy'); } catch (e) {} });
+        }
+
+        // ============================================
         // MARK FOR WRITING (single — moves to To Write + registers the keyword)
+        // With ticked research questions → routes through discover-group-to-write so the questions
+        // become the blog's "also covers" (and the keyword lock is checked). No research → simple move.
         // ============================================
         async function markForWriting(index) {
             const idea = allIdeas.find(i => i.index === index);
             if (!idea) return;
             const kw = idea.keyword || idea.currentKeyword;
+            const picks = ideaTickedQuestions(index);
             try {
-                // Persist TO_WRITE + approve the keyword, so it actually shows in To Write (no more vanishing).
-                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'mark-idea-towrite', keyword: kw }) }).then(x => x.json());
-                if (!r.success) throw new Error(r.error || 'Failed');
+                if (picks.length) {
+                    const _m = (window._kwMetrics && window._kwMetrics[(kw || '').toLowerCase()]) || {};
+                    const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'discover-group-to-write', keyword: kw, volume: (_m.volume != null ? _m.volume : ''), difficulty: (_m.difficulty != null ? _m.difficulty : ''), questions: picks.map(function (c) { return { question: c.question, seed: c.seed || '', term: c.term || '' }; }), title: idea.currentTitle || '' }) }).then(x => x.json());
+                    if (r && r.locked) { alert('🔒 "' + kw + '" is locked to another blog (' + r.lockedUrl + ') — same intent, it would cannibalise. Change the keyword and try again.'); return; }
+                    if (!r || !r.success) throw new Error((r && r.error) || 'Failed');
+                } else {
+                    // Persist TO_WRITE + approve the keyword, so it actually shows in To Write (no more vanishing).
+                    const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'mark-idea-towrite', keyword: kw }) }).then(x => x.json());
+                    if (!r.success) throw new Error(r.error || 'Failed');
+                }
                 // Register the keyword in the locker too (as before).
                 try { await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keyword: idea.currentKeyword, url: generateUrl(idea.currentTitle), title: idea.currentTitle, perspective: idea.perspective }) }); } catch (e) {}
                 // Reflect locally so it appears in To Write right away.
@@ -2892,6 +2978,7 @@ Give me:
                 if (!Array.isArray(window._approved)) window._approved = [];
                 window._approved.push(String(kw).toLowerCase());
                 selectedIdeas.delete(index);
+                delete window._ideaResearch[index];
                 refreshAll();
             } catch (e) { alert('Could not mark for writing: ' + e.message); }
         }
